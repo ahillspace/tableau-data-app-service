@@ -19,7 +19,12 @@ def source_paths(root: Path) -> list[Path]:
 def snapshot(root: Path) -> dict:
     entries = []
     errors = []
-    for path in source_paths(root):
+    paths = source_paths(root)
+    if not root.is_dir():
+        errors.append('Specification root does not exist or is not a directory.')
+    elif not paths:
+        errors.append('Specification root contains no Markdown source documents.')
+    for path in paths:
         relative = path.relative_to(root).as_posix()
         raw = path.read_bytes()
         text = raw.decode('utf-8')
