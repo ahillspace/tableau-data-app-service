@@ -3,7 +3,7 @@
 Status: architecture-owner corrections prepared for targeted independent confirmation.
 This is specification work, not user acceptance, implementation verification or a live compatibility claim.
 The unchanged initial source is identified by SHA-256 `ec1f79e438f6b5dbbef97e927b7bba68d44583c0cb87b5fd7ab955224992e3ab` and commit `db58f3b`.
-The revised snapshot and canonical source commit are recorded below after the source checkpoint.
+The revised snapshot and canonical source commit are recorded below.
 
 ## Independent findings
 
@@ -42,5 +42,5 @@ The targeted independent pass must assess the corrections semantically; no runti
 ## Source identity
 
 Revised aggregate SHA-256: `8c7295bda7142bd496879dad8d18ac514dd70600c817d60145183d26841049e0`.
-Canonical source commit: pending source checkpoint.
+Canonical source commit: `19f3bc05d9a79ce231f5c69686149c045f78c568`.
 The revised manifest has no local-file-link errors, the initial manifest still matches its original digest, and the diff whitespace check is clean.
