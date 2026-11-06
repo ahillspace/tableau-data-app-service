@@ -10,6 +10,7 @@ The operator registers an app with an immutable ID, enabled flag, monotonically 
 Validate origins as HTTPS origins with no wildcard, path, credentials or query; permit localhost only through explicit development configuration.
 An app URL can be recorded as administrative metadata, but its origin alone is not authority.
 Reject unknown capability versions, identity mismatches, app connections owned by another app, duplicate bindings and incompatible provider associations atomically.
+Validate event subscription versions, connection ownership, audience compatibility and required resync read capability in the same registration transaction.
 Configuration updates compare the previous revision and return CONFLICT rather than overwrite a concurrent operator edit.
 Disabling an app blocks new discovery, authorization, execution, output delivery and event replay.
 Re-enabling an app never silently reconnects disconnected credentials or replays failed writes.
@@ -39,7 +40,7 @@ type ExecutionGrant = {
   appId: Id; bindingId: Id; capability: CapabilityRef;
   appRevision: number; identity: IdentityMode;
   connection?: { id: Id; revision: number };
-  authorization: object; authorityExpiresAt: string;
+  authorization: object; authorityExpiresAt: string; authorityEpoch: string;
 }; // internal value, not a bearer token or browser payload
 ```
 
@@ -60,23 +61,15 @@ The domain API keeps raw credentials out of capability handlers, but cannot sand
 ```ts
 type ProviderModule = {
   id: string;
-  credentialStrategies: CredentialStrategy[];
   authorization: AuthorizationAdapter;
   transport: ProviderTransportDefinition;
   capabilities: CapabilityDefinition<unknown, unknown>[];
   events?: ProviderEventAdapter;
 };
-type CredentialStrategy = 'oauth_code' | 'api_key' | 'static_secret'
-  | 'derived' | 'none';
-type AuthorizationAdapter = {
-  satisfies(granted: object, required: object): boolean;
-  // begin, exchange, refresh, derive, revoke are optional strategy-specific hooks
-  // with explicit unsupported declarations, defined by the connection specification
-};
 type ProviderTransportDefinition = {
   allowedEndpoints: readonly string[];
   operations: Record<string, {
-    effect: Effect; credentialStrategy: CredentialStrategy;
+    effect: Effect; authorizationMethod: AuthorizationMethod;
     maxResponseBytes: number;
   }>;
 };
@@ -84,11 +77,16 @@ type ProviderTransportDefinition = {
 
 The brokered client exposes only registered operation names and validated parameters, not unrestricted fetch(url) or a secret getter.
 Provider transport owns endpoint construction, credential injection, redirect policy, timeout, response bounds and safe error classification.
+It reports the shared internal ProviderFailure certainty to the executor; handlers cannot convert a possibly applied write into a definitively effect-free failure.
+Provider operations declare runtime parameter and response schemas in addition to effect, authorization method and response size.
 Reject network redirects outside the reviewed endpoint allowlist and validate any provider-specific host configuration at operator configuration time.
 DNS and outbound-network restrictions require implementation review for the deployed environment.
-Capability metadata must declare all permitted transport operations; the registry verifies operation effect and credential compatibility.
-One capability execution is one bounded logical operation with at most one externally effectful dispatch unless the provider offers a documented atomic/idempotent batch operation.
-Multi-step writes, compensation and arbitrary workflows are out of scope, preventing a handler from hiding partially committed workflows behind a binary success flag.
+Capability metadata declares all permitted transport operations; the registry verifies operation effect and credential-profile compatibility.
+The broker permits only those operations and enforces an initial budget of one logical effectful operation per execution, rejecting a second operation before provider I/O.
+Retries of that same operation use one stable provider idempotency token and the declared guarantee; they do not reset the budget or permit another write.
+A provider atomic batch may count as one operation only if its effect and failure semantics are documented and reviewed.
+This single-effect budget is an intentional initial supported subset, not a universal limitation of integration services.
+Multi-step writes, compensation and arbitrary workflows remain out of scope; exceeding the budget after an earlier possible effect preserves outcome_unknown rather than claiming a safe failure.
 
 The input/output schemas are JSON Schema-compatible runtime schemas compiled or checked through one maintained schema library selected during implementation.
 TypeScript inference or generated SDK types must derive from these schemas rather than maintaining duplicate hand-written wire types.

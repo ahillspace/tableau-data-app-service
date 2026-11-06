@@ -16,11 +16,16 @@ Status: architecture recommendations for user review, not accepted decisions or 
 Use a modular single service and one database because the current requirements do not justify more deployment units.
 Use a fixed identity mode per capability version because callers should not silently escalate from personal authorization to a shared account.
 Use a server-established app-scoped binding because neither origins nor provider account IDs authenticate the caller.
+The adapter must also check stored binding validity and callback continuity; no proposed API can replace that deferred proof with OAuth state.
 Keep credential injection behind a brokered provider transport to make secret handling and revocation checks a shared responsibility.
 Persist execution admission and idempotency before dispatch because interrupted requests cannot establish whether an external write occurred.
 Preserve outcome uncertainty rather than claim exactly-once external effects.
+Keep unresolved-write tombstones beyond normal payload retention until an operator records reconciliation.
+Use an authority epoch outside restored Postgres state and quarantine restored credentials rather than claim rollback-safe authority from the backup itself.
 Use static provider modules and schema-derived types because there is no requirement for arbitrary hosted plugins.
-Start event support with verified ingestion, bounded replay and explicit resync; do not introduce a generic workflow engine.
+Start event support with verified ingestion, explicit operator audiences, commit-safe feed positions and resync reads; do not introduce a generic workflow engine.
+The initial supported subset requires OAuth code with PKCE S256, excludes URL-carried API keys, permits one logical effectful operation per capability and limits events to adapters with declared retry horizons and resync reads.
+These restrictions are reviewable compatibility choices, not universal provider behaviors.
 
 ## Open choices and blocking assumptions
 

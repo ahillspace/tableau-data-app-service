@@ -31,9 +31,12 @@ Removing the configuration binding before dispatch prevents the operation; remov
 
 App A binding X invokes sample-alpha.lookup@1 without a connection and receives CONNECTION_REQUIRED.
 Beginning authorization creates a short-lived attempt bound to A, X, provider and exact callback/return configuration.
-The provider callback must validate the attempt, protocol response and binding continuity before an active delegated connection can be used.
+The provider callback validates protocol response and attempt correlation, atomically claims exchange, and requires the future adapter's current binding and callback continuity check before activating credentials.
+Disabling the app or revoking the binding while authorization is pending prevents installation.
+Correlation state alone never proves the initiating browser binding.
 Successful authorization records provider subject metadata only inside credential storage and safe ownership as A/X.
 Retrying the invocation uses this connection and remains individual execution identity.
+In-place reconnect must prove the same provider subject; choosing another account requires a new connection ID and explicit selection.
 No user-profile record is introduced, and reconnecting from a different binding is forbidden until a trusted rebinding contract exists.
 
 ## 5. Stolen identifiers
@@ -50,7 +53,7 @@ The broker evaluates a credential's strategy, expiration and adapter-declared re
 A valid non-expiring key can be used without a refresh step; expiration is still possible by provider revocation and must surface safely.
 An expiring credential with supported renewal is renewed under the shared lease/fencing rules.
 An expired credential without renewal produces REAUTHORIZATION_REQUIRED or an explicit UNSUPPORTED strategy result, never a fabricated expiration extension.
-A derived credential is scoped to its source connection generation, audience, authorization and bounded lifetime; changing the parent invalidates future derived use.
+A derived credential is scoped to its source logical connection revision, audience, authorization and bounded lifetime; changing the parent invalidates future derived use.
 Provider-specific guarantees must be validated by its contract fixtures before a real adapter is considered supported.
 
 ## 7. Refresh, interruption and ambiguous writes
@@ -59,11 +62,13 @@ Two executions requesting the same refreshable credential share a single refresh
 If disconnect commits while refresh is in flight, the refresh result cannot reactivate the connection or overwrite its newer generation.
 If a rotating refresh response is lost, the broker marks the connection as needing recovery/reauthorization according to the adapter guarantee, rather than repeatedly reuse an invalid token.
 An authorization attempt closed by the browser expires and cannot be resumed merely by replaying callback parameters.
-A provider write accepted before the service loses its response leaves outcome_unknown, preserving the execution ID for inspection and prohibiting automatic retry without an actual provider guarantee.
+Restoring an old database requires offline authority-epoch change, quarantining credentials and explicit write-gap reconciliation; restored ready rows do not reauthorize old grants.
+A provider write accepted before the service loses its response leaves outcome_unknown, preserving the execution ID and minimal idempotency tombstone beyond ordinary payload retention until explicit reconciliation.
+A committed dispatch intent is already in flight for revocation purposes, even if a later wire send follows disconnect.
 
 ## 8. Pagination, write, limits and cancellation
 
-A lookup accepts a bounded page size and returns Page<T> with an opaque cursor bound to caller, capability version, input/filter digest and connection generation.
+A lookup accepts a bounded page size and returns Page<T> with an opaque cursor bound to caller, capability version, input/filter digest and logical connection revision.
 Changing a filter or borrowing another binding's cursor fails before provider I/O.
 Expiration requires restarting the read; clients must not assume a snapshot unless a provider explicitly offers one.
 A write uses the same versioned invocation and result envelope while declaring stricter retry behavior.
@@ -73,7 +78,8 @@ Input size, output size, provider response size, timeout and per-app admission l
 ## 9. Incoming events and resync
 
 The provider-specific verifier checks the raw event request before normalization and routing.
-The event module atomically deduplicates the authenticated provider event ID and creates bounded delivery records for already-authorized bindings.
+The event module atomically deduplicates the authenticated provider event ID and creates bounded delivery records for operator-approved app or delegated-owner audiences.
+Feed-head locks serialize positions with commit, so resync cannot skip a lower position committed later; multi-feed locks use deterministic order.
 An event payload cannot nominate an app or binding to receive it.
 Delivery/replay rechecks current registration and connection policy, and exposes only declared safe event data.
 Duplicates do not produce duplicate logical events, but delivery can repeat and clients deduplicate by event ID.

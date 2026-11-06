@@ -28,7 +28,7 @@ The app and policy owner supplies current app registration and capability author
 
 The connection service owns encrypted credentials, connection lifecycle, authorization refresh concurrency, and connection revisions.
 
-The execution service never reads or stores credentials directly, and it receives a server-only `ExecutionGrant` and an `AuthorizedProviderClient` through the frozen cross-module boundary.
+The execution service never reads or stores credentials directly, and it receives a server-only `ExecutionGrant` and an `AuthorizedProviderClient` through the shared cross-module boundary.
 
 A provider adapter validates provider responses, classifies failures as definitive or ambiguous, and implements provider idempotency only when its guarantee is explicit.
 
@@ -79,7 +79,7 @@ A connection ID is a selector only, and never proves possession or authority.
 A missing trusted context returns `UNAUTHENTICATED`, while an inaccessible connection or execution returns `NOT_FOUND` to avoid disclosing its existence.
 
 The server re-evaluates app policy, capability enablement, connection ownership, connection state, and provider authorization immediately before dispatch.
-Reading an execution also rechecks current context, app enablement, exact capability binding, connection ownership and state, current provider authorization, and equality with the original logical connection generation before disclosing any stored result.
+Reading an execution also rechecks current context, app enablement, exact capability binding, connection ownership and state, current provider authorization, and equality with the original logical connection revision before disclosing any stored result.
 A credential refresh for that same logical connection is allowed when current authorization still satisfies the capability, but account or owner replacement is not.
 If the caller still owns the execution but its connection now requires reauthorization or is disabled, the read returns a safe authorization error without the cached result.
 If app capability access or ownership has been revoked, the execution is indistinguishable from a missing resource and returns `NOT_FOUND`.
@@ -93,15 +93,16 @@ A policy or credential change does not silently substitute another identity or c
 The caller supplies a unique idempotency key for each intended execution, and the key is scoped to the pair `(appId, bindingId)`.
 
 The server stores a one-way digest of the key, a canonical request fingerprint, the execution ID, and timestamps, rather than logging the key or treating it as authority.
-The fingerprint includes the effective logical connection generation but excludes credential revision changes that preserve the same logical connection.
+The fingerprint covers effective connection ID and logical connection revision, but excludes credentialVersion changes that preserve the same grant.
 
 The fingerprint covers the capability ID and version, schema-normalized input, pagination controls, requested delegated connection, and effective identity and connection ID selected by current policy.
 
-The fingerprint excludes rotating credential material and the connection revision so a token refresh alone does not make an otherwise identical retry conflict.
+The fingerprint excludes rotating secret material and internal credentialVersion; logical connection revision remains included, so a replaced grant cannot reuse a request as though its authority were unchanged.
 
-The record separately captures the app registration revision, logical connection generation, and credential revision used at admission for audit and dispatch fencing.
-A credential refresh may advance the credential revision without changing the logical connection generation.
-A change in external subject or delegated owner advances the logical generation and prevents cached results from being replayed under the replacement identity.
+The record captures app registration revision, logical connection revision and authority epoch at admission.
+The broker records the actual credentialVersion on each dispatch attempt for audit; ordinary rotation does not pin or invalidate the admission grant.
+A credential refresh may advance the credentialVersion without changing the logical connection revision.
+A grant replacement advances logical revision; a different external subject or owner requires a new connection ID, preventing cached results from being replayed under a replacement identity.
 
 Input normalization applies schema defaults before deterministic serialization, so JSON object key order does not change an idempotency comparison.
 
@@ -115,17 +116,26 @@ If any of those checks fail, the service returns the current safe authorization 
 
 A replay never creates a second provider call and does not consume another active execution slot.
 
-The server keeps a compact idempotency tombstone for at least the execution result retention period, and the reviewed service policy must define what happens to a key after that period.
+Execution details and ordinary terminal idempotency mappings have a proposed 30-day retention from completion.
 
-The recommended initial policy is to retain key digests and fingerprints for 30 days, retain execution details for 30 days, and document that a retry outside the retention period is not protected from duplicate effects.
+An unresolved outcome_unknown write is an exception: retain its key digest, fingerprint, owner, capability, connection revision, timestamps and inspectable safe terminal outcome without automatic expiry.
+
+Its input/output payload may expire after 30 days, but submitting its key still returns the retained authorized outcome or CONFLICT and never admits another dispatch.
+
+Only an explicit operator reconciliation record can close this retention exception; retain the deduplication tombstone for at least 30 more days afterward.
+
+This administrative disposition does not fabricate a validated capability result or turn the public outcome_unknown state into success.
+
+After ordinary resolved-record retention expires, an old key can be treated as a new request; clients must not automatically retry beyond the published retention window.
+Unresolved-write tombstones never follow that automatic expiration rule.
 
 A caller handling an ambiguous write must inspect its execution resource before submitting a new key, and a caller must not assume that a key is protected after the published retention window.
 
-The orchestrator should resolve the retention window before accepting the final shared contract because the frozen contract does not define it.
+The 30-day value is an architecture review default, not a user-approved data-retention policy; the unresolved-write invariant is required regardless of the selected duration.
 
 ## State and persisted data
 
-The public states remain the frozen `ExecutionState` values: `accepted`, `running`, `succeeded`, `failed`, `cancelled`, and `outcome_unknown`.
+The public states remain the shared `ExecutionState` values: `accepted`, `running`, `succeeded`, `failed`, `cancelled`, and `outcome_unknown`.
 
 The execution record also stores immutable request identity, effective connection reference, creation and update times, deadline, attempt count, lease and fencing metadata, dispatch-intent time, cancellation-request time, terminal error, and validated result where applicable.
 
@@ -157,7 +167,10 @@ Workers claim accepted executions in a short Postgres transaction using row lock
 
 Each claim increments an attempt and fencing token, and all later updates require the current token so an expired worker cannot overwrite a newer decision.
 
-Before the provider call, the worker rechecks current policy and connection ownership and commits a dispatch-intent marker tied to its fencing token.
+Before the provider call, the worker rechecks current policy, binding validity, authority epoch and connection ownership and commits a dispatch-intent marker tied to its fencing token.
+The transaction serializes with app disable/revision updates, connection disconnect and execution cancellation using a consistent lock order: app, connection, execution.
+Revocation before that transaction prevents intent; revocation after intent treats the operation as already in flight.
+The deferred trust adapter must support a current binding check; a stale admission context alone is insufficient.
 
 The transport checks the current connection state and execution fence immediately before sending the provider request.
 The service commits a durable dispatch-intent marker before that final transport check and before any provider wire send.
@@ -177,13 +190,16 @@ The repeated transport call is a recovery attempt for the same bounded logical o
 
 A write without that guarantee transitions to `outcome_unknown` after an ambiguous dispatch, timeout, abort, connection loss, or expired worker lease.
 
-The worker enforces the capability deadline and maximum attempts, and records a safe terminal error when either is exhausted.
+The worker enforces the capability deadline and maximum attempts.
+If a possibly applied write exhausts attempts, its deadline, or the provider deduplication window, record outcome_unknown and never redispatch; a read or provably undispatched operation may fail definitively.
 
 The Postgres execution row is the durable queue and state source of truth, so a service restart resumes accepted work and resolves expired leases according to the dispatch marker and retry policy.
 No external queue, workflow engine, scheduler service, or separate worker deployment is required by this proposal.
 A service-local worker loop claims bounded batches from Postgres, and lease recovery uses the same execution records.
 
 ## Retry, cancellation, and write uncertainty
+
+A pending cancellation prevents redispatch; safe provider status inspection may finish without issuing another effectful request.
 
 The descriptor's retry policy is authoritative: `never` disables automatic retries, `read_safe` permits bounded retries for reads, and `provider_idempotent` requires an explicit provider guarantee for repeated effects.
 
@@ -209,7 +225,7 @@ If a running write has not crossed dispatch intent, it becomes `cancelled` after
 If lease recovery finds a pending cancellation request before dispatch intent, it marks the write `cancelled` without dispatch.
 
 If a write has crossed dispatch intent, it becomes `cancelled` only when the adapter proves no effect occurred; otherwise it becomes `outcome_unknown` unless a definitive success was already committed.
-A pending cancellation request prevents any retry after dispatch intent unless the provider idempotency contract explicitly makes the same logical operation safe to finish.
+A pending cancellation request prevents retry after dispatch intent even when repeated writes would be idempotent; recovery may inspect provider status without sending another write.
 
 A cancellation arriving after a terminal transition returns that terminal state without changing it.
 
@@ -221,15 +237,17 @@ The service validates serialized output against the output schema and `maxOutput
 
 Cursor pagination is limited to read capabilities, and each descriptor declares a finite default and maximum page size.
 
-The execution deadline cannot exceed the descriptor's `maxDurationMs`, and the deployment also has a finite global ceiling.
+The execution deadline starts at admission and cannot exceed the descriptor's maxDurationMs or the deployment ceiling; queue delay consumes the same budget.
+The proposed maximum is three attempts for declared retry-safe operations and one otherwise, always constrained by deadline and provider deduplication lifetime.
 
 All active work is bounded by deployment, app, and binding concurrency limits, and admission beyond a limit returns `RATE_LIMITED` with a safe `retryAfterMs` when a retry estimate is available.
 
-Recommended initial review values are 1 MiB maximum HTTP body, a default 256 KiB capability input ceiling, 1 MiB capability output ceiling, page size 50 with a maximum of 100, a two-minute global execution ceiling, and finite app and binding concurrency caps.
+Recommended initial review values are 1 MiB maximum HTTP body, a default 256 KiB capability input ceiling, 1 MiB capability output ceiling, page size 50 with a maximum of 100, a two-minute global execution ceiling, and caps of 50 deployment-wide active executions, 20 per app and 5 per binding.
+Idempotency keys are nonempty bounded ASCII strings up to 128 bytes; SDK-generated keys should have at least 128 bits of randomness.
 
 These recommendations require measurement against expected Data App payloads before implementation and are not vendor capability claims.
 
-API errors use the frozen `Problem` allowlist and never include raw provider messages, provider URLs, credentials, or stack traces.
+API errors use the shared `Problem` allowlist and never include raw provider messages, provider URLs, credentials, or stack traces.
 
 Admission and transport errors use the HTTP mapping in `http-sdk-events.md`, while a completed execution failure is returned as a successful read envelope containing `ExecutionView.error`.
 
@@ -249,7 +267,7 @@ Adding a second provider or capability must not require changes to the execution
 
 ### Repeated write submission
 
-Binding `binding-7` submits synthetic capability `ledger.record@1` with idempotency key `k-92` and input `{reference: "case-4", amount: 12}`.
+Binding `binding-7` submits synthetic capability `sample-alpha.set-value@1` with idempotency key `k-92` and input `{reference: "case-4", value: 12}`.
 
 The service validates current app policy, records execution `exec-41` and the key fingerprint in one transaction, and returns `202` with `accepted`.
 
@@ -257,7 +275,7 @@ The browser loses the response and resubmits the same request with `k-92`.
 
 The service verifies the current binding, finds the matching fingerprint, returns `200` with `exec-41`, and dispatches no duplicate provider request.
 
-A submission using `k-92` with amount `13` returns `409 CONFLICT` and leaves `exec-41` unchanged.
+A submission using `k-92` with value `13` returns `409 CONFLICT` and leaves `exec-41` unchanged.
 
 ### Ambiguous write after transport loss
 
@@ -265,7 +283,7 @@ A worker claims `exec-41`, commits dispatch intent, and sends the synthetic writ
 
 The provider accepts the write but the connection closes before a response reaches the worker.
 
-If `ledger.record@1` declares `never`, the execution becomes `outcome_unknown` with `inspect_execution` retry advice.
+If `sample-alpha.set-value@1` declares `never`, the execution becomes `outcome_unknown` with `inspect_execution` retry advice.
 
 The SDK returns that terminal resource to the caller, which must reconcile through a provider-specific supported path before initiating a new write.
 

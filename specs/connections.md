@@ -6,7 +6,7 @@ This component owns connection authorization attempts, connection lifecycle, enc
 
 It does not add customer tenants, local human accounts, a self-service onboarding portal, a new front-door platform, or a provider-specific capability.
 
-The shared contracts in `specs/contracts.md` are frozen at R1 for this drafting round, so this document records required contract additions without changing that file.
+The shared contracts in [contracts.md](contracts.md) are the integrated R2 source of interface names and state unions.
 
 ## Requirements and recommendations
 
@@ -14,7 +14,7 @@ The user-stated operating requirements are one team-managed service, app-level a
 
 The architecture recommendations below make authorization attempts and credential versions independently fenced, keep operator provider-client secrets separate from connection credentials, and make ambiguous external writes visible as requiring reauthorization or operator action.
 
-The design assumes the future front door can provide the stable, server-verified `TrustedContext` in R1 and can route a configured provider callback to this service over TLS.
+The design assumes the future front door can provide the stable, server-verified `TrustedContext` in the shared contract and can route a configured provider callback to this service over TLS.
 
 The front-door transport, browser binding, callback host, callback routing configuration, and Tableau deployment compatibility remain unresolved and are not specified here.
 
@@ -36,7 +36,7 @@ An app connection belongs to exactly one configured `appId`, while a delegated c
 
 Provider authorization may identify an external subject, but the service stores only metadata required to distinguish or operate the grant and never creates a local person or developer account from it.
 
-The R1 `bindingId` is a server-verified principal, not a Tableau viewer name or Tableau session, and stable identity or trusted rebinding remains a front-door contract requirement.
+The shared `bindingId` is a server-verified principal, not a Tableau viewer name or Tableau session, and stable identity or trusted rebinding remains a front-door contract requirement.
 
 ## Internal records and storage ownership
 
@@ -45,10 +45,19 @@ Postgres is the system of record for connection state, revisions, authorization 
 The connection module owns its tables and migrations within the shared database and exposes domain methods rather than storage queries to other modules.
 
 The connection row contains an opaque ID, provider ID, owner kind and owner IDs, lifecycle state, logical connection revision, credential version, active authorization-attempt ID when applicable, and timestamps.
+Connections, credentials, attempts and refresh claims also retain the authority epoch under which they were created; an older epoch is never usable after recovery.
 
 The credential envelope contains the credential strategy, encrypted secret payload, encryption key version, provider authorization metadata, optional external expiry, and optional parent connection and parent credential version for derived credentials.
 
-The authorization-attempt row contains the attempt ID, provider ID, owner, optional target connection ID, expected connection revision, state, expiry, callback correlation hash, encrypted PKCE verifier where applicable, provider client-configuration revision, and safe timestamps.
+The authorization-attempt row contains attempt ID, provider ID, owner, optional target connection ID, expected logical revision, app revision, authority epoch/expiry, state, expiry, exchange claim fence, callback correlation hash, encrypted PKCE verifier, provider configuration revision and safe timestamps.
+
+Callback exchange is claimed atomically once; duplicate callbacks while exchanging return generic unconfirmed status and never exchange the code twice.
+
+Before installing a candidate, check current app policy/revision, stored binding validity, callback continuity, authority epoch, attempt expiry and fence, and target connection revision.
+
+A disabled app or revoked/expired binding prevents installation even if provider authorization succeeded, and candidate secrets are discarded or sent to restricted revocation cleanup.
+
+The trusted adapter must supply current binding checks and callback continuity proof; state correlation alone is insufficient, and no activation is supported before that deferred adapter exists.
 
 The refresh lease row contains the connection ID, expected credential version, monotonically increasing fencing number, lease expiry, refresh phase, and recovery classification supplied by the provider module.
 
@@ -56,7 +65,15 @@ The database stores no plaintext provider token, refresh token, API key, OAuth c
 
 Credential ciphertext uses envelope encryption through a managed key service or an equivalent separately protected key-encryption key, with authenticated encryption and associated data binding ciphertext to provider, connection, owner, and credential version.
 
-Database backups, snapshots, exports, and replicas contain ciphertext only, and restoring an older database snapshot does not restore or lower external authorization authority without a current connection-state check and key availability.
+Database backups, snapshots, exports, and replicas contain encrypted credential material, but a restored snapshot can contain stale authority and cannot prove that later disconnects or token rotations did not occur.
+
+Restore is an offline recovery operation: disable ingress and workers, advance an authority epoch stored outside the database restore boundary, invalidate existing bindings/attempts/cursors and execution grants, quarantine restored credentials, and require fresh delegated authorization or explicit operator re-provisioning of app credentials.
+
+Resume only after every module checks the new epoch; restored writes with dispatch intent are outcome_unknown until reviewed and must never be automatically replayed.
+
+The operator must reconcile the backup gap for writes absent from the restored database, because no restored idempotency table can prove that those writes did not occur.
+
+The exact epoch store and recovery runbook are deferred operational choices; safe automatic database restore is not claimed.
 
 Secret decryption is limited to the connection service and the provider transport that must attach a credential to an outbound request.
 
@@ -78,25 +95,41 @@ Audit records may include app ID, binding ID, provider ID, opaque connection or 
 
 ## Revisions, ownership, and dispatch fencing
 
-The public `SafeConnection.revision` is a logical authorization revision that increases when owner, provider grant, enabled state, or usable credential set changes and never decreases.
+The public `SafeConnection.revision` is the logical authorization revision that increases on grant replacement, permission change, enable/disable, disconnect and recovery invalidation within an authority epoch.
+
+Owner and provider are immutable for a connection ID; a different owner, provider or external subject requires a new connection.
+
+Routine secret rotation preserving the same grant changes only internal credentialVersion.
 
 Refresh-token rotation that continues the same provider grant increases the internal `credentialVersion` but does not by itself change the logical connection revision.
 
-Replacing a grant, changing its owner or provider, disabling it, or disconnecting it changes the logical revision and fences existing execution grants.
+Replacing the same-subject grant, disabling it, or disconnecting it changes the logical revision and fences existing execution grants.
+
+A refresh that changes granted permissions also changes the logical revision and requires new policy evaluation.
 
 Each execution grant captures app revision, connection ID, logical connection revision, identity mode, binding owner when delegated, capability version, and provider authorization requirement.
 
 Before outbound dispatch, the provider transport rechecks current app policy, connection state, owner equality, logical connection revision, execution cancellation, and deadline.
 
-An accepted external request may not be recalled by a later disconnect, so a disconnect prevents future dispatch and refresh but cannot promise cancellation of a request already accepted externally.
+Disconnect prevents new dispatch intent or refresh claims after its local commit.
+
+Already-committed dispatch/refresh intent is in flight even if the network send occurs later, because a database check and provider send cannot be atomic.
+
+The transport rechecks before send, but neither that check nor lease fencing promises recall or absence of later wire traffic.
 
 Refresh commits use compare-and-swap against the expected credential version and a monotonically increasing fencing number so a late refresh response cannot overwrite a newer credential or revive a disconnected connection.
 
 ## Connection and authorization-attempt state machines
 
-The shared `ConnectionState` values in R1 remain the only externally visible connection states.
+The shared `ConnectionState` values in the shared contract remain the only externally visible connection states.
 
 An initial authorization creates a provisional connection in `authorizing` and an authorization attempt in `pending`.
+
+The proposed attempt TTL is ten minutes or the trusted authority expiry, whichever comes first; only one nonterminal attempt per owner/provider/reconnect target is active, and a new begin atomically fences the old attempt.
+
+Beginning authorization requires at least one currently enabled delegated capability for that provider; the provider-requested authorization is the reviewed union of those requirements, never a browser-supplied permission set.
+The provider adapter combines that requirement set under the operator-configured authorization ceiling and rejects unsupported combinations instead of guessing scopes.
+Newly enabled permissions require a new explicit authorization attempt; background refresh must not expand the grant.
 
 Successful callback validation and token exchange atomically install the credential envelope, increment the logical revision and credential version, and transition the connection to `ready` and attempt to `succeeded`.
 
@@ -106,9 +139,17 @@ Malformed, unverifiable, expired, or provider-mismatched callbacks are rejected 
 
 An expired pending attempt becomes `expired`; an initial provisional connection becomes `reauthorization_required` and can be replaced by a fresh attempt.
 
-An attempt may be cancelled before exchange, after which a callback for that attempt cannot install a credential.
+An attempt may be cancelled while nonterminal, including during exchange; cancellation advances its fence so any later token response cannot install a credential.
 
-A ready connection may have a replacement authorization attempt in progress while the currently valid grant remains usable; a successful replacement swaps credentials under revision compare-and-swap.
+A token already issued after cancellation may need restricted cleanup; cancellation does not promise external revocation.
+
+A ready connection may have a replacement authorization attempt while the current grant remains usable.
+
+In-place reauthorization must verify the same provider subject through provider-validated metadata, then swap credentials under revision compare-and-swap and increment the logical revision.
+
+A different or unverifiable subject fails in-place replacement; the caller must intentionally create and select a new connection ID.
+
+The old ready grant remains unchanged on a failed replacement unless the provider reports that it has independently become invalid.
 
 A terminal provider response such as revoked or invalid refresh authorization transitions a ready connection to `reauthorization_required` and blocks use of the invalid grant.
 
@@ -120,13 +161,32 @@ Disconnect immediately fences the logical revision, changes state to `disconnect
 
 `disconnected` is terminal for that connection ID; a later connect creates a new connection ID so stale callbacks and grants cannot resurrect it.
 
-An authorization attempt follows `created -> pending -> callback_received -> exchanging -> succeeded` for the successful path.
+Attempt creation atomically inserts `pending`; the successful path is `pending -> callback_received -> exchanging -> succeeded`.
 
 Other terminal attempt states are `failed`, `cancelled`, `expired`, and `outcome_unknown`, and no terminal attempt can become pending or succeed later.
 
 Duplicate callbacks for a terminal successful attempt return the stored safe completion result without exchanging the code again, while duplicate or late callbacks for any other terminal attempt do not mutate connection state.
 
-When the callback code may have been redeemed but the token response or commit is ambiguous, the attempt becomes `outcome_unknown` and the affected connection requires fresh authorization rather than assuming that retrying the code is safe.
+When the callback code may have been redeemed but the token response or commit is ambiguous, the attempt becomes `outcome_unknown` and the candidate cannot activate rather than assuming that retrying the code is safe.
+
+An initial connection requires fresh authorization; a replacement attempt preserves the previous grant only while that grant remains independently valid.
+
+## Credential envelope and refresh state machines
+
+A credential envelope follows `candidate -> current -> retired -> erased` on a successful replacement path.
+A candidate exists only in restricted protocol processing; it cannot authorize execution and is persisted encrypted only when staging is necessary.
+Failed or abandoned candidates become `cleanup_only` for bounded revocation or `erased` when no cleanup is possible.
+A current envelope may become `quarantined` after ambiguous renewal, invalid authorization, or database recovery; quarantined material cannot execute or refresh.
+A current, retired or quarantined envelope may become `cleanup_only` after disconnect; only the restricted revocation worker may decrypt it.
+Retired, quarantined and cleanup-only envelopes become erased when their retention/cleanup obligation ends; erased means no live usable secret reference, not a claim that encrypted backup bytes vanished instantly.
+Only a current envelope on a ready connection with matching epoch/revision and valid provider expiry may authorize a new dispatch intent.
+Expiry is credential metadata evaluated before use, not a second overlapping lifecycle state: renew through the declared policy or move the connection to reauthorization_required.
+Atomic transactions install the new current version, retire the old version and update connection/attempt state together.
+
+Refresh phases are `prepared -> dispatched -> committed`, with `failed` for a definitive no-replacement result and `outcome_unknown` for ambiguous renewal.
+A refresh claim has one fence; terminal phases cannot become dispatched again, and a retry uses a fresh claim only when provider guarantees permit it.
+An unsafe ambiguous refresh quarantines the current envelope and moves the connection to reauthorization_required.
+A stale successful response cannot commit and its newly issued material is discarded or sent to restricted cleanup.
 
 ## Supported credential strategies
 
@@ -137,7 +197,7 @@ Every provider module declares each supported strategy and its lifecycle propert
 | Expiring OAuth access credential without refresh token | Store encrypted access credential and grant metadata. | Calculate expiry from provider response and local receipt time, apply a provider-specific safety margin, and require fresh authorization after expiry. |
 | Refreshable OAuth grant | Store access and refresh credentials as one encrypted version and refresh only through a fenced lease. | Apply returned token rotation atomically and require fresh authorization when refresh is terminally rejected or its result is ambiguous and unsafe to repeat. |
 | Non-expiring bearer credential | Store encrypted credential only when the provider explicitly documents no expiry. | Do not infer indefinite validity from a missing expiry field; support operator or owner replacement and provider-side revocation. |
-| API key | Store encrypted key, provider-defined placement metadata, and optional operator expiry or rotation metadata. | Never send in a URL; rotate or revoke through the documented provider path, and require operator action when the provider has no revocation operation. |
+| API key | Store encrypted key, reviewed placement metadata, and optional operator expiry or rotation metadata. | Initial support excludes keys in URLs, including query parameters; providers requiring that placement are explicitly unsupported until a reviewed extension. |
 | Client-credentials or other app/service grant | Store the resulting app-owned credential separately from the operator OAuth client secret used to obtain it. | Refresh under the app connection owner and never expose or use it for delegated identity. |
 | Derived or exchanged credential | Derive from an already authorized parent credential when the provider supports a narrower or shorter-lived downstream credential. | Bind it to parent connection ID and credential version, cache only until provider expiry, and invalidate on parent replacement, disconnect, or insufficient lifetime. |
 | Unsupported or unclassifiable credential | Do not store or use it. | Return `UNSUPPORTED` with a safe explanation until the provider module documents lifecycle, storage, refresh, and revocation semantics. |
@@ -153,6 +213,8 @@ The core does not accept resource-owner passwords or OAuth's resource-owner pass
 An interactive provider flow that cannot be safely bound to an authorization attempt and a delegated owner is unsupported until a provider module documents and reviews its complete lifecycle.
 
 ## OAuth authorization and safe callback experience
+
+The initial supported OAuth subset requires PKCE S256; this is a deliberate compatibility restriction, not a claim that every provider supports it.
 
 For supported browser authorization, the provider module uses the Authorization Code flow with PKCE `S256`, exact registered redirect URIs, a short-lived one-time state correlation value, and server-side callback handling.
 
@@ -170,7 +232,7 @@ The authorization response page says only that authorization completed, was deni
 
 The initiating app polls a protected authorization-attempt read method under the original trusted app and binding context to learn the safe outcome and connection readiness.
 
-The callback state is correlation and CSRF protection only; it cannot read a connection, select a capability, create a local identity, or authorize an execution.
+Callback state is correlation and one part of CSRF protection, never a substitute for the trusted adapter's initiating-browser continuity requirement; it cannot read a connection, select a capability, create a local identity, or authorize an execution.
 
 If the browser is closed, provider interaction is abandoned, or callback delivery is lost, the attempt remains pending until cancellation or its short server-side TTL expires, after which the app can start a new attempt.
 
@@ -244,61 +306,26 @@ Provider responses and errors are mapped to the shared allowlisted `Problem` con
 
 ## Narrow pseudotype entrypoints
 
-The connection component should expose framework-independent operations equivalent to the following pseudotypes, with the final signatures owned by the architecture orchestrator.
-
-```ts
-type AuthorizationAttemptState =
-  | 'pending' | 'callback_received' | 'exchanging' | 'succeeded'
-  | 'failed' | 'cancelled' | 'expired' | 'outcome_unknown';
-
-type AuthorizationStart = {
-  attemptId: Id;
-  authorizationUrl: string;
-  expiresAt: string;
-};
-
-type AuthorizationAttemptView = {
-  id: Id;
-  providerId: string;
-  state: AuthorizationAttemptState;
-  connection?: SafeConnection;
-  expiresAt: string;
-  updatedAt: string;
-};
-
-beginAuthorization(
-  ctx: TrustedContext,
-  request: { providerId: string; connectionId?: Id }
-): Promise<Result<AuthorizationStart>>;
-
-readAuthorizationAttempt(
-  ctx: TrustedContext,
-  attemptId: Id
-): Promise<Result<AuthorizationAttemptView>>;
-
-cancelAuthorization(
-  ctx: TrustedContext,
-  attemptId: Id
-): Promise<Result<AuthorizationAttemptView>>;
-
-disconnect(
-  ctx: TrustedContext,
-  connectionId: Id
-): Promise<Result<SafeConnection>>;
-
-handleProviderCallback(
-  providerId: string,
-  protocolResponse: unknown
-): Promise<SafeCallbackResult>;
-```
+The exact framework-independent types and signatures are owned by [contracts.md](contracts.md).
+Connection operations are beginAuthorization, readAuthorizationAttempt, cancelAuthorization, listConnections, readConnection and disconnect; callback ingestion is a separate server-only protocol boundary.
 
 `beginAuthorization` always creates or reauthorizes a delegated connection owned by the context's app and binding, and the optional connection ID is valid only for a connection already owned by that exact pair.
 
 App/service credentials are provisioned through a separate operator-only control path and never through `beginAuthorization` on the browser-facing contract.
 
-`handleProviderCallback` is a server adapter entrypoint without `TrustedContext`; it consumes only a pending one-time state record and returns a generic callback page result without returning a connection or credential to the browser.
+Browser list/read/disconnect operations are restricted to delegated connections of the exact app/binding; application secrets cannot be disconnected by a viewer.
 
-The final shared contract must define `AuthorizationStart`, safe attempt reads, callback admission, idempotent cancellation, owner-scoped reconnect selection, callback result behavior, and whether callback protocol parsing belongs to the connection provider module or a transport adapter.
+An optional reviewed provider-mapped display label helps the owner distinguish connections; it is untrusted display text, never authority, and is excluded from logs and events.
+
+Raw subject IDs, full provider profiles and unreviewed claims remain server-only.
+
+Initial delegated acquisition supports the reviewed OAuth code subset; API-key or client-credentials app connections use operator provisioning, and delegated browser secret-entry flows are explicitly unsupported.
+
+`handleProviderCallback` is a server adapter entrypoint without `TrustedContext`; it validates pending protocol correlation and the trusted adapter's continuity/current-binding evidence, then returns a generic callback page result without returning a connection or credential to the browser.
+
+Shared types and provider-hook signatures are defined in [contracts.md](contracts.md); browser routes and SDK methods are defined in [http-sdk-events.md](http-sdk-events.md).
+
+The HTTP adapter preserves raw protocol inputs and supplies fixed routing context; the provider protocol adapter validates them, and the connection module owns claims and persistence.
 
 ## Failure and recovery scenarios
 
