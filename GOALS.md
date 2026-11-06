@@ -77,10 +77,12 @@ Compatibility scenarios are design checks, not promises that vendor APIs or brow
 
 ## Research and review process
 
-An Astra architecture orchestrator holds the overall goals and shared contracts, integrates proposed changes, and reviews full journeys.
-Luna workers on high or xhigh thinking conduct bounded component drafting and adversarial review.
-Run a small number of recorded rounds, stopping when material contradictions are resolved or concrete external unknowns remain.
-Workers receive the goal baseline, their current spec, neighboring contracts, and a bounded research instruction.
-Only the orchestrator changes shared contracts.
+Astra owns application architecture, initial specification authoring, consequential decisions, and substantive design review.
+A separate Astra reviewer challenges the design against the goals and full cross-module journeys.
+GPT-6.1 Sol is reserved for application implementation after the specifications are accepted.
+Luna does not author or validate substantive architecture, security contracts, or application specifications.
+Begin the new architecture from the goal baseline and private reference research, then compare with prior drafts only after the independent initial design is written.
+Run bounded review rounds, stopping when material contradictions are resolved or concrete external unknowns remain.
+Only the architecture owner changes shared contracts.
 Do not count automated agreement as user acceptance or live verification.
 Future implementers receive accepted project contracts and official library/provider documentation, not third-party implementation material.
