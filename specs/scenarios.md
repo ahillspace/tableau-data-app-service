@@ -53,7 +53,8 @@ The broker evaluates a credential's strategy, expiration and adapter-declared re
 A valid non-expiring key can be used without a refresh step; expiration is still possible by provider revocation and must surface safely.
 An expiring credential with supported renewal is renewed under the shared lease/fencing rules.
 An expired credential without renewal produces REAUTHORIZATION_REQUIRED or an explicit UNSUPPORTED strategy result, never a fabricated expiration extension.
-A derived credential is scoped to its source logical connection revision, audience, authorization and bounded lifetime; changing the parent invalidates future derived use.
+A derived credential is scoped to its source connection ID, logical revision, credentialVersion, authority epoch, audience, authorization and bounded lifetime.
+Routine parent refresh invalidates local derived use and requires re-derivation even if the logical revision is unchanged; no remote child-token revocation is implied.
 Provider-specific guarantees must be validated by its contract fixtures before a real adapter is considered supported.
 
 ## 7. Refresh, interruption and ambiguous writes
@@ -69,10 +70,11 @@ A committed dispatch intent is already in flight for revocation purposes, even i
 ## 8. Pagination, write, limits and cancellation
 
 A lookup accepts a bounded page size and returns Page<T> with an opaque cursor bound to caller, capability version, input/filter digest and logical connection revision.
-Changing a filter or borrowing another binding's cursor fails before provider I/O.
+Changing a filter, borrowing another binding's cursor or reusing a pre-restore epoch cursor fails before provider I/O.
 Expiration requires restarting the read; clients must not assume a snapshot unless a provider explicitly offers one.
 A write uses the same versioned invocation and result envelope while declaring stricter retry behavior.
 Cancellation before dispatch yields cancelled; cancellation after a possibly effectful dispatch cannot assert rollback and may yield outcome_unknown.
+A valid definitive provider success received by the current worker before terminal commit still yields succeeded despite a pending cancellation.
 Input size, output size, provider response size, timeout and per-app admission limits are enforced independently.
 
 ## 9. Incoming events and resync

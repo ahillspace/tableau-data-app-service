@@ -1,6 +1,6 @@
 # Architecture proposal
 
-Status: proposed design, under agent review; not accepted by the user and not implemented.
+Status: proposed design reviewed through three bounded agent rounds; not accepted by the user and not implemented.
 [GOALS.md](GOALS.md) is the requirements baseline.
 [Shared contracts](specs/contracts.md) resolve cross-component names and invariants.
 

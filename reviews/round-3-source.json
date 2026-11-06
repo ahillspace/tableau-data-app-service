@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "sha256": "423a982749928069c49a464806dc24d37395b4dc332fb93b2d9faff13facc02f",
+  "files": [
+    {
+      "path": "GOALS.md",
+      "sha256": "c4a390587f3b586286af10e3d781a86191e4809e7c6b39a5a7be51e1c6d9ebf9"
+    },
+    {
+      "path": "README.md",
+      "sha256": "5e767ae1a402d159e79f405e9ef9d921f1b202c341cf5dd5a0d7fb555702a0f8"
+    },
+    {
+      "path": "architecture.md",
+      "sha256": "c8efc59093e69eae714fecedf2abd22dc1e9e4ae889e1e96b8b813b9b95660d3"
+    },
+    {
+      "path": "decisions/0001-scope-and-boundaries.md",
+      "sha256": "73b72e979b3da828a55e08bd8cee7937aef37cc858f90ecb78b5ab749a46dcd4"
+    },
+    {
+      "path": "specs/connections.md",
+      "sha256": "69f99ad586baf916ee9c3491d7dac83f95b2463eaf58f5f49547b0cd68c2df9d"
+    },
+    {
+      "path": "specs/contracts.md",
+      "sha256": "e5cd49c84008c26f0a4ae8241023206e31eac763b036e56a533f506b05233741"
+    },
+    {
+      "path": "specs/core.md",
+      "sha256": "e7155ecc6e11e5600c3002f1eb222596281ed1863528065ec2fe79cbad6fcf9a"
+    },
+    {
+      "path": "specs/execution.md",
+      "sha256": "b0a9ca9f82b7adeb38a8203bfe6b3824a78e1df74c08e32954d0187d4cd73682"
+    },
+    {
+      "path": "specs/http-sdk-events.md",
+      "sha256": "1466fd11b1b7d68159e5d4b6481136ccadd1ad40dc51a891e38aaf5372b606fc"
+    },
+    {
+      "path": "specs/scenarios.md",
+      "sha256": "a08b9ae6e0204dc03598d0b07ee48c0f8c6b6ff8aa01d021ce637072ac00ddb7"
+    }
+  ],
+  "errors": [],
+  "scope": "Top-level Markdown (except agent instructions), specs/, decisions/. Review records and rendered artifacts are excluded to avoid recursive digests.",
+  "limits": "Checks file presence and local file links only; does not prove semantic consistency, external URL availability, or implementation behavior."
+}

@@ -9,3 +9,7 @@ Component details cover [app policy and provider extension](specs/core.md), [con
 The [decision record](decisions/0001-scope-and-boundaries.md) distinguishes the user's direction from recommendations and deferred choices.
 Recorded rounds in `reviews/` preserve agent findings and source snapshots; agent convergence is neither user acceptance nor implementation verification.
 The user's latest scope takes precedence over earlier research and authentication proposals.
+
+The three-round review record starts with [drafting](reviews/round-1.md), then [adversarial integration](reviews/round-2.md), and [final verification](reviews/round-3.md).
+The final source manifest is [round-3-source.json](reviews/round-3-source.json); it identifies reviewed text, not tested application behavior.
+The trusted front door, stable binding and callback proof, Tableau environment compatibility and concrete provider guarantees remain open.

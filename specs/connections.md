@@ -6,7 +6,7 @@ This component owns connection authorization attempts, connection lifecycle, enc
 
 It does not add customer tenants, local human accounts, a self-service onboarding portal, a new front-door platform, or a provider-specific capability.
 
-The shared contracts in [contracts.md](contracts.md) are the integrated R2 source of interface names and state unions.
+The shared contracts in [contracts.md](contracts.md) are the integrated R3 source of interface names and state unions.
 
 ## Requirements and recommendations
 
@@ -72,6 +72,8 @@ Restore is an offline recovery operation: disable ingress and workers, advance a
 Resume only after every module checks the new epoch; restored writes with dispatch intent are outcome_unknown until reviewed and must never be automatically replayed.
 
 The operator must reconcile the backup gap for writes absent from the restored database, because no restored idempotency table can prove that those writes did not occur.
+
+Write admission remains disabled until the operator records a disposition for that backup gap; a new epoch alone does not authorize replay or restore idempotency protection for missing rows.
 
 The exact epoch store and recovery runbook are deferred operational choices; safe automatic database restore is not claimed.
 
@@ -199,7 +201,7 @@ Every provider module declares each supported strategy and its lifecycle propert
 | Non-expiring bearer credential | Store encrypted credential only when the provider explicitly documents no expiry. | Do not infer indefinite validity from a missing expiry field; support operator or owner replacement and provider-side revocation. |
 | API key | Store encrypted key, reviewed placement metadata, and optional operator expiry or rotation metadata. | Initial support excludes keys in URLs, including query parameters; providers requiring that placement are explicitly unsupported until a reviewed extension. |
 | Client-credentials or other app/service grant | Store the resulting app-owned credential separately from the operator OAuth client secret used to obtain it. | Refresh under the app connection owner and never expose or use it for delegated identity. |
-| Derived or exchanged credential | Derive from an already authorized parent credential when the provider supports a narrower or shorter-lived downstream credential. | Bind it to parent connection ID and credential version, cache only until provider expiry, and invalidate on parent replacement, disconnect, or insufficient lifetime. |
+| Derived or exchanged credential | Derive from an already authorized parent credential when the provider supports a narrower or shorter-lived downstream credential. | Bind it to parent ID, logical revision, credentialVersion and authority epoch; invalidate local use and re-derive after any parent rotation, replacement, disconnect or expiry. |
 | Unsupported or unclassifiable credential | Do not store or use it. | Return `UNSUPPORTED` with a safe explanation until the provider module documents lifecycle, storage, refresh, and revocation semantics. |
 
 An access token with a missing or malformed `expires_in` is treated according to provider-specific documented behavior and never silently reclassified as non-expiring.
@@ -207,6 +209,12 @@ An access token with a missing or malformed `expires_in` is treated according to
 An API key or non-expiring token may be usable without refresh, but its external validity is not guaranteed by the local `ready` state.
 
 Derived credentials are not a way to elevate privilege or switch identity, and the provider module must prove that their scope and subject are no broader than the parent authorization.
+
+Their cache key and active validity fence include parent connection ID, logical revision, credentialVersion, authority epoch, audience, authorization and expiry.
+
+An ordinary parent refresh changes credentialVersion and invalidates local child use even when the logical grant is unchanged; subsequent use must re-derive.
+
+Local invalidation does not imply remote child-token revocation, and any future provider-specific exception requires a reviewed profile change.
 
 The core does not accept resource-owner passwords or OAuth's resource-owner password credentials grant.
 
@@ -310,6 +318,8 @@ The exact framework-independent types and signatures are owned by [contracts.md]
 Connection operations are beginAuthorization, readAuthorizationAttempt, cancelAuthorization, listConnections, readConnection and disconnect; callback ingestion is a separate server-only protocol boundary.
 
 `beginAuthorization` always creates or reauthorizes a delegated connection owned by the context's app and binding, and the optional connection ID is valid only for a connection already owned by that exact pair.
+
+A disconnected target returns CONFLICT and requires a new connection ID; disabled targets remain blocked until operator action.
 
 App/service credentials are provisioned through a separate operator-only control path and never through `beginAuthorization` on the browser-facing contract.
 

@@ -35,6 +35,7 @@ The header provider is a transport hook only, and its value is not generated, st
 The SDK has no field for provider secrets, connection tokens, upstream account identifiers, or raw provider cursors.
 
 CORS uses operator-configured exact origins and remains a browser transport rule rather than an authorization mechanism.
+Expose Location, Retry-After and Idempotency-Replayed to allowed browser clients; allowed credential/header transport still depends on the deferred front door.
 
 An allowed origin, app URL, connection ID, or event cursor does not prove the caller's app or binding.
 
@@ -97,6 +98,7 @@ The service provides no generic webhook relay, arbitrary event publishing route,
 `GET /v1/capabilities` checks the current trusted context, app enablement, capability binding, and safe provider metadata before returning descriptors.
 
 A descriptor includes capability reference, description, input and output schemas, fixed identity mode, effect, pagination declaration, safe limits, and whether a connection is required.
+For cursor pagination it includes required pageLimits.defaultSize and pageLimits.maxSize; non-paginated descriptors omit those fields.
 
 Discovery makes no provider request, refreshes no credential, creates no connection, and does not promise that every provider-side resource is currently accessible.
 
@@ -159,7 +161,8 @@ The provider's native cursor is never sent to or accepted from the browser.
 
 The service stores the provider cursor server-side under a cryptographically random client token or an equivalently protected opaque handle.
 
-A cursor record is bound to app, binding, capability version, logical connection revision, normalized base input, page size, and expiry.
+A cursor record is bound to app, binding, authorityEpoch, capability version, logical connection revision, normalized base input, page size, and expiry.
+Every cursor resolution compares its epoch to the current context and deployment epoch, including connectionless reads; mismatch returns CURSOR_EXPIRED without provider I/O.
 
 Using a cursor requires a new trusted context and a fresh policy and connection authorization check.
 
@@ -244,7 +247,8 @@ The SDK validates only transport-level constraints that can be known locally, an
 
 The SDK never automatically retries a POST with a new idempotency key.
 
-It may retry an identical POST with the same key after a transport failure because server admission is idempotent within the published retention window.
+It may retry an identical execution-submission POST with the same key after a transport failure because admission is idempotent within the published retention window.
+This rule does not authorize automatic retries of beginAuthorization, which has no idempotency key and is manually restarted through its supersession rule.
 
 The SDK may retry idempotent GET requests with bounded backoff and honors server rate-limit guidance.
 
@@ -304,7 +308,8 @@ Every event has a stable service `eventId`, and the SDK consumer deduplicates re
 
 The consumer should persist its next cursor only after it has handled the returned events, so a client crash can cause a repeat but not a silent checkpoint past unhandled events.
 
-A cursor is scoped to app, binding, event subscription revision, and feed position, and cannot be used as authority outside those checks.
+A cursor is scoped to app, binding, authorityEpoch, event subscription revision and feed positions, and cannot be used as authority outside those checks.
+An event cursor epoch mismatch returns RESYNC_REQUIRED without event payloads.
 
 The outbox is a durable delivery boundary in the same Postgres deployment, not a new queue service or workflow engine.
 

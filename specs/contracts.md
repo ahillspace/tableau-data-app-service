@@ -1,6 +1,6 @@
 # Shared contracts
 
-Status: proposal, revision R2 integrated after adversarial agent review; not user accepted or implemented.
+Status: proposal, revision R3 integrated after adversarial and scenario agent review; not user accepted or implemented.
 Only the architecture orchestrator edits this file.
 Pseudotypes define behavior, not a compiled package or an implemented API.
 
@@ -80,16 +80,17 @@ Registry construction rejects missing schemas, unknown providers, duplicate capa
 Schema validation happens at both invocation and result boundaries.
 
 ```ts
+type PaginationDeclaration =
+  | { pagination: 'none'; pageLimits?: never }
+  | { pagination: 'cursor'; pageLimits: { defaultSize: number; maxSize: number } };
 type CapabilityDefinition<I, O> = {
   ref: CapabilityRef; providerId: string; identity: IdentityMode; effect: Effect;
   inputSchema: object; outputSchema: object;
   authorization: object; maxDurationMs: number; maxInputBytes: number; maxOutputBytes: number;
-  pagination: 'none' | 'cursor';
-  pageLimits?: { defaultSize: number; maxSize: number };
   operations: readonly string[];
   retry: 'read_safe' | 'provider_idempotent' | 'never';
   execute(input: I, context: CapabilityContext): Promise<CapabilityOutput<O>>;
-};
+} & PaginationDeclaration;
 type CapabilityContext = {
   executionId: Id; signal: AbortSignal; deadlineAt: string;
   provider: AuthorizedProviderClient; // opaque brokered client, never raw secrets
@@ -158,6 +159,9 @@ It changes for grant replacement, permission changes, disable/enable, disconnect
 Internal `credentialVersion` changes when secret material rotates without changing the logical grant and does not invalidate a grant or old result by itself.
 In-place reauthorization must verify the same provider subject and increments the logical revision; changing subjects creates a new connection ID and requires explicit caller selection.
 The broker records the actual credentialVersion on each dispatch attempt for audit without exposing it to clients or pinning an execution to a rotating token.
+Derived credential cache keys and validity checks include parent connection ID, logical revision, credentialVersion, authority epoch, audience, granted authorization and expiry.
+The initial contract invalidates local derived use and re-derives after any parent credentialVersion change, even when logical revision stays the same.
+This is a conservative local validity fence, not proof that the provider revoked an already-issued child credential.
 
 ```ts
 type AuthorizationAttemptState = 'pending' | 'callback_received' | 'exchanging'

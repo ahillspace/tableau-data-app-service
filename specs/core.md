@@ -32,10 +32,9 @@ type CapabilityDescriptor = {
   ref: CapabilityRef; description: string;
   inputSchema: object; outputSchema: object;
   identity: IdentityMode; effect: Effect;
-  pagination: 'none' | 'cursor';
   limits: { maxDurationMs: number; maxInputBytes: number; maxOutputBytes: number };
   connection: 'not_required' | 'configured' | 'required';
-};
+} & PaginationDeclaration;
 type ExecutionGrant = {
   appId: Id; bindingId: Id; capability: CapabilityRef;
   appRevision: number; identity: IdentityMode;
@@ -68,10 +67,12 @@ type ProviderModule = {
 };
 type ProviderTransportDefinition = {
   allowedEndpoints: readonly string[];
-  operations: Record<string, {
-    effect: Effect; authorizationMethod: AuthorizationMethod;
-    maxResponseBytes: number;
-  }>;
+  operations: Record<string, ProviderOperationDefinition>;
+};
+type ProviderOperationDefinition = {
+  effect: Effect; authorizationMethod: AuthorizationMethod;
+  inputSchema: object; responseSchema: object;
+  maxResponseBytes: number;
 };
 ```
 
@@ -79,6 +80,8 @@ The brokered client exposes only registered operation names and validated parame
 Provider transport owns endpoint construction, credential injection, redirect policy, timeout, response bounds and safe error classification.
 It reports the shared internal ProviderFailure certainty to the executor; handlers cannot convert a possibly applied write into a definitively effect-free failure.
 Provider operations declare runtime parameter and response schemas in addition to effect, authorization method and response size.
+Registry validation rejects missing schemas; the broker validates call parameters before dispatch and validates the adapter's sanitized operation result against responseSchema before returning it to the handler.
+An invalid response after a possibly applied write retains effect uncertainty instead of being classified as an effect-free validation failure.
 Reject network redirects outside the reviewed endpoint allowlist and validate any provider-specific host configuration at operator configuration time.
 DNS and outbound-network restrictions require implementation review for the deployed environment.
 Capability metadata declares all permitted transport operations; the registry verifies operation effect and credential-profile compatibility.
@@ -91,6 +94,8 @@ Multi-step writes, compensation and arbitrary workflows remain out of scope; exc
 The input/output schemas are JSON Schema-compatible runtime schemas compiled or checked through one maintained schema library selected during implementation.
 TypeScript inference or generated SDK types must derive from these schemas rather than maintaining duplicate hand-written wire types.
 Registration rejects schema constructs unsupported by the selected runtime or SDK generator.
+Cursor pagination requires pageLimits with positive integer defaultSize no greater than maxSize and no greater than the deployment ceiling.
+The registry rejects missing/invalid bounds, and discovery publishes both bounds through PaginationDeclaration.
 Provider responses are untrusted input: validate shape, map to the public result, strip tokens/account metadata and validate the public output before persistence/delivery.
 Do not return the upstream HTTP body as a generic capability result.
 

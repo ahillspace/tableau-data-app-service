@@ -80,6 +80,7 @@ A missing trusted context returns `UNAUTHENTICATED`, while an inaccessible conne
 
 The server re-evaluates app policy, capability enablement, connection ownership, connection state, and provider authorization immediately before dispatch.
 Reading an execution also rechecks current context, app enablement, exact capability binding, connection ownership and state, current provider authorization, and equality with the original logical connection revision before disclosing any stored result.
+The execution's stored authorityEpoch must equal both the current context and current deployment epoch, including for no-credential capabilities; old-epoch reads return NOT_FOUND without cached payloads.
 A credential refresh for that same logical connection is allowed when current authorization still satisfies the capability, but account or owner replacement is not.
 If the caller still owns the execution but its connection now requires reauthorization or is disabled, the read returns a safe authorization error without the cached result.
 If app capability access or ownership has been revoked, the execution is indistinguishable from a missing resource and returns `NOT_FOUND`.
@@ -113,6 +114,9 @@ Concurrent submissions with the same key serialize through the unique constraint
 An idempotency replay still requires a currently valid trusted context, the current app capability binding, current connection ownership and state, and current provider authorization for the original identity and connection.
 
 If any of those checks fail, the service returns the current safe authorization error and does not disclose the prior execution snapshot or result.
+Idempotency lookup also compares stored execution authorityEpoch to the current context and deployment epoch.
+An old-epoch key remains a deduplication barrier and returns CONFLICT without a cached payload or new dispatch; it is never treated as an absent key merely because authority changed.
+Unresolved old-epoch tombstones remain available only to operator reconciliation, and write admission after restore remains disabled until the backup-gap disposition is recorded.
 
 A replay never creates a second provider call and does not consume another active execution slot.
 
@@ -141,7 +145,8 @@ The execution record also stores immutable request identity, effective connectio
 
 The record stores no credential, provider account ID, raw provider error body, authorization token, or unredacted stack trace.
 
-The input and output are bounded JSON values required for restart recovery and client results, and their capability schemas must reject credential material and unnecessary secrets.
+The input and output are bounded JSON values required for restart recovery and client results, and their capability schemas must not define credential inputs or outputs.
+Schema validation is not a generic secret detector for arbitrary business strings; provider mapping and reviewed data minimization remain required.
 
 Stored execution input and output are subject to the same access controls and database protection as other service data, and logs contain only safe identifiers, sizes, states, and allowlisted error codes.
 
@@ -224,7 +229,10 @@ A read may have reached the provider before cancellation, but repeating it after
 If a running write has not crossed dispatch intent, it becomes `cancelled` after the worker confirms the stop.
 If lease recovery finds a pending cancellation request before dispatch intent, it marks the write `cancelled` without dispatch.
 
-If a write has crossed dispatch intent, it becomes `cancelled` only when the adapter proves no effect occurred; otherwise it becomes `outcome_unknown` unless a definitive success was already committed.
+If a write has crossed dispatch intent, it becomes cancelled only when the adapter proves no effect occurred.
+A current fenced worker receiving a definitive validated provider success may commit succeeded from running even if cancelRequestedAt was recorded first; cancellation does not override known success.
+Only an indeterminate effect or an unusable success payload produces outcome_unknown.
+An already-terminal record remains terminal, and a stale worker cannot overwrite it; late evidence is retained for operator reconciliation rather than silently changing the terminal outcome.
 A pending cancellation request prevents retry after dispatch intent even when repeated writes would be idempotent; recovery may inspect provider status without sending another write.
 
 A cancellation arriving after a terminal transition returns that terminal state without changing it.
