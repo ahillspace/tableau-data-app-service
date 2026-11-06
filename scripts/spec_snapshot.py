@@ -44,10 +44,12 @@ def snapshot(root: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=ROOT,
+                        help='Specification directory to check; defaults to this workspace.')
     parser.add_argument('--out', type=Path)
     parser.add_argument('--verify', type=Path, help='Compare source digest with a saved snapshot.')
     args = parser.parse_args()
-    result = snapshot(ROOT)
+    result = snapshot(args.root.resolve())
     if args.verify:
         expected = json.loads(args.verify.read_text())
         result['matches'] = expected['sha256'] == result['sha256']
