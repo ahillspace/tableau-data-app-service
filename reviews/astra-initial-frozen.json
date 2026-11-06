@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "sha256": "ec1f79e438f6b5dbbef97e927b7bba68d44583c0cb87b5fd7ab955224992e3ab",
+  "files": [
+    {
+      "path": "architecture.md",
+      "sha256": "5c848ee42b2690fb9ebf8a7fdaf32a09b0d5395d489a5dc352a19d88da8f7e36"
+    },
+    {
+      "path": "decisions/choices.md",
+      "sha256": "d5873e5602665af01dba0733979093a0c085f637b8f83e79f475a109d682a68b"
+    },
+    {
+      "path": "goals-assessment.md",
+      "sha256": "b960a78519e3eeafecab7d52795db6a015fc067f07e65ec14a69e7ecbca9cb65"
+    },
+    {
+      "path": "specs/access-connections.md",
+      "sha256": "6f5b9ce8ec4c0301b5ba5dc616067cd33d089a12825c84486bda4fac44161a11"
+    },
+    {
+      "path": "specs/contracts.md",
+      "sha256": "5f785932721b7f9d764c2a1bcfd55e0006a5f38948b468564a013e6ced59c379"
+    },
+    {
+      "path": "specs/events-http-sdk.md",
+      "sha256": "e32ed87198f75cabb3ab5215703436cac8cee76d6a84285fdacdec7f546f6006"
+    },
+    {
+      "path": "specs/persistence-operations.md",
+      "sha256": "e302f360a21e91e66b4fbd8a0bcae72e3c634550aee6d22629b2eb44d344d406"
+    },
+    {
+      "path": "specs/providers-execution.md",
+      "sha256": "80b2b75d7093a6d6fb31bd1f6c8a8376524c65d9ab3661cf7d0a065592357aa9"
+    },
+    {
+      "path": "verification.md",
+      "sha256": "de777927187b77e9bbae573a2d83ec9db32ec24fc035593cdb2a2fa7d8323c3f"
+    }
+  ],
+  "errors": [],
+  "scope": "Top-level Markdown (except agent instructions), specs/, decisions/. Review records and rendered artifacts are excluded to avoid recursive digests.",
+  "limits": "Checks file presence and local file links only; does not prove semantic consistency, external URL availability, or implementation behavior."
+}
