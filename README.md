@@ -1,5 +1,8 @@
 # Tableau Data App integration service
 
+Status: the existing component documents are historical drafts from the earlier mixed-model exercise.
+Astra is independently authoring a replacement architecture and initial specification; do not use the earlier draft as an implementation baseline.
+
 A specification workspace for a shared internal integration backend.
 Start with [GOALS.md](GOALS.md).
 This workspace contains design proposals, not an implemented service.
