@@ -93,3 +93,17 @@ The trusted front-door transport, stable browser binding and trusted rebinding m
 These choices do not invalidate the internal domain contracts, but they remain blockers to browser deployment or real credential use.
 
 This review establishes design consistency only and does not establish code correctness, live provider behavior, deployment safety, or user acceptance.
+
+## Final frozen-source closeout
+
+Verified against commit `6d22222` and frozen source SHA-256 `423a982749928069c49a464806dc24d37395b4dc332fb93b2d9faff13facc02f`; the reviewed shared-file hashes match `reviews/round-3-source.json`.
+
+The execution read and idempotency replay now compare the stored execution epoch with both the caller and deployment epoch, deny old-epoch payloads, preserve old keys as deduplication barriers, and gate post-restore writes until backup-gap disposition.
+
+A current fenced worker may commit a definitive validated success despite a prior cancellation request, while terminal records remain fenced from stale workers and only indeterminate effects or unusable success payloads become `outcome_unknown`.
+
+`PaginationDeclaration` now distinguishes non-paginated capabilities from cursor capabilities with required finite limits, and discovery publishes the declared bounds.
+
+`ProviderOperationDefinition` now requires input and response schemas, and registry plus broker validation cover both sides while retaining effect uncertainty for a possibly applied write.
+
+All four targeted residual findings are closed in the frozen specification; this confirms only document consistency and does not establish implementation behavior or user acceptance.

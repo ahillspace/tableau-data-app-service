@@ -27,3 +27,13 @@ No application code was implemented, no runtime or provider tests ran, and no Ta
 The intentional open decisions are the trusted front door and callback continuity proof, stable binding/rebinding, actual Tableau environment/browser support, a first provider's lifecycle guarantees, secret/key and external recovery-epoch operations, and production retention/capacity choices.
 The final design does not pretend those mechanisms already exist.
 Future implementation should first resolve the relevant boundary and then exercise the ten acceptance scenarios with real persistence concurrency and controlled provider failures.
+
+## Targeted closeout
+
+Final frozen source commit: `6d22222`.
+Final aggregate source SHA-256: `423a982749928069c49a464806dc24d37395b4dc332fb93b2d9faff13facc02f`.
+Both reviewers appended targeted confirmations of their exact residual findings against that source without another exploratory round or source mutation.
+All six residual findings are closed in the specification text; the deferred external decisions above remain open.
+The orchestrator reran the manifest comparison, local-link/title checks, whitespace check and structural error/pagination/schema/scenario checks on that frozen source; all passed.
+The manifest's initial creation briefly reported its own not-yet-created README link; regenerating it after creation resolved that structural dependency without changing the source digest.
+No executable TypeScript package exists and no pseudotype compilation or behavioral test is claimed.

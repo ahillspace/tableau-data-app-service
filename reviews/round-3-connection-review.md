@@ -35,3 +35,13 @@ The future adapter must still provide current binding validity and initiating-br
 Provider-specific refresh rotation, token expiry, revocation and event redelivery guarantees, the actual front-door transport, and the operator key service remain external implementation inputs rather than contradictions in this frozen contract.
 
 This was source review only; no provider tests, runtime tests or implementation verification were performed.
+
+## Targeted R3 closeout
+
+Verified frozen commit `6d222220af97190573e6e359a1855069f6e0fe51` with source snapshot SHA-256 `423a982749928069c49a464806dc24d37395b4dc332fb93b2d9faff13facc02f`.
+
+The pagination cursor record now binds `authorityEpoch`, and cursor resolution compares it with the current context and deployment epoch even for connectionless reads; event cursors also bind the epoch and return `RESYNC_REQUIRED` without payloads on mismatch.
+
+Derived credentials now bind to parent connection ID, logical revision, credential version and authority epoch, and routine parent refresh invalidates local child use and requires re-derivation; the spec explicitly does not imply remote child-token revocation.
+
+Both targeted residuals are closed in the frozen text; this confirms source consistency only and does not verify runtime behavior.
