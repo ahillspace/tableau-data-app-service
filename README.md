@@ -1,18 +1,25 @@
 # Tableau Data App integration service
 
-Status: the existing component documents are historical drafts from the earlier mixed-model exercise.
-Astra is independently authoring a replacement architecture and initial specification; do not use the earlier draft as an implementation baseline.
+Status: revised Astra-authored design proposal for one shared internal solutions engineering service.
+User acceptance and implementation verification remain pending.
+This repository contains specifications and review artifacts, not an implemented application.
 
-A specification workspace for a shared internal integration backend.
-Start with [GOALS.md](GOALS.md).
-This workspace contains design proposals, not an implemented service.
+Start with the user's [goal baseline](GOALS.md), the [product requirements and assessment](PRD.md), and the [architecture](architecture.md).
+The design uses a single modular Node application and Postgres, fixed none/service/delegated execution identity, bounded inline capability execution, durable receipts and a verified event feed.
+The front-door transport, tested Tableau/browser support and first real provider remain explicit dependencies.
 
-Read the [architecture](architecture.md), [shared contracts](specs/contracts.md), and [scenario traces](specs/scenarios.md) for the proposed design.
-Component details cover [app policy and provider extension](specs/core.md), [connections and credentials](specs/connections.md), [execution](specs/execution.md), and [HTTP, SDK and events](specs/http-sdk-events.md).
-The [decision record](decisions/0001-scope-and-boundaries.md) distinguishes the user's direction from recommendations and deferred choices.
-Recorded rounds in `reviews/` preserve agent findings and source snapshots; agent convergence is neither user acceptance nor implementation verification.
-The user's latest scope takes precedence over earlier research and authentication proposals.
+The current contracts are:
 
-The three-round review record starts with [drafting](reviews/round-1.md), then [adversarial integration](reviews/round-2.md), and [final verification](reviews/round-3.md).
-The final source manifest is [round-3-source.json](reviews/round-3-source.json); it identifies reviewed text, not tested application behavior.
-The trusted front door, stable binding and callback proof, Tableau environment compatibility and concrete provider guarantees remain open.
+- [Shared types and invariants](specs/contracts.md).
+- [Access, connections and credentials](specs/access-connections.md).
+- [Provider modules and execution](specs/providers-execution.md).
+- [Events, HTTP and browser SDK](specs/events-http-sdk.md).
+- [Persistence and recovery](specs/persistence-operations.md).
+- [Decisions and alternatives](decisions/choices.md).
+- [Verification scenarios and evidence limits](verification.md).
+
+The independent initial proposal is preserved unchanged in [design/astra-initial](design/astra-initial/architecture.md).
+Its [manifest](reviews/astra-initial-frozen.json), [fresh independent review](reviews/astra-initial-independent-review.md), [post-freeze historical comparison](reviews/astra-historical-comparison.md), and [revision disposition](reviews/astra-revision-disposition.md) record the design's provenance and corrections.
+The [revised source manifest](reviews/astra-revised-source.json) identifies the canonical text prepared for targeted confirmation.
+Earlier mixed-model drafts and their review history are historical evidence preserved in Git, including `archive/initial-agent-draft`; they are not the current implementation contract.
+Independent review can establish document-level convergence, not user acceptance, live compatibility or application test results.

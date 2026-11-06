@@ -1,268 +1,286 @@
-# Shared contracts
+# Shared domain contracts
 
-Status: proposal, revision R3 integrated after adversarial and scenario agent review; not user accepted or implemented.
-Only the architecture orchestrator edits this file.
-Pseudotypes define behavior, not a compiled package or an implemented API.
+Status: proposed contract vocabulary and TypeScript shapes, not implementation code.
+The architecture owner owns this file and resolves changes affecting more than one module.
+Names describe domain values; branded IDs, runtime schemas and serialization helpers will be selected during implementation.
+All IDs are opaque strings with bounded wire lengths.
+Times on the wire are UTC RFC 3339 strings, and expiry comparisons use the server clock with a configured safety margin.
 
-## Names and trust
-
-An AppId identifies operator-managed app configuration within one internal administrative boundary.
-A BindingId is an opaque, server-verified execution principal scoped to exactly one app, without requiring a local human account.
-It is not a connection ID, browser-selected viewer name, Tableau session cookie, app URL, or external account ID.
-The future front door must establish binding possession, app association, expiry, revocation, replay protection and safe browser transport before these APIs can accept real callers.
-Delegated connection persistence requires a stable binding or an explicit trusted rebinding mechanism; this mechanism is deliberately unresolved.
-No module may synthesize a trusted context from request body identifiers.
+## Authority and configuration
 
 ```ts
-type Id = string; // opaque server-generated identifier unless operator-configured
-type TrustedContext = {
-  appId: Id; bindingId: Id; requestId: Id;
-  authorityExpiresAt: string; // ISO UTC; checked at admission and dispatch
-  authorityEpoch: string; // deployment recovery generation, outside DB restore boundary
-}; // constructed only by a trusted adapter; never deserialized from client JSON
-type IdentityMode = 'none' | 'app' | 'delegated';
-type Effect = 'read' | 'write';
+type ExecutionIdentity = "none" | "service" | "delegated";
 type CapabilityRef = { id: string; version: number };
+
+type VerifiedAccess = {
+  appId: string;
+  bindingId: string;
+  holderKey?: string;
+  expiresAt: string;
+  authorityRevision: string;
+  recoveryGeneration: string;
+};
+
 type AppRegistration = {
-  id: Id; enabled: boolean; revision: number; allowedOrigins: string[];
-  capabilities: Array<{
+  appId: string;
+  revision: number;
+  enabled: boolean;
+  allowedOrigins: readonly string[];
+  capabilities: readonly {
     capability: CapabilityRef;
-    identity: IdentityMode;
-    appConnectionId?: Id; // mandatory only for app identity
-  }>;
-  eventSubscriptions: EventSubscription[];
+    providerRegistrationId?: string;
+    serviceConnectionId?: string;
+  }[];
+  eventSubscriptions: readonly EventSubscription[];
 };
+
 type ConnectionOwner =
-  | { kind: 'app'; appId: Id }
-  | { kind: 'delegated'; appId: Id; bindingId: Id };
-type ConnectionState = 'authorizing' | 'ready' | 'reauthorization_required'
-  | 'disabled' | 'disconnected';
-type SafeConnection = {
-  id: Id; providerId: string; state: ConnectionState; identity: 'app' | 'delegated';
-  revision: number; authorizationExpiresAt?: string;
-  display?: { label: string }; // optional reviewed provider-mapped account label
-  remoteRevocation?: 'pending' | 'confirmed' | 'unconfirmed' | 'unsupported';
-}; // no raw external subject IDs, credentials or unreviewed identity claims
-type ExecutionState = 'accepted' | 'running' | 'succeeded' | 'failed'
-  | 'cancelled' | 'outcome_unknown';
-type ErrorCode = 'INVALID_INPUT' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND'
-  | 'CONNECTION_REQUIRED' | 'REAUTHORIZATION_REQUIRED' | 'UNSUPPORTED'
-  | 'CONFLICT' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'DEADLINE_EXCEEDED'
-  | 'CANCELLED' | 'OUTCOME_UNKNOWN' | 'CURSOR_EXPIRED' | 'RESYNC_REQUIRED'
-  | 'INTERNAL';
-type Problem = {
-  code: ErrorCode; message: string; requestId: Id;
-  retry: 'never' | 'safe' | 'after_reauthorization' | 'inspect_execution';
-  retryAfterMs?: number; executionId?: Id;
-}; // allowlisted message; no raw provider error body, URL or stack
-type Result<T> = { ok: true; data: T; requestId: Id }
-  | { ok: false; error: Problem };
-type ExecutionRequest = {
-  capability: CapabilityRef; input: unknown;
-  connectionId?: Id; // delegated selection only; no authority conveyed
-  idempotencyKey: string; // required for all execution admissions
-  page?: { cursor?: string; pageSize?: number };
+  | { kind: "service" }
+  | { kind: "delegated"; appId: string; holderKey: string };
+
+type ConnectionUse = {
+  connectionId: string;
+  authorizationEpoch: number;
+  providerRegistrationId: string;
+  owner: ConnectionOwner;
+  recoveryGeneration: string;
 };
-type ExecutionView<T = unknown> = {
-  id: Id; capability: CapabilityRef; state: ExecutionState;
-  result?: T; error?: Problem; createdAt: string; updatedAt: string;
-  cancelRequestedAt?: string;
-};
-type Page<T> = { items: T[]; nextCursor?: string };
 ```
 
-## Capability and provider entrypoints
+Only the trusted boundary produces `VerifiedAccess`; the public wire schema does not accept it as request data.
+`bindingId` identifies one verified request/session authority for audit, while `holderKey` identifies the continuity boundary for delegated ownership.
+The access adapter validates authority revision, expiry and revocation on each request and supports revalidation before dispatch.
+It also verifies equality with the active recovery generation held outside the database restore boundary.
+Only operator recovery changes that generation; normal token renewal or connection refresh does not.
+App policy is loaded from current operator configuration, never from token claims alone.
+The app registration does not contain a browser secret.
+A service connection belongs to the internal administrative boundary and may be explicitly selected by several app configurations.
+Each use is authorized against the requesting app's exact binding and attributed to that app; knowledge of the shared connection ID grants nothing.
+Delegated connections remain owned by one app and holder association.
 
-Each capability has a namespaced ID, immutable major contract version, runtime input/output schemas, identity mode, required provider authorization, effect, maximum duration, input/output size limits and pagination declaration.
-Each descriptor fixes one identity mode; distinct modes require distinct capability entries so callers cannot silently change execution identity.
-Provider authorization is a provider-owned structured requirement, evaluated by that provider against server-stored granted authorization, rather than a universal OAuth scope string.
-Registry construction rejects missing schemas, unknown providers, duplicate capability versions and unsupported credential strategies.
-Schema validation happens at both invocation and result boundaries.
+## Capability definition
 
 ```ts
-type PaginationDeclaration =
-  | { pagination: 'none'; pageLimits?: never }
-  | { pagination: 'cursor'; pageLimits: { defaultSize: number; maxSize: number } };
-type CapabilityDefinition<I, O> = {
-  ref: CapabilityRef; providerId: string; identity: IdentityMode; effect: Effect;
-  inputSchema: object; outputSchema: object;
-  authorization: object; maxDurationMs: number; maxInputBytes: number; maxOutputBytes: number;
-  operations: readonly string[];
-  retry: 'read_safe' | 'provider_idempotent' | 'never';
-  execute(input: I, context: CapabilityContext): Promise<CapabilityOutput<O>>;
-} & PaginationDeclaration;
-type CapabilityContext = {
-  executionId: Id; signal: AbortSignal; deadlineAt: string;
-  provider: AuthorizedProviderClient; // opaque brokered client, never raw secrets
-  page?: { size: number; cursor?: ProviderCursor }; // server-only resolved cursor
+type RetryPolicy =
+  | { kind: "never" }
+  | { kind: "safe-read"; maxAttempts: number }
+  | { kind: "provider-key"; maxAttempts: number; validForSeconds: number };
+
+type CapabilityDefinition = {
+  ref: CapabilityRef;
+  providerId?: string;
+  title: string;
+  inputSchema: JsonSchema;
+  outputSchema: JsonSchema;
+  identity: ExecutionIdentity;
+  requiredPermissions: readonly string[];
+  permissionCheck: "before-dispatch" | "provider-enforced";
+  effect: "read" | "write";
+  retry: RetryPolicy;
+  limits: {
+    deadlineMs: number;
+    maxRequestBytes: number;
+    maxResponseBytes: number;
+    maxProviderRequests: number;
+  };
+  pagination?: { maxPageSize: number; cursorTtlSeconds: number };
+  eventTypes: readonly string[];
 };
-type AuthorizedProviderClient = {
-  call(operation: string, parameters: unknown): Promise<ProviderOperationResult>;
+
+type Page<T> = { items: readonly T[]; nextCursor?: string };
+
+type CommandWindow = {
+  token: string;
+  admitsUntil: string;
+  deduplicatesUntil: string;
+  outputRetentionMs: number;
+  recoveryGeneration: string;
 };
-type ProviderOperationResult = { data: unknown; nextCursor?: ProviderCursor };
-type ProviderFailure = {
-  problem: Problem;
-  certainty: 'not_sent' | 'definitive_no_effect' | 'may_have_effect' | 'confirmed_effect';
-}; // internal classified failure; external messages are never copied
-type ProviderCursor = unknown; // provider-owned server-only pagination value
-type CapabilityOutput<O> = { value: O; continuation?: ProviderCursor };
+
+type DiscoveryResult = {
+  capabilities: readonly CapabilityDefinition[];
+  availability: Readonly<Record<string, "ready" | "holder-required" | "connection-required">>;
+  commandWindow: CommandWindow;
+};
 ```
 
-For paginated reads the handler returns `value: {items: [...]}` and an optional server-only continuation.
-The executor stores the continuation in its cursor repository, inserts only the opaque client handle as nextCursor, then validates the complete Page against the published output schema.
-Non-paginated handlers must not return a continuation; no handler may put native pagination state directly in its public value.
+`JsonSchema` means a self-contained JSON Schema document in the implementation's selected supported dialect, with no network references or executable validation hooks.
+The same source of truth provides runtime validation and exported TypeScript types; parallel hand-maintained schemas are not allowed.
+Selecting the schema library and supported dialect is an implementation decision, not a missing authority rule.
+Schemas bound every collection and untrusted string used by the capability.
+Discovery returns these public definitions, availability keyed by capability ID/version, and a command window, never provider endpoints, credential material, or external subject identifiers.
+Unavailable delegated authorization is reported as `connection-required`; missing holder proof is `holder-required`.
+A discovered capability is still reauthorized at invocation time.
 
-The AuthorizedProviderClient is issued for one execution, connection revision and capability policy, and expires with that execution.
-For identity none, it permits only declared unauthenticated operations.
-Provider modules own protocol-specific authorize/exchange/refresh/derive/revoke/verify-event behavior and safe response mapping.
-The connection service owns encrypted persistence and credential concurrency; the execution service owns admission, retries, dispatch and effect uncertainty.
-The provider transport checks current policy and fences before committing dispatch intent, then checks them again before the network send.
-The durable intent is the authorization boundary for in-flight work; the final check cannot be atomic with a provider network send.
-Disconnect committed before intent prevents dispatch admission; disconnect after intent cannot promise no later wire send.
-Credential leases do not promise to recall a request already accepted by an external provider.
-Provider endpoints and redirect URIs come from operator-reviewed configuration; caller input cannot select arbitrary network destinations.
+Provider permission labels are adapter-defined and are not interpreted as universal OAuth scopes by the core.
+With `before-dispatch`, the adapter must establish that the connection satisfies them from granted scopes or another documented provider authorization signal; absent evidence blocks execution.
+With `provider-enforced`, the provider's authenticated operation is the authoritative permission check when reliable preflight evidence is unavailable, as with some API keys.
+Known missing permission still blocks execution, and the adapter maps provider denial to a safe permission error without weakening the app or connection authority check.
+Registration documents this distinction rather than assuming that every provider exposes introspectable scopes.
+Identity, schema, effect, pagination semantics and required authority are immutable for a published capability version.
+Breaking changes publish a new integer version, which an operator enables explicitly.
 
-## Cross-module calls
+## Commands and results
 
 ```ts
-discover(ctx: TrustedContext): Promise<Result<CapabilityDescriptor[]>>;
-authorizeExecution(ctx: TrustedContext, request: ExecutionRequest): Promise<Result<ExecutionGrant>>;
-beginAuthorization(ctx: TrustedContext, request: {
-  providerId: string; connectionId?: Id;
-}): Promise<Result<AuthorizationStart>>;
-readAuthorizationAttempt(ctx: TrustedContext, attemptId: Id): Promise<Result<AuthorizationAttemptView>>;
-cancelAuthorization(ctx: TrustedContext, attemptId: Id): Promise<Result<AuthorizationAttemptView>>;
-listConnections(ctx: TrustedContext, page?: { cursor?: string }): Promise<Result<Page<SafeConnection>>>;
-readConnection(ctx: TrustedContext, connectionId: Id): Promise<Result<SafeConnection>>;
-disconnect(ctx: TrustedContext, connectionId: Id): Promise<Result<SafeConnection>>;
-acquireProviderClient(grant: ExecutionGrant, signal: AbortSignal): Promise<Result<AuthorizedProviderClient>>;
-submit(ctx: TrustedContext, request: ExecutionRequest): Promise<Result<ExecutionView>>;
-readExecution(ctx: TrustedContext, executionId: Id): Promise<Result<ExecutionView>>;
-cancelExecution(ctx: TrustedContext, executionId: Id): Promise<Result<ExecutionView>>;
-listEvents(ctx: TrustedContext, request: { cursor: string; pageSize?: number }): Promise<Result<EventPage>>;
-resyncEvents(ctx: TrustedContext): Promise<Result<{ baselineCursor: string }>>;
+type InvokeCommand = {
+  capability: CapabilityRef;
+  commandWindow: string;
+  requestKey: string;
+  input: unknown;
+  connectionId?: string;
+  page?: { size: number; cursor?: string };
+};
+
+type EffectEvidence = "none" | "applied" | "partial" | "unknown";
+
+type ServiceError = {
+  code: string;
+  message: string;
+  effect: EffectEvidence;
+  recovery:
+    | { kind: "none" }
+    | { kind: "retry"; afterMs?: number }
+    | { kind: "connect"; providerRegistrationId: string }
+    | { kind: "reauthorize"; connectionId: string }
+    | { kind: "inspect"; invocationId: string }
+    | { kind: "resync" };
+};
+
+type InvocationReceipt = {
+  invocationId: string;
+  capability: CapabilityRef;
+  state: "admitted" | "running" | "completed" | "failed" | "uncertain";
+  effect: EffectEvidence;
+  admittedAt: string;
+  deduplicatesUntil: string;
+  resultAvailableUntil?: string;
+};
+
+type InvocationResult<O> =
+  | { kind: "completed"; receipt: InvocationReceipt; output: O }
+  | { kind: "failed"; receipt?: InvocationReceipt; error: ServiceError }
+  | { kind: "pending"; receipt: InvocationReceipt; retryAfterMs: number }
+  | { kind: "uncertain"; receipt: InvocationReceipt; error: ServiceError };
+
+type CommandLookup = { commandWindow: string; requestKey: string };
+type CommandLookupResult<O> = InvocationResult<O>
+  | { kind: "not-recorded"; admitsUntil: string; deduplicatesUntil: string }
+  | { kind: "history-expired" };
 ```
 
-ExecutionGrant is a server-only, nonserializable decision binding app, binding, capability version, app revision, optional connection ID/revision, identity, authority epoch and authorization requirements.
-Policy is evaluated again immediately before dispatch against current app and connection state.
-App connections are selected exclusively by app registration; submitting connectionId for none or app identity is INVALID_INPUT.
-An inaccessible connection or execution returns NOT_FOUND to avoid exposing its existence.
-A valid caller with an enabled delegated capability and no connection receives CONNECTION_REQUIRED.
-Missing proof receives UNAUTHENTICATED even for a capability needing no external credentials.
-Browser connection list/read/disconnect methods expose only delegated connections owned by the exact app/binding; app-owned lifecycle operations are operator-only.
-Connection listing uses bounded opaque cursors and never returns secret or raw subject data.
+`requestKey` is caller-generated high-entropy command identity, not authority or a provider idempotency key.
+`commandWindow` is the exact server-issued token retained before submission, not an access credential.
+Its authenticated claims bind app, holder-or-binding owner, recovery generation and the three advertised timing fields.
+New admission requires a matching current context and server time before `admitsUntil`.
+Accepted command records remain available for duplicate suppression at least through `deduplicatesUntil`.
+Output expiry is terminal-persistence time plus `outputRetentionMs`, capped at `deduplicatesUntil`; the actual expiry appears in the receipt.
+The window is immutable for one command and cannot be silently replaced during response recovery.
+Expired or old-generation windows cannot create a new invocation, even if the database no longer contains its request key.
+The execution owner derives and stores any provider idempotency key from the durable invocation identity.
+Equal command identity with a different canonical command digest is a conflict, never a second operation.
+Recovery advice is actionable service policy; a raw provider HTTP status or exception cannot grant permission to retry a write.
+`pending` means an already admitted inline request is still supervised, not that a job was queued.
+`uncertain` means the service cannot establish the complete external effect.
+A known partial effect is a failed result with `effect: partial`, unless the overall outcome itself remains uncertain.
+Failure with `effect: applied` includes a provider success followed by output-validation failure.
+None of these states is automatically converted into a fresh write.
+Every admitted result or inspection includes the receipt metadata; `resultAvailableUntil` is present once a retained terminal output exists.
+Lookup is distinct from invocation: `not-recorded` means no currently visible committed receipt, not proof that an original request cannot still arrive or finish admission.
+After the advertised history interval or a recovery-generation change, lookup returns `history-expired` without interpreting absence as permission to resubmit.
+Current access is still required for lookup, and cross-owner resources remain non-visible.
 
-## Authorization and credential types
-
-`SafeConnection.revision` is the single logical authorization revision used by grants, results and cursors.
-It changes for grant replacement, permission changes, disable/enable, disconnect and recovery invalidation; connection owner and provider are immutable.
-Internal `credentialVersion` changes when secret material rotates without changing the logical grant and does not invalidate a grant or old result by itself.
-In-place reauthorization must verify the same provider subject and increments the logical revision; changing subjects creates a new connection ID and requires explicit caller selection.
-The broker records the actual credentialVersion on each dispatch attempt for audit without exposing it to clients or pinning an execution to a rotating token.
-Derived credential cache keys and validity checks include parent connection ID, logical revision, credentialVersion, authority epoch, audience, granted authorization and expiry.
-The initial contract invalidates local derived use and re-derives after any parent credentialVersion change, even when logical revision stays the same.
-This is a conservative local validity fence, not proof that the provider revoked an already-issued child credential.
+## Owner interfaces
 
 ```ts
-type AuthorizationAttemptState = 'pending' | 'callback_received' | 'exchanging'
-  | 'succeeded' | 'failed' | 'cancelled' | 'expired' | 'outcome_unknown';
-type AuthorizationStart = { attemptId: Id; authorizationUrl: string; expiresAt: string };
-type AuthorizationAttemptView = {
-  id: Id; providerId: string; state: AuthorizationAttemptState;
-  connection?: SafeConnection; expiresAt: string; updatedAt: string;
-};
-type SafeCallbackResult = { status: 'completed' | 'denied' | 'expired' | 'unconfirmed' };
-type CredentialState = 'candidate' | 'current' | 'retired' | 'quarantined' | 'cleanup_only' | 'erased';
-type RefreshPhase = 'prepared' | 'dispatched' | 'committed' | 'failed' | 'outcome_unknown';
-type CredentialKind = 'bearer' | 'api_key' | 'derived';
-type AuthorizationMethod = 'none' | 'oauth_code_pkce' | 'client_credentials' | 'operator_secret' | 'derived';
-type RenewalPolicy = 'none' | 'refresh' | 'reacquire' | 'derive';
-type CredentialCandidate = {
-  material: SecretMaterial; kind: CredentialKind; granted: object;
-  subject?: ServerOnlySubject;
-  expiry: { kind: 'at'; at: string } | { kind: 'non_expiring' };
-};
-type CredentialProfile = {
-  method: AuthorizationMethod; kind?: CredentialKind;
-  identities: readonly IdentityMode[]; renewal: RenewalPolicy;
-  refreshReplay: 'unsupported' | 'unsafe' | 'documented_safe';
-  revocation: 'unsupported' | 'supported';
-};
-type AuthorizationAdapter = {
-  profiles: readonly CredentialProfile[];
-  satisfies(granted: object, required: object): boolean;
-  begin?: (request: ProtocolBeginRequest) => Promise<AuthorizationRedirect>;
-  exchange?: (request: ProtocolExchangeRequest) => Promise<CredentialCandidate>;
-  acquire?: (request: ServiceGrantRequest) => Promise<CredentialCandidate>;
-  refresh?: (request: RenewalRequest) => Promise<CredentialCandidate>;
-  derive?: (request: DerivationRequest) => Promise<CredentialCandidate>;
-  revoke?: (request: RevocationRequest) => Promise<'confirmed' | 'unconfirmed'>;
-};
+interface AccessBoundary {
+  verify(evidence: unknown): Promise<VerifiedAccess>;
+  revalidate(access: VerifiedAccess): Promise<void>;
+}
+
+interface CapabilityService {
+  discover(access: VerifiedAccess): Promise<DiscoveryResult>;
+  invoke(access: VerifiedAccess, command: InvokeCommand,
+         signal: AbortSignal): Promise<InvocationResult<unknown>>;
+  inspect(access: VerifiedAccess, invocationId: string): Promise<InvocationResult<unknown>>;
+  lookup(access: VerifiedAccess, command: CommandLookup): Promise<CommandLookupResult<unknown>>;
+}
+
+interface ConnectionService {
+  begin(access: VerifiedAccess, request: AuthorizationRequest): Promise<AuthorizationView>;
+  launch(access: VerifiedAccess, id: string): Promise<AuthorizationLaunch>;
+  inspectAuthorization(access: VerifiedAccess, id: string): Promise<AuthorizationView>;
+  disconnect(access: VerifiedAccess, connectionId: string): Promise<DisconnectResult>;
+}
+
+interface CapabilityContext {
+  invocationId: string;
+  signal: AbortSignal;
+  deadline: string;
+  page?: { size: number; continuation?: ProviderContinuation };
+  request(request: ProviderRequest): Promise<ProviderResponse>;
+}
+
+type ProviderContinuation = unknown;
+type HandlerResult<O> = { value: O; continuation?: ProviderContinuation };
+type CapabilityHandler<I, O> =
+  (input: I, context: CapabilityContext) => Promise<HandlerResult<O>>;
 ```
 
-SecretMaterial and ServerOnlySubject are opaque internal values accessible only to credential protocol code and its secure transport.
-ProtocolBeginRequest contains server-created state, PKCE challenge, exact redirect URI, the provider-owned authorization requirements of currently enabled delegated capabilities, and operator provider-configuration reference.
-The adapter constructs the smallest documented request satisfying that reviewed requirement set within the configured authorization ceiling; if it cannot combine the requirements safely, begin returns UNSUPPORTED.
-AuthorizationRedirect contains the reviewed authorization URL.
-ProtocolExchangeRequest contains validated code, decrypted verifier, exact redirect URI, configuration reference, deadline and signal.
-ServiceGrantRequest contains operator configuration, reviewed authorization requirements, deadline and signal.
-RenewalRequest contains current secret material, granted authorization, configuration reference, deadline and signal.
-DerivationRequest additionally contains parent connection/revision/credentialVersion, required audience, authorization and maximum lifetime.
-RevocationRequest contains restricted cleanup material, configuration reference, deadline and signal.
-These values never cross HTTP, SDK or capability-handler boundaries.
-An absent hook means unsupported, not a fallback; registry validation requires every hook needed by each declared profile and rejects mismatches.
-No expiry may be inferred from absence; the adapter must map documented provider behavior to an explicit candidate expiry.
+`AuthorizationRequest`, `AuthorizationView`, `AuthorizationLaunch` and `DisconnectResult` are defined in [access-connections.md](access-connections.md).
+`ProviderRequest` and `ProviderResponse` are defined in [providers-execution.md](providers-execution.md).
+These signatures deliberately exclude a raw database, arbitrary network client, secret getter, HTTP request, or mutable global session.
+The registration layer binds the capability handler to its approved provider registration and connection before giving it a `CapabilityContext`.
+Trusted provider authorization hooks receive credential material only in their narrower privileged lifecycle context.
 
-Callback processing is a server protocol operation `handleProviderCallback(providerId, rawProtocolRequest): Promise<SafeCallbackResult>`.
-The connection owner validates protocol correlation and atomically claims the attempt before exchange, then checks current app revision, binding validity, authority epoch and attempt fence before installation.
-The future trusted adapter must support checking a stored binding's current validity and callback continuity without treating state as caller authentication.
-Its revocation checks must compose with local authorization-attempt and dispatch fencing; a cached claim alone is not a current-validity check.
-If that proof/check is unavailable, delegated authorization cannot activate; this is a front-door blocker, not permission to trust correlation alone.
-Operator-only app credential provisioning, rotation, enable/disable and registration mutation use a separate OperatorContext; no browser endpoint accepts this context.
+`ProviderContinuation` is provider-owned bounded JSON data that never appears in the public result directly.
+For paginated reads, the handler returns `value: { items: [...] }` and an optional private continuation; the execution owner produces `Page<T>.nextCursor` before public output validation.
+On the next page, execution validates and unwraps that cursor into `CapabilityContext.page.continuation`.
+The handler never creates an encrypted cursor or receives holder, connection-epoch or recovery-generation details.
+Non-paginated handlers return no continuation, and the registry permits pagination only for read capabilities.
 
-## Event types
+## Event registration
 
 ```ts
 type EventRef = { providerId: string; type: string; version: number };
-type EventSubscription = {
-  id: Id; revision: number; event: EventRef; connectionId: Id;
-  audience: 'app' | 'connection_owner';
-};
 type EventDefinition = {
-  ref: EventRef; dataSchema: object;
-  resyncCapability: CapabilityRef; // current-state read, explicitly enabled by app policy
+  ref: EventRef;
+  dataSchema: JsonSchema;
+  resyncCapability: CapabilityRef;
 };
-type EventEnvelope<T = unknown> = {
-  eventId: Id; event: EventRef; receivedAt: string; occurredAt?: string; data: T;
-};
-type EventPage<T = unknown> = { items: EventEnvelope<T>[]; nextCursor: string };
-type ProviderEventAdapter = {
-  definitions: readonly EventDefinition[];
-  maxRedeliveryAgeMs: number; // documented bound, or initial event support is unsupported
-  verifyAndNormalize(request: RawEventRequest): Promise<VerifiedProviderEvent>;
+
+type EventSubscription = {
+  id: string;
+  revision: number;
+  event: EventRef;
+  providerRegistrationId: string;
+  sourceAssociationId: string;
+  connectionId?: string;
+  audience: "app" | "connection-owner";
 };
 ```
 
-RawEventRequest consists of bounded original bytes, relevant headers and fixed endpoint configuration.
-VerifiedProviderEvent contains verified source event ID, EventRef, validated safe data and a server-resolved connection reference with its logical revision; it is never a browser payload.
-Subscription audience app is valid only for an app-owned connection and explicitly permits current bindings of that app; connection_owner is valid only for a delegated connection and its exact binding owner.
-The operator approves subscriptions; neither event payloads nor browser bodies nominate recipients.
-Initial event delivery requires a configured connection and a current-state read capability; unauthenticated connectionless events and events without a usable resync read are unsupported until explicitly designed.
-Subscription and event schema version, original connection revision, current capability policy and authority epoch constrain every delivery.
+The provider module registers versioned event schemas and an authoritative read capability for resync.
+The operator owns subscriptions within each app registration and provisions the verified provider-source associations they reference.
+The registry/configuration validator checks event version, source/connection compatibility, audience rules and an explicitly enabled compatible resync read.
+`connection-owner` requires a delegated connection owned by the same app; app audiences cannot include delegated connection data.
+An app audience is an explicit operator policy for a service connection or an authenticated registration-level source.
+Public event data is validated against `EventDefinition.dataSchema` before persistence.
 
-## Invariants
+## Stable failure categories
 
-- One app configuration belongs to the team, not a customer tenant.
-- Credentials never cross the HTTP/SDK boundary or capability result boundary.
-- Delegated access requires equality of both app and binding owner.
-- App credential use requires current explicit capability-to-connection configuration.
-- External provider subjects are credential metadata, not local accounts or proof of caller identity.
-- Authorization failure cannot substitute a different execution identity.
-- A write whose dispatch may have happened cannot be reported as safely failed or blindly retried.
-- A callback, webhook, event cursor or idempotency key is not independent authority to read a resource.
+| Category | Meaning | Typical recovery |
+| --- | --- | --- |
+| `access-required`, `access-expired`, `access-denied` | Missing, expired or insufficient backend authority. | Renew the selected front-door binding; no provider login substitution. |
+| `not-found` | Unknown or non-visible connection, capability, receipt or authorization transaction. | None; avoid revealing another holder's resources. |
+| `invalid-input`, `request-conflict`, `unsupported` | Contract violation, reused key with changed command, or unsupported lifecycle. | Correct the request or module/configuration. |
+| `holder-required`, `connection-required`, `reauthorization-required` | Missing delegated binding or provider authorization. | Obtain the required binding or explicit connection flow. |
+| `permission-required` | Connection lacks proven provider permissions. | Explicit reauthorization if supported. |
+| `busy`, `rate-limited`, `provider-unavailable` | Bounded local or remote capacity failure. | Retry only when effect evidence and policy permit. |
+| `cancelled`, `deadline-exceeded` | Work stopped or exceeded its budget. | Inspect any admitted write before deciding on a new command. |
+| `outcome-unknown`, `partial-effect`, `invalid-provider-output` | External effect cannot be represented as normal success. | Inspect or provider-specific reconciliation. |
+| `cursor-expired`, `resync-required`, `result-expired`, `history-expired` | Required retained state or recovery generation is unavailable. | Reread current state or reconcile the old command; do not silently repeat a write. |
+| `internal-error`, `storage-unavailable` | Service cannot uphold its contract. | Safe bounded retry only where no uncertain effect exists. |
 
-## Deferred boundary
-
-This contract intentionally cannot authenticate a production Data App until the front-door trust mechanism is selected and verified.
-Operator fixtures may construct trusted contexts in future contract tests, but cannot be offered as a browser authentication design.
-Tableau Cloud/Server and embedding compatibility are an environment capability gate to verify before implementation; the core does not promise parity.
+Error messages and details are service-controlled safe metadata.
+Provider bodies, credential fields, callback query strings, and external account identities do not flow into this common error shape.

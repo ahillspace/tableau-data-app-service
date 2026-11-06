@@ -1,98 +1,111 @@
 # Architecture proposal
 
-Status: proposed design reviewed through three bounded agent rounds; not accepted by the user and not implemented.
-[GOALS.md](GOALS.md) is the requirements baseline.
-[Shared contracts](specs/contracts.md) resolve cross-component names and invariants.
+Status: revised architecture-owner proposal following independent review; not user accepted or implemented.
+The requirements and unresolved dependencies are in [PRD.md](PRD.md).
+The shared vocabulary and proposed domain interfaces are in [specs/contracts.md](specs/contracts.md).
 
-## Scope and unresolved boundary
+## Application shape
 
-One internal solutions engineering team operates one service deployment for multiple configured Tableau Data Apps.
-The service discovers capabilities, selects explicitly authorized connections, executes bounded provider operations, and delivers safe events.
-An operation may need no external credentials, an app credential, or a delegated individual connection.
-Those choices do not imply a new end-user account system.
-
-App IDs and origins support configuration and browser restrictions, but prove neither app authority nor viewer identity.
-A future trusted front-door adapter must create the app-scoped execution binding required by the domain contracts.
-Selecting that adapter, registering callers and verifying Tableau/browser integration are intentionally deferred decisions.
-Consequently these specs are sufficiently explicit for domain contract review, but not sufficient to launch a secure browser-facing service.
-Support must be checked for each Tableau environment and version; Cloud and Server parity is not assumed.
-
-## Composition
-
-Use the selected strict TypeScript, Node.js LTS, Fastify, Postgres and Kysely stack.
-Keep domain types independent of Fastify request objects and Kysely row types.
-Start with a single deployed Node service and one Postgres database.
-Bounded background work runs in the same service using database leases; multiple replicas can share this ownership model if deployment later requires them.
-There is no dynamic plugin loader, job broker, separate event service, generic workflow engine, or provider runtime sandbox in this proposal.
+The service mediates between configured Data Apps and registered external capabilities.
+It performs five steps for an invocation: establish authority, resolve the configured capability and identity, obtain usable credentials when needed, execute bounded provider requests, and record a safe outcome.
+It separately receives verified external events and makes permitted notifications available to Data Apps.
 
 ```mermaid
 flowchart LR
-  App[Tableau Data App / SDK] --> Door[Future trusted front door]
-  Door --> HTTP[Fastify transport]
-  HTTP --> Policy[App and capability policy]
-  HTTP --> Exec[Execution service]
-  Policy --> Registry[Static provider and capability registry]
-  Exec --> Conn[Connection and credential broker]
-  Exec --> Client[Authorized provider transport]
-  Conn --> Client
-  Client --> External[External service]
-  External --> Events[Verified event ingress]
-  Events --> HTTP
-  Policy --> DB[(Postgres)]
-  Exec --> DB
-  Conn --> DB
-  Events --> DB
+  App[Data App and browser SDK] --> HTTP[HTTP adapter]
+  Door[Trusted request binding - transport deferred] --> HTTP
+  HTTP --> Access[Access policy]
+  Access --> Catalog[Capability registry]
+  Access --> Execute[Inline execution]
+  Execute --> Connections[Connections and credentials]
+  Execute --> Modules[Provider capability modules]
+  Modules --> Outbound[Controlled outbound requests]
+  Connections --> Outbound
+  Outbound --> External[External service]
+  External --> Ingress[Verified event ingress]
+  Ingress --> Feed[Durable event feed]
+  HTTP --> Feed
+  Connections --> DB[(Postgres)]
+  Execute --> DB
+  Feed --> DB
 ```
 
-The arrows identify responsibility dependencies; they do not grant arbitrary database access across modules.
-Each module has an internal repository boundary and owns its table mutations.
-Cross-module atomic work is exposed as a narrow transaction-aware operation owned by the participating modules, not direct SQL into another module's tables.
-Foreign keys and uniqueness constraints protect references in addition to service checks.
+The diagram shows logical responsibilities in one application.
+Postgres owns durable coordination, encrypted secret records, receipts, and event replay.
+No broker, scheduler, separate runner, dynamic code loader, or internal RPC is required initially.
+Provider modules are trusted reviewed application code, not untrusted hosted functions.
 
-| Component owner | Responsibility | Owned state | Narrow dependencies |
+## Owners and interfaces
+
+| Owner | Owns | Public domain seam | Must not own |
 | --- | --- | --- | --- |
-| App and policy module | Operator registration, capability allowlist, execution grants | App registrations and revisions | Static registry; connection authorization summaries |
-| Provider and capability module | Static descriptors, protocol implementation, schemas and safe mapping | Reviewed source configuration; no mutable secret state | Brokered provider transport |
-| Connection module | Authorization attempts, ownership, credential lifecycle, revocation | Connections, encrypted credentials, auth attempts, refresh leases | Protocol adapters; operator secret source |
-| Execution module | Admission, idempotency, claims, dispatch intent, terminal outcomes | Executions, attempts, deduplication keys, opaque pagination references | Policy; connection broker; capability handlers |
-| HTTP/SDK module | Envelope translation, browser contract, safe error presentation | No domain state | Trusted adapter; domain services |
-| Event module | Verified ingestion, deduplication, routing, replay retention | Event subscriptions, receipts and delivery log | Provider verifier; policy and connection summaries |
+| Access | App registrations, enabled capabilities, service bindings, verified holder policy. | Resolve and authorize a request context. | Provider credentials or local human profiles. |
+| Connections | Connection authority, authorization transactions, external subject association, disconnect. | Begin/inspect authorization, resolve a permitted connection, disconnect. | HTTP sessions or arbitrary caller-selected identity. |
+| Credentials | Encrypted material, expiry, renewal attempts, credential revisions. | Supply scoped outbound authorization for an approved connection. | Capability business behavior or HTTP responses. |
+| Capability registry | Immutable versioned schemas, identity, effect, permissions and limits. | Discover permitted definitions and resolve an exact version. | Mutable credentials or execution state. |
+| Execution | Admission, command deduplication, deadlines, effect evidence, receipts. | Invoke and inspect an authorized operation. | General background work or provider-specific compensation. |
+| Provider modules | Protocol mapping, endpoint policy, permission evidence, capability handlers, event interpretation. | Registered provider hooks and handlers. | Connection-use policy or database access. |
+| Events | Verified ingress admission, deduplication, audience routing, durable replay. | Accept a verified event and read an authorized feed. | Arbitrary workflows or implicit capability execution. |
+| HTTP/SDK | Wire validation, binding adapter integration, serialization, browser lifecycle. | The versioned client API. | Credential refresh logic or authority inferred from an origin. |
+| Persistence | Transactions, constraints, encrypted storage and conditional updates. | Owner-specific repositories. | A second copy of domain policy. |
 
-## Consistency and failure model
+Owners are code responsibilities, not proposed staffing or service boundaries.
+A small composition root constructs these modules and passes explicit dependencies.
+Keep Fastify request/reply objects and Kysely transaction types out of domain interfaces.
+Share a transaction only where an invariant spans persisted records; do not build a generic repository or event bus framework.
 
-Use database transactions for service-owned state changes and optimistic revisions or fenced leases for cross-request ownership.
-Never hold a database transaction open while waiting for a provider network response or browser authorization.
-Postgres commit and external provider effects cannot be one atomic transaction.
-The execution and credential specifications therefore preserve uncertainty when an external effect may have occurred before the local result was recorded.
-Retries depend on the declared operation and provider guarantee, not merely an HTTP timeout or a released worker lease.
+## Identity and authority
 
-App configuration revisions, connection generations and execution claim fences are independent protections.
-Changing one does not revoke a request already accepted by a provider.
-Read, discovery, execution polling, event replay and connection status each recheck current caller ownership and policy.
-An in-flight result may be recorded after revocation for recovery/audit, but revoked callers cannot retrieve protected output.
+An app identifies the configured Data App for policy and attribution.
+A holder identifies a verified execution binding entitled to use a delegated connection; it need not be a named person or local account.
+An external subject identifies the provider account that authorized a connection.
+These identifiers have different meanings and are never interchangeable.
 
-## Configuration and operations
+Every browser request needs a verified app context, even if the requested capability uses no external credentials.
+A delegated capability additionally needs a holder that the trusted boundary can prove on subsequent requests.
+The service stores only the opaque holder association required for authorization, without creating a user profile.
+External account authentication does not itself prove the app or grant unrelated connection-use authority.
 
-Operator-managed registration is the initial administration interface; these specs do not require an administration UI or public registration endpoint.
-Configuration changes are validated and audited before becoming active.
-Provider client secrets and credential-encryption keys are deployment secret references, not source-controlled app settings.
-Choose a maintained secret-management and encryption library during implementation; do not invent cryptography or expose secret read APIs.
-Logs contain app ID, internal binding ID where needed, execution ID, capability version, outcome code and timing, with bounded retention and access.
-Do not log inputs, outputs, tokens, provider account IDs, authorization URLs, raw callbacks or provider error bodies by default.
-Operator diagnostics use the same redaction rules; privileged database access is an operational trust boundary, not a browser feature.
+A capability has one fixed execution identity: none, service, or delegated.
+The app configuration explicitly selects a service connection for a service capability.
+A delegated connection must match both app and holder, plus the capability's provider registration and required permission evidence.
+There is no caller-selected fallback order among identities.
+Where a provider supports an individual action with delegated authorization, the capability uses delegated identity.
+An intentionally service-owned operation is a separately described capability with explicit app policy.
 
-Core metrics cover admission/dispatch counts, latency, queue age, refresh failures, unknown outcomes, rejected callbacks and event lag.
-The initial implementation must choose storage retention and recovery operations before production use.
-Proposed limits in the component specifications are review defaults, not measured capacity or user-approved service objectives.
+An authorization URL is a locator, not a credential for attaching an external account.
+The browser must prove the initiating app and holder at an authenticated launch step before receiving flow correlation state.
+The chosen access adapter must support that launch context; browser transport remains a deferred decision.
 
-## Extension and implementation readiness
+## Persistence and concurrency
 
-The [core and provider specification](specs/core.md) describes adding a provider and capability without changing existing capability logic.
-The [connection specification](specs/connections.md) owns credential behavior.
-The [execution specification](specs/execution.md) and [HTTP/SDK/events specification](specs/http-sdk-events.md) own invocation and delivery.
-[Scenario traces](specs/scenarios.md) cross those ownership boundaries.
-[Decisions and open questions](decisions/0001-scope-and-boundaries.md) distinguish the user's direction from architecture recommendations and deferred choices.
+The database records facts needed to protect authority and recover from interruptions, not a general execution graph.
+Short transactions establish ownership and state transitions before network effects and commit results afterwards.
+No database transaction remains open while waiting for a provider response.
+Conditional updates check the connection authorization epoch, credential revision, operation claim, and current app policy where relevant.
 
-The next implementation phase needs an accepted front-door contract, an environment compatibility check and a first concrete provider's documented authorization semantics.
-It also needs actual tests, security review, migrations and operational recovery exercises.
-Agent review checks specification coherence only and must not be presented as any of those activities.
+Disconnect commits a terminal connection state and increments its authorization epoch before cleanup.
+An old refresh result cannot recreate or reactivate that connection.
+A credential renewal attempt records whether the provider request may have been sent.
+An expired claim is evidence that local work stopped being supervised, not evidence that the provider did nothing.
+An invocation receipt likewise distinguishes a failure known to have no effect from an uncertain or partial external write.
+
+A recovery generation held outside database backups binds access, authorization transactions, commands and cursors to one valid history.
+Database restore closes private reads and all work admission until old authority is invalidated and the operator reconciles the lost history.
+Server-issued command windows make admission and duplicate-suppression deadlines observable and enforceable even after a complete response is lost.
+
+Current authority is checked before each provider dispatch and before exposing a receipt, event, or result.
+Revocation prevents future admission; it cannot retract a request already admitted for network dispatch or an effect already applied by the provider.
+The exact admission point and this race limit are part of the contract, not an implied guarantee of instantaneous remote cancellation.
+
+## Extension path
+
+Adding a provider registers its configuration schema, authorization methods, credential validation and renewal hooks, endpoint rules, and optional event verifier.
+Adding a capability registers its exact public contract and a handler using the scoped outbound request seam.
+Neither change needs new tables, routes, browser credential logic, or edits to existing capability handlers for already supported lifecycle behavior.
+A genuinely new authorization protocol may require a new reusable protocol adapter; it still uses the existing connection authority and lifecycle.
+A capability needing durable work after the request ends requires a separate design decision with restart and cancellation semantics.
+
+The module contracts are detailed in [specs/access-connections.md](specs/access-connections.md), [specs/providers-execution.md](specs/providers-execution.md), and [specs/events-http-sdk.md](specs/events-http-sdk.md).
+Storage and operational ownership are in [specs/persistence-operations.md](specs/persistence-operations.md).
+Material alternatives and deferred scope are in [decisions/choices.md](decisions/choices.md).
