@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { AuthorizationService } from "../src/connections/authorizations.js";
+import { OperatorConnections } from "../src/connections/operator.js";
 import { createHttpApp } from "../src/http/app.js";
 import { registerAuthorizationRoutes } from "../src/http/authorization-routes.js";
 import { ProviderRegistry } from "../src/providers/registry.js";
@@ -171,6 +172,53 @@ test("OAuth uses one browser-bound exchange and atomically publishes; cancellati
     assert.equal(row.credential_generation, 1);
     assert.equal(row.state, "renewal-uncertain");
     assert.equal((await service.view(f.alice.access, second.id)).state, "cancelled");
+    await f.db
+      .updateTable("provider_registrations")
+      .set({ mode: "operator" })
+      .where("id", "=", "fixture")
+      .execute();
+    const shared = { ...provider, mode: "operator" as const };
+    const sharedRegistry = new ProviderRegistry([shared]);
+    const operators = new OperatorConnections(
+      f.db,
+      f.credentials,
+      sharedRegistry,
+      service.policy,
+      { operationMs: 60000, leaseMs: 10000 },
+      new Set(["operator"]),
+    );
+    const sharedService = new AuthorizationService(
+      f.db,
+      f.access,
+      f.credentials,
+      sharedRegistry,
+      f.secrets,
+      service.policy,
+      60000,
+      10000,
+      operators,
+    );
+    const proof = randomSecret();
+    const sharedAttempt = await sharedService.beginOperator(
+      "operator",
+      "one",
+      { providerRegistrationId: "fixture", initiationVerifier: verifier(proof) },
+      [{ deploymentId: "cloud", siteId: "site", subjectId: "alice" }],
+    );
+    const sharedLaunch = await sharedService.launch(sharedAttempt.id, proof);
+    const sharedState = new URL(sharedLaunch.authorizationUrl).searchParams.get("state") ?? "";
+    await sharedService.callback(
+      "fixture",
+      new URLSearchParams({ state: sharedState, code: "operator-code" }),
+      sharedLaunch.browserSecret,
+      new AbortController().signal,
+    );
+    const sharedView = await sharedService.viewOperator("operator", "one", sharedAttempt.id);
+    assert.equal(sharedView.state, "succeeded");
+    assert.ok(sharedView.connectionId);
+    assert.equal(await f.access.connectionVisible(f.alice.access, sharedView.connectionId), true);
+    assert.equal(await f.access.connectionVisible(f.bob.access, sharedView.connectionId), false);
+    await assert.rejects(sharedService.view(f.alice.access, sharedAttempt.id), { status: 404 });
   } finally {
     release();
     await app.close();

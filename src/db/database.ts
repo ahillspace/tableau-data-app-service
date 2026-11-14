@@ -41,6 +41,7 @@ export async function assertSchema(db: Database): Promise<void> {
       "010_identity",
       "011_authorizations",
       "012_configuration",
+      "013_operator_authorizations",
       "020_jobs",
       "030_events",
     ].some((name) => !installed.some((row) => row.name === name))

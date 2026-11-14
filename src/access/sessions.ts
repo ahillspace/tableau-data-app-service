@@ -17,27 +17,8 @@ const adapterStateSchema = z.strictObject({
   clientId: z.string(),
   deviceId: z.string(),
 });
-// The initial browser binding is unresolved. Production composition installs the
-// closed guard below. No cookie/nonce/ancestor assertion is treated as its substitute.
-export interface EnrollmentGuard {
-  readonly available: boolean;
-  check(
-    transactionId: string,
-    phase: "launch" | "redeem",
-    browser: Headers,
-  ): Promise<{ profile: string }>;
-}
-export const closedEnrollmentGuard: EnrollmentGuard = {
-  available: false,
-  async check() {
-    throw new ServiceError(
-      503,
-      "initial-enrollment-unavailable",
-      "Initial authentication is unavailable pending verified browser enrollment",
-    );
-  },
-};
-
+// Initial cross-client silent-enrollment hardening is explicitly deferred.
+// State, PKCE, one-use initiation proof and callback cookie remain mandatory.
 function response(access: AccessContext, accessToken: string, expiresAt: Date): SessionResponse {
   return {
     accessToken,
@@ -69,14 +50,12 @@ export class SessionService {
     readonly access: AccessService,
     readonly secrets: SecretBox,
     readonly adapters: ReadonlyMap<string, IdentityAdapter>,
-    readonly guard: EnrollmentGuard,
     readonly transactionLifetimeMs: number,
   ) {
     if (!Number.isSafeInteger(transactionLifetimeMs) || transactionLifetimeMs <= 0)
       throw new Error("Invalid transaction lifetime");
   }
   async begin(appId: string, deploymentId: string, initiationVerifier: string) {
-    if (!this.guard.available) await this.guard.check("", "launch", new Headers());
     const adapter = this.adapters.get(deploymentId);
     if (!adapter || !/^[a-f0-9]{64}$/.test(initiationVerifier))
       throw new ServiceError(400, "invalid-input", "Invalid authentication selection");
@@ -121,7 +100,6 @@ export class SessionService {
   async launch(
     id: string,
     proof: string,
-    browser: Headers,
   ): Promise<{ authorizationUrl: string; browserSecret: string }> {
     const hint = await this.db
       .selectFrom("session_transactions")
@@ -130,7 +108,6 @@ export class SessionService {
       .executeTakeFirst();
     if (!hint) absent();
     if (!verifySecret(proof, hint.initiation_verifier)) throw authFailure();
-    await this.guard.check(id, "launch", browser);
     const adapter = this.adapters.get(hint.deployment_id);
     if (!adapter)
       throw new ServiceError(503, "adapter-unavailable", "Identity adapter unavailable");
@@ -311,12 +288,7 @@ export class SessionService {
       throw error;
     }
   }
-  async redeem(
-    id: string,
-    proof: string,
-    browser: Headers,
-  ): Promise<{ response: SessionResponse; cookie: string }> {
-    const allowed = await this.guard.check(id, "redeem", browser);
+  async redeem(id: string, proof: string): Promise<{ response: SessionResponse; cookie: string }> {
     const hint = await this.db
       .selectFrom("session_transactions")
       .selectAll()
@@ -363,7 +335,7 @@ export class SessionService {
         .values({
           verifier: verifier(restoration),
           session_id: access.sessionId,
-          browser_profile: allowed.profile,
+          browser_profile: "partitioned-service-cookie-v1",
         })
         .execute();
       await tx

@@ -2,7 +2,7 @@
 
 These checks use actual Chromium, HTTP(S), Postgres, core authority/session routes, and SDK code with explicit synthetic identity/provider fixtures.
 They do not prove initial-enrollment security, real Tableau package restrictions, live Slack behavior, or a supported Server configuration.
-Production composition cannot select the test guard or fixture adapters.
+Production composition cannot select fixture adapters; initial cross-client silent-enrollment hardening is explicitly deferred without a disable gate.
 
 Prepare a temporary directory outside the repository for a one-day self-signed loopback HTTPS certificate, an isolated Chrome profile, downloads, media, and evidence.
 Use `openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1` with task-local `-keyout` and `-out` paths.
@@ -13,7 +13,7 @@ No media framework or bearer URL is involved.
 
 Set `SDK_TEST_KEY`, `SDK_TEST_CERT`, and `SDK_TEST_MEDIA` and run `npx tsx test/sdk-browser-fixture.ts`.
 The fixture binds random loopback ports, creates isolated temporary Postgres state, and prints its HTTPS origin.
-Its synthetic enrollment guard accepts only this test process; the checker later closes it and verifies the production-style unavailable error.
+It uses the same functional session service as production with a synthetic identity adapter; the checker verifies initial login, returning restoration and a subsequent deliberate login.
 Its upstream enforces the entrusted fixture credential, records only safe request metadata, and exposes zero named Slack capabilities.
 Set `SDK_TEST_OAUTH=1` in both fixture and checker processes for the OAuth variant; the default exercises configured static setup.
 The OAuth variant uses the actual core authorization routes, a loopback HTTPS provider, one-use fixture codes and validated PKCE token exchanges for both Connect and Reconnect.

@@ -9,7 +9,7 @@ import {
 } from "../src/application-config.js";
 import { testPostgres } from "./postgres.js";
 
-test("composed Slack application runs auth/proxy discovery with Jobs and Redis off, refuses enrollment, and rejects silent deployment retargeting", async () => {
+test("composed Slack application runs auth/proxy discovery with Jobs and Redis off, permits inert login initiation, and rejects silent deployment retargeting", async () => {
   const settings = applicationConfigSchema.parse(
     JSON.parse(await readFile(new URL("../service-config.example.json", import.meta.url), "utf8")),
   );
@@ -23,7 +23,7 @@ test("composed Slack application runs auth/proxy discovery with Jobs and Redis o
     assert.equal(application.jobs, undefined);
     assert.equal(await application.events.health(), "disabled");
     assert.equal((await application.app.inject({ url: "/health/ready" })).statusCode, 200);
-    const blocked = await application.app.inject({
+    const initiated = await application.app.inject({
       method: "POST",
       url: "/v1/session/transactions",
       payload: {
@@ -32,8 +32,8 @@ test("composed Slack application runs auth/proxy discovery with Jobs and Redis o
         initiationVerifier: "a".repeat(64),
       },
     });
-    assert.equal(blocked.statusCode, 503);
-    assert.equal(blocked.json().error.code, "initial-enrollment-unavailable");
+    assert.equal(initiated.statusCode, 201);
+    assert.ok(initiated.json().id);
     assert.equal(
       (await application.app.inject({ url: "/v1/apps/slack-example/jobs" })).statusCode,
       404,

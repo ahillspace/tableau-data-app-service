@@ -32,7 +32,8 @@ export type CredentialActor = {
   authenticationExpiresAt: Date;
   lock(tx: CoreTransaction, providerId: string, ref?: MutationRef): Promise<void>;
 };
-type Actor = AccessContext | CredentialActor;
+export type CredentialAuthority = AccessContext | CredentialActor;
+type Actor = CredentialAuthority;
 const inProgress = () =>
   new ServiceError(409, "credential-mutation-in-progress", "Credential mutation is in progress");
 export class CredentialsService {
@@ -49,7 +50,7 @@ export class CredentialsService {
   }
 
   async capture(
-    access: AccessContext,
+    access: Actor,
     provider: ProviderRegistration,
     replacement?: Replacement,
   ): Promise<Connection | undefined> {
@@ -58,7 +59,7 @@ export class CredentialsService {
       .selectFrom("connections")
       .selectAll()
       .where("id", "=", replacement.connectionId)
-      .where("owner_id", "=", access.ownerId)
+      .where("owner_id", access.ownerId === null ? "is" : "=", access.ownerId)
       .where("provider_registration_id", "=", provider.id)
       .executeTakeFirst();
     if (!connection) absent();
@@ -119,15 +120,16 @@ export class CredentialsService {
   }
 
   async publishLocal(
-    access: AccessContext,
+    access: Actor,
     provider: ProviderRegistration,
     candidate: CredentialBundle,
     previous?: Connection,
+    finalize?: (tx: CoreTransaction, row: Connection) => Promise<void>,
   ): Promise<Connection> {
     // Validation and authenticated encryption finish before any authority lock.
     const prepared = this.prepare(provider, candidate, previous);
     return this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, provider.id);
+      await this.lockActor(tx, access, provider.id);
       if (previous) {
         const current = await tx
           .selectFrom("connections")
@@ -166,23 +168,26 @@ export class CredentialsService {
           : (previous?.last_connector_reauth_at ?? null),
         mutation_id: null,
       };
-      if (previous)
-        return tx
-          .updateTable("connections")
-          .set(values)
-          .where("id", "=", prepared.id)
-          .returningAll()
-          .executeTakeFirstOrThrow();
-      return tx
-        .insertInto("connections")
-        .values({
-          id: prepared.id,
-          provider_registration_id: provider.id,
-          owner_id: access.ownerId,
-          ...values,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
+      const row = previous
+        ? await tx
+            .updateTable("connections")
+            .set(values)
+            .where("id", "=", prepared.id)
+            .returningAll()
+            .executeTakeFirstOrThrow()
+        : await tx
+            .insertInto("connections")
+            .values({
+              id: prepared.id,
+              provider_registration_id: provider.id,
+              owner_id: access.ownerId,
+              ...values,
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+      await finalize?.(tx, row);
+      if (access.authenticationExpiresAt <= (await databaseTime(tx))) stale();
+      return row;
     });
   }
 
@@ -458,13 +463,13 @@ export class CredentialsService {
     ref: MutationRef,
     forced = false,
     options?: {
-      initiator?: { access: AccessContext; providerId: string };
+      initiator?: { access: Actor; providerId: string };
       finalize(tx: CoreTransaction): Promise<void>;
     },
   ): Promise<"released" | "uncertain" | "stale"> {
     return this.db.transaction().execute(async (tx) => {
       if (options?.initiator)
-        await this.access.lockAuthority(tx, options.initiator.access, options.initiator.providerId);
+        await this.lockActor(tx, options.initiator.access, options.initiator.providerId, ref);
       const connection = ref.connectionId
         ? await tx
             .selectFrom("connections")

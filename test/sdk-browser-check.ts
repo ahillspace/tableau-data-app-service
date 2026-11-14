@@ -155,14 +155,10 @@ assert.equal(
   await readFile(join(downloads, downloaded), "utf8"),
   "authenticated download fixture\n",
 );
-await cli(
-  "eval",
-  "async () => { await fetch('/fixture/hold-enrollment',{method:'POST'}); return 'held'; }",
-);
 await cli("open", `${origin}/embedded`);
 await wait("Session restored.");
 await click("Use another Tableau account");
-await wait("Initial authentication is unavailable pending verified browser enrollment");
+await wait("Signed in. Choose or connect a Slack account.");
 await cli("stop");
 await cli("start");
 await cli("open", `${origin}/embedded`);
@@ -194,7 +190,7 @@ await writeFile(
         "actual image decode",
         "MediaSource video render and authenticated 206 seek",
         "small authenticated browser download",
-        "closed first-enrollment guard surfaced without fallback",
+        "accepted new verified login remains functional without a temporary enrollment gate",
       ],
     },
     null,

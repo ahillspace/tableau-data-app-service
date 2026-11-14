@@ -40,7 +40,9 @@ Changing Slack app settings is a separate operator action.
 Refresh uses the same fenced credential writer and preserves the deliberate connector reauthorization time.
 See `src/jobs/README.md`, `examples/slack/README.md` and the browser evidence notes in `test/sdk-browser.md` for extension and example commands.
 
-Initial production identity enrollment remains deliberately closed pending the first-browser binding decision.
-Cloud and Server adapters, fixed session expiry and returning-browser restoration have deterministic tests; those tests do not establish a safe initial release, actual Tableau browser restrictions or live Slack/Server acceptance.
-Production configuration cannot select fixture identity or the test enrollment guard.
-The example therefore reports unavailable initial authentication until that decision is implemented and verified.
+Functional production login is enabled with the configured Cloud or Server adapter.
+The user explicitly deferred initial cross-client silent-enrollment hardening: an attacker controlling an initiation proof can arrange a victim's silent Tableau login into that transaction and redeem the session from the attacker's client.
+PKCE/state, expected popup/window/proof correlation, callback cookie matching, one-use redemption and fixed restoration expiry remain enforced.
+There is no additional confirmation screen, ancestry helper or browser restriction.
+This residual exposure is deferred, not solved; actual Tableau embedding and live Slack/Server acceptance remain unproved.
+Production configuration cannot select fixture identity.

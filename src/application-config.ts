@@ -66,6 +66,9 @@ export const applicationConfigSchema = z.strictObject({
   registryCredentials: z.array(
     z.strictObject({ actorId: opaqueId, verifier: z.string().regex(/^[a-f0-9]{64}$/) }),
   ),
+  operatorCredentials: z
+    .array(z.strictObject({ actorId: opaqueId, verifier: z.string().regex(/^[a-f0-9]{64}$/) }))
+    .default([]),
   transport: z.strictObject({
     connectTimeoutMs: positive,
     headersTimeoutMs: positive,

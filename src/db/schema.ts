@@ -146,8 +146,21 @@ export interface AuthorizationsTable {
   id: string;
   provider_registration_id: string;
   app_id: string;
-  session_id: string;
-  owner_id: string;
+  session_id: string | null;
+  owner_id: string | null;
+  operator_context: ColumnType<
+    {
+      actorId: string;
+      audience: { deploymentId: string; siteId: string; subjectId: string }[];
+    } | null,
+    | { actorId: string; audience: { deploymentId: string; siteId: string; subjectId: string }[] }
+    | null
+    | undefined,
+    {
+      actorId: string;
+      audience: { deploymentId: string; siteId: string; subjectId: string }[];
+    } | null
+  >;
   mutation_id: string;
   initiation_verifier: string;
   browser_verifier: string | null;

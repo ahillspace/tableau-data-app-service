@@ -8,12 +8,6 @@ import { absent } from "./errors.js";
 import { completionPage, handoffPage } from "./handoff-page.js";
 import { requestAbort } from "./wire.js";
 
-function browserHeaders(request: FastifyRequest): Headers {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers))
-    if (typeof value === "string") headers.set(name, value);
-  return headers;
-}
 export function registerSessionRoutes(
   app: FastifyInstance,
   sessions: SessionService,
@@ -40,7 +34,7 @@ export function registerSessionRoutes(
     const { initiationProof } = z
       .strictObject({ initiationProof: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
       .parse(request.body);
-    const result = await sessions.launch(id, initiationProof, browserHeaders(request));
+    const result = await sessions.launch(id, initiationProof);
     reply.header(
       "set-cookie",
       `__Host-integration-correlation-${id}=${result.browserSecret}; Secure; HttpOnly; SameSite=Lax; Path=/`,
@@ -86,7 +80,7 @@ export function registerSessionRoutes(
     const { initiationProof } = z
       .strictObject({ initiationProof: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
       .parse(request.body);
-    const result = await sessions.redeem(id, initiationProof, browserHeaders(request));
+    const result = await sessions.redeem(id, initiationProof);
     reply.header("set-cookie", result.cookie);
     return result.response;
   });

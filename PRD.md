@@ -53,7 +53,8 @@ No host, price, traffic level, SLA or fixed concurrency value is selected.
 The [published Cloud observation](specs/access-connections.md#published-identity-evidence) supports initialization and separate backend-verified login/site/user identity.
 It does not establish silent restoration, account switching, media, long-term behavior, Server compatibility or a complete service implementation.
 Viewer equality is not required and no Tableau feature-request dependency is assumed.
-Silent-login hardening remains conditional on a simple transparent solution without adverse UX/embed/browser/performance cost; otherwise its concrete tradeoff must be surfaced.
+The user explicitly deferred initial cross-client silent-enrollment hardening while retaining functional established login, protocol/popup correlation and partitioned-cookie restoration.
+The exposure is recorded in the owning Access contract and is not claimed solved.
 Actual package opaque origins, popup/window correlation, CSP and network behavior must be tested rather than replaced with impossible exact-origin opener checks.
 
 [Verification](verification.md) defines runnable future gates for both platforms, two APIs/two workers, real Postgres races, Redis failure/loss, large payloads and host recovery.

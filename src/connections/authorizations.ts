@@ -13,7 +13,8 @@ import type { SecretBox } from "../security/encryption.js";
 import { randomSecret, verifier, verifySecret } from "../security/secrets.js";
 import { protocolJson } from "../transport/json.js";
 import type { TransportPolicy } from "../transport/native.js";
-import type { CredentialsService, MutationRef } from "./credentials.js";
+import type { CredentialAuthority, CredentialsService, MutationRef } from "./credentials.js";
+import type { OperatorConnections, SharedAudience } from "./operator.js";
 
 const protocolStateSchema = z.strictObject({ state: z.string(), codeVerifier: z.string() });
 export class AuthorizationService {
@@ -27,6 +28,7 @@ export class AuthorizationService {
     readonly policy: TransportPolicy,
     readonly lifetimeMs: number,
     readonly leaseMs: number,
+    readonly operators?: OperatorConnections,
   ) {}
   private async load(id: string) {
     const attempt = await this.db
@@ -51,6 +53,25 @@ export class AuthorizationService {
       },
       expiresAt: mutation.expires_at,
     };
+    if (attempt.operator_context) {
+      if (!this.operators)
+        throw new ServiceError(
+          403,
+          "operator-authority-unavailable",
+          "Operator authority is unavailable",
+        );
+      return {
+        attempt,
+        ref,
+        access: this.operators.actor(
+          attempt.operator_context.actorId,
+          attempt.app_id,
+          attempt.provider_registration_id,
+          attempt.operator_context.audience,
+          attempt.expires_at,
+        ),
+      };
+    }
     const session = await this.db
       .selectFrom("sessions as s")
       .innerJoin("owners as o", "o.id", "s.owner_id")
@@ -62,14 +83,44 @@ export class AuthorizationService {
         "o.site_id as siteId",
         "o.subject_id as subjectId",
       ])
-      .where("s.id", "=", attempt.session_id)
+      .where("s.id", "=", attempt.session_id ?? "")
       .executeTakeFirstOrThrow();
     return { attempt, ref, access: { ...session, appId: attempt.app_id } };
   }
   async begin(access: AccessContext, input: AuthorizationBegin): Promise<AuthorizationView> {
+    return this.beginAs(access, access.appId, input, null);
+  }
+  async beginOperator(
+    actorId: string,
+    appId: string,
+    input: AuthorizationBegin,
+    audience: SharedAudience,
+  ): Promise<AuthorizationView> {
+    if (!this.operators)
+      throw new ServiceError(
+        403,
+        "operator-authority-unavailable",
+        "Operator authority is unavailable",
+      );
+    return this.beginAs(
+      this.operators.actor(actorId, appId, input.providerRegistrationId, audience),
+      appId,
+      input,
+      { actorId, audience: [...audience] },
+    );
+  }
+  private async beginAs(
+    access: CredentialAuthority,
+    appId: string,
+    input: AuthorizationBegin,
+    operatorContext: {
+      actorId: string;
+      audience: { deploymentId: string; siteId: string; subjectId: string }[];
+    } | null,
+  ): Promise<AuthorizationView> {
     const provider = this.providers.get(input.providerRegistrationId);
     if (
-      provider.mode !== "personal" ||
+      provider.mode !== (operatorContext ? "operator" : "personal") ||
       !provider.oauth ||
       input.permissionOption ||
       (input.inputs && Object.keys(input.inputs).length)
@@ -96,9 +147,10 @@ export class AuthorizationService {
           .values({
             id,
             provider_registration_id: provider.id,
-            app_id: access.appId,
+            app_id: appId,
             session_id: access.sessionId,
             owner_id: access.ownerId,
+            operator_context: operatorContext,
             mutation_id: ref.id,
             initiation_verifier: input.initiationVerifier,
             browser_verifier: null,
@@ -130,6 +182,51 @@ export class AuthorizationService {
       expiresAt: attempt.expires_at.toISOString(),
       ...(attempt.connection_id ? { connectionId: attempt.connection_id } : {}),
     };
+  }
+  async viewOperator(actorId: string, appId: string, id: string): Promise<AuthorizationView> {
+    const current = await this.load(id);
+    if (
+      current.attempt.operator_context?.actorId !== actorId ||
+      current.attempt.app_id !== appId ||
+      !("lock" in current.access)
+    )
+      absent();
+    const actor = this.operators!.actor(
+      actorId,
+      appId,
+      current.attempt.provider_registration_id,
+      current.attempt.operator_context.audience,
+    );
+    const time = await this.db.transaction().execute(async (tx) => {
+      await actor.lock(tx, current.attempt.provider_registration_id, current.ref);
+      return databaseTime(tx);
+    });
+    return {
+      id,
+      state:
+        current.attempt.expires_at <= time &&
+        ["pending", "exchanging"].includes(current.attempt.state)
+          ? "expired"
+          : current.attempt.state,
+      expiresAt: current.attempt.expires_at.toISOString(),
+      ...(current.attempt.connection_id ? { connectionId: current.attempt.connection_id } : {}),
+    };
+  }
+  async cancelOperator(actorId: string, appId: string, id: string): Promise<AuthorizationView> {
+    await this.viewOperator(actorId, appId, id);
+    const current = await this.load(id);
+    await this.credentials.recover(current.ref, true, {
+      initiator: { access: current.access, providerId: current.attempt.provider_registration_id },
+      finalize: async (tx) => {
+        await tx
+          .updateTable("authorizations")
+          .set({ state: "cancelled", protected_state: null, browser_verifier: null })
+          .where("id", "=", id)
+          .where("state", "in", ["pending", "exchanging"])
+          .execute();
+      },
+    });
+    return this.viewOperator(actorId, appId, id);
   }
   async launch(
     id: string,
@@ -345,6 +442,12 @@ export class AuthorizationService {
         claim,
         candidate,
         async (tx, connection) => {
+          if (attempt.operator_context)
+            await this.operators!.publishAudience(
+              tx,
+              connection.id,
+              attempt.operator_context.audience,
+            );
           const current = await tx
             .selectFrom("authorizations")
             .selectAll()

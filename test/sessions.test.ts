@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sql } from "kysely";
 import type { IdentityAdapter } from "../src/access/adapters.js";
-import { closedEnrollmentGuard, cookieValue, SessionService } from "../src/access/sessions.js";
+import { cookieValue, SessionService } from "../src/access/sessions.js";
 import { createHttpApp } from "../src/http/app.js";
 import { registerSessionRoutes } from "../src/http/session-routes.js";
 import { randomSecret, verifier } from "../src/security/secrets.js";
@@ -38,36 +38,15 @@ test("two replicas exchange and redeem one handoff exactly once; restoration pre
       };
     },
   };
-  // Synthetic enrollment exists solely inside this test. Production has no selector for it.
-  const fixtureGuard = {
-    available: true,
-    async check() {
-      return { profile: "test-only-not-browser-evidence" };
-    },
-  };
-  const one = new SessionService(
-    f.db,
-    f.access,
-    f.secrets,
-    new Map([["cloud", adapter]]),
-    fixtureGuard,
-    30000,
-  );
-  const two = new SessionService(
-    f.db,
-    f.access,
-    f.secrets,
-    new Map([["cloud", adapter]]),
-    fixtureGuard,
-    30000,
-  );
+  const one = new SessionService(f.db, f.access, f.secrets, new Map([["cloud", adapter]]), 30000);
+  const two = new SessionService(f.db, f.access, f.secrets, new Map([["cloud", adapter]]), 30000);
   try {
     const proof = randomSecret();
     const transaction = await one.begin("one", "cloud", verifier(proof));
-    await assert.rejects(one.launch(transaction.id, randomSecret(), new Headers()), {
+    await assert.rejects(one.launch(transaction.id, randomSecret()), {
       status: 401,
     });
-    const launch = await one.launch(transaction.id, proof, new Headers());
+    const launch = await one.launch(transaction.id, proof);
     const state = await f.db
       .selectFrom("session_transactions")
       .select("protected_state")
@@ -96,7 +75,7 @@ test("two replicas exchange and redeem one handoff exactly once; restoration pre
     assert.equal(callbacks.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(exchanges, 1);
     const redemptions = await Promise.allSettled(
-      [one, two].map((service) => service.redeem(transaction.id, proof, new Headers())),
+      [one, two].map((service) => service.redeem(transaction.id, proof)),
     );
     const success = redemptions.find((result) => result.status === "fulfilled");
     assert.ok(success?.status === "fulfilled");
@@ -153,7 +132,7 @@ test("two replicas exchange and redeem one handoff exactly once; restoration pre
   }
 });
 
-test("production enrollment rejects off-browser nonce/forged ancestry compositions before allocation or OAuth launch", async () => {
+test("accepted login creates only an inert transaction; a locator or wrong proof cannot launch OAuth", async () => {
   const f = await coreFixture();
   let invoked = false;
   const adapter: IdentityAdapter = {
@@ -173,7 +152,6 @@ test("production enrollment rejects off-browser nonce/forged ancestry compositio
     f.access,
     f.secrets,
     new Map([["cloud", adapter]]),
-    closedEnrollmentGuard,
     30000,
   );
   const app = await createHttpApp({ db: f.db });
@@ -193,11 +171,19 @@ test("production enrollment rejects off-browser nonce/forged ancestry compositio
         initiationVerifier: verifier(randomSecret()),
       },
     });
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.json().error.code, "initial-enrollment-unavailable");
-    assert.equal(response.headers["x-integration-error"], "1");
+    assert.equal(response.statusCode, 201);
     assert.equal(invoked, false);
-    assert.equal((await f.db.selectFrom("session_transactions").select("id").execute()).length, 0);
+    assert.equal((await f.db.selectFrom("session_transactions").select("id").execute()).length, 1);
+    const inert = await app.inject(`/v1/session/transactions/${response.json().id}/launch`);
+    assert.equal(inert.statusCode, 200);
+    assert.equal(invoked, false);
+    const forged = await app.inject({
+      method: "POST",
+      url: `/v1/session/transactions/${response.json().id}/launch`,
+      payload: { initiationProof: randomSecret() },
+    });
+    assert.equal(forged.statusCode, 401);
+    assert.equal(invoked, false);
     assert.equal((await app.inject("/v1/session/transactions/attacker/helper")).statusCode, 404);
   } finally {
     await app.close();

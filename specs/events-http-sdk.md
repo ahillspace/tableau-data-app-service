@@ -147,7 +147,7 @@ Credential-based cookie providers require an explicit server adapter rather than
 
 Configure browser transport for actual package origins, including a verified supported opaque-origin mode where required.
 A null Origin is never identity; credentialless CORS transport can expose bearer-authenticated APIs to supported opaque packages without accepting cookies as ordinary API authority.
-Do not expose cookie restoration to arbitrary null-origin callers; [Access](access-connections.md#recommended-session-prototype) owns the stronger transaction/client binding and its evidence gate.
+[Access](access-connections.md#recommended-session-prototype) owns partitioned-cookie restoration for the accepted trusted Tableau partition and the explicitly deferred initial cross-client silent-enrollment exposure.
 Use no-store and Vary: Origin with appropriate explicit expose headers; no shared CDN private-body cache.
 CORS preflight OPTIONS is local and never dispatched, while an authorized native OPTIONS remains a provider request.
 The opener validates service origin/window/transaction; the service does not pretend an opaque opener has an exact app origin.

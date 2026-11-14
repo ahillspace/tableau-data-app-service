@@ -45,7 +45,8 @@ The maximum interval between verified Tableau authentications is seven days (604
 Activity, restoration and access-token refresh do not move the verified-authentication timestamp; an expired bearer alone cannot establish new authority.
 No separate inactivity policy or user-facing signout UI/API is required.
 Page closure releases local resources without revoking sessions, disconnecting providers or cancelling jobs.
-The actual supported handoff/restoration mechanism and account separation require published browser proof.
+Functional established login and partitioned-cookie restoration remain enabled; the user explicitly deferred the known initial cross-client silent-enrollment binding fix.
+PKCE/state, popup/window/proof correlation and restore protections remain required, while full live Cloud/Server account/session support still requires published browser evidence.
 An opaque/null package origin cannot identify an app or justify giving a bearer to any null-origin requester.
 Use supported transaction/window correlation and verify the service origin/window at the opener.
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
 import type { IdentityAdapter } from "../src/access/adapters.js";
-import { closedEnrollmentGuard, SessionService } from "../src/access/sessions.js";
+import { SessionService } from "../src/access/sessions.js";
 import { AuthorizationService } from "../src/connections/authorizations.js";
 import { ConnectionService } from "../src/connections/service.js";
 import { createHttpApp } from "../src/http/app.js";
@@ -122,16 +122,6 @@ await new Promise<void>((resolve) => https.listen(0, "127.0.0.1", resolve));
 const address = https.address();
 if (!address || typeof address === "string") throw new Error("No fixture HTTPS port");
 const origin = `https://127.0.0.1:${address.port}`;
-let enrollmentOpen = true;
-const fixtureGuard = {
-  get available() {
-    return enrollmentOpen;
-  },
-  async check() {
-    if (!enrollmentOpen) return closedEnrollmentGuard.check("", "launch", new Headers());
-    return { profile: "explicit-browser-test-fixture-no-enrollment-proof" };
-  },
-};
 const adapter: IdentityAdapter = {
   id: "fixture",
   deploymentId: "cloud",
@@ -164,7 +154,6 @@ const sessions = new SessionService(
   f.access,
   f.secrets,
   new Map([["cloud", adapter]]),
-  fixtureGuard,
   10000,
 );
 const oauthEnabled = process.env.SDK_TEST_OAUTH === "1";
@@ -421,10 +410,6 @@ app.get("/fixture/metrics", async () => ({
 app.get("/fixture/media-index", async () =>
   JSON.parse(await readFile(join(process.env.SDK_TEST_MEDIA!, "index.json"), "utf8")),
 );
-app.post("/fixture/hold-enrollment", async () => {
-  enrollmentOpen = false;
-  return { held: true };
-});
 app.get("/fixture/popup/:id/:mode", async (request, reply) => {
   const { id, mode } = z
     .object({ id: z.string(), mode: z.enum(["valid", "wrong-transaction", "quiet", "foreign"]) })

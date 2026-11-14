@@ -8,7 +8,7 @@ import {
   ServerIdentityAdapter,
 } from "./access/adapters.js";
 import { AccessService } from "./access/service.js";
-import { closedEnrollmentGuard, SessionService } from "./access/sessions.js";
+import { SessionService } from "./access/sessions.js";
 import { registerSiteRoutes } from "./access/sites.js";
 import {
   type ApplicationConfig,
@@ -19,6 +19,7 @@ import type { Config } from "./config.js";
 import { AuthorizationService } from "./connections/authorizations.js";
 import { CredentialsService } from "./connections/credentials.js";
 import { CoreMaintenance } from "./connections/maintenance.js";
+import { OperatorConnections } from "./connections/operator.js";
 import { Renewals } from "./connections/renewals.js";
 import { ConnectionService } from "./connections/service.js";
 import type { CoreServices } from "./core-ports.js";
@@ -32,6 +33,7 @@ import {
 import { createHttpApp } from "./http/app.js";
 import { registerAuthorizationRoutes } from "./http/authorization-routes.js";
 import { registerCoreRoutes } from "./http/core-routes.js";
+import { registerOperatorRoutes } from "./http/operator-routes.js";
 import { registerSessionRoutes } from "./http/session-routes.js";
 import { jobsApi } from "./jobs/api.js";
 import { jobLimitsFromEnvironment } from "./jobs/config.js";
@@ -41,6 +43,7 @@ import type { JobDeclaration } from "./jobs/types.js";
 import { type ProviderRegistration, ProviderRegistry } from "./providers/registry.js";
 import { slackRegistration } from "./providers/slack.js";
 import { SecretBox } from "./security/encryption.js";
+import { verifyProtectedKeys } from "./security/records.js";
 
 // Additional trusted declarations are installed in source. The browser and
 // configuration files cannot load modules, select fixture identities or add Jobs.
@@ -74,6 +77,7 @@ export async function createApplication(
       ...(uploadLimitBytes === undefined ? {} : { uploadLimitBytes }),
     };
     const secrets = new SecretBox(base.ENCRYPTION_ACTIVE_KEY_ID, base.keys);
+    await verifyProtectedKeys(db, secrets, base.keys, settings.jobs.workingBytes);
     const access = new AccessService(db, base);
     const declarations = [...installed.providers];
     if (settings.slack) {
@@ -159,8 +163,15 @@ export async function createApplication(
       access,
       secrets,
       adapters,
-      closedEnrollmentGuard,
       settings.maintenance.operationMs,
+    );
+    const operators = new OperatorConnections(
+      db,
+      credentials,
+      providers,
+      policy,
+      settings.maintenance,
+      new Set(settings.operatorCredentials.map((item) => item.actorId)),
     );
     const authorizations = new AuthorizationService(
       db,
@@ -171,6 +182,7 @@ export async function createApplication(
       policy,
       settings.maintenance.operationMs,
       settings.maintenance.leaseMs,
+      operators,
     );
     let jobs: JobsService | undefined;
     const events = createEventsExtension(
@@ -244,6 +256,7 @@ export async function createApplication(
     registerSessionRoutes(app, sessions, base.SERVICE_ORIGIN);
     registerAuthorizationRoutes(app, authorizations, base.SERVICE_ORIGIN);
     registerSiteRoutes(app, db, settings.registryCredentials);
+    registerOperatorRoutes(app, operators, authorizations, settings.operatorCredentials);
     for (const config of settings.deployments)
       if (config.kind === "cloud") {
         app.get(config.clientPath, async () => ({

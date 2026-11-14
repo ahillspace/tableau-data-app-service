@@ -48,22 +48,23 @@ A locator alone cannot launch or redeem, and an inert GET does not begin OAuth.
 A same-origin proof-bearing POST starts the supported protocol flow and establishes transaction-specific browser correlation.
 Use state, PKCE where supported, nonce/issuer/callback checks and a single conditional callback claimant before code exchange.
 The candidate host-only Secure/HttpOnly correlation cookie must match the actual callback mode; a cross-site form POST cannot be assumed to carry a Lax cookie.
-Keep the mechanism unenabled until its browser binding is demonstrated; do not weaken correlation to accommodate a failed test.
+Functional login remains enabled under the accepted deferral of initial cross-client silent-enrollment hardening; preserve protocol and popup correlation.
 A safe completion message contains no bearer or provider secret; the initiating client redeems its proof once over POST before the absolute transaction expiry.
 Postgres stores transaction/proof/callback state so launch, callback and redemption can land on different API replicas.
 Lost opener/proof, failed cookie correlation, denial, expiry or duplicate redemption is a recoverable explicit failure.
 Choose finite transaction expiry from actual upstream validity and usable MFA/consent timing, without separate invented redemption clocks or IP/count quotas.
 Service handoff pages use no-store, no-referrer, restrictive CSP and no third-party scripts.
 
-Persistent restoration is a required journey with an unverified browser transport, not an already proven cookie shortcut.
-The candidate uses protected service-origin restoration state and the same transaction/window mechanism, plus a demonstrated binding to the intended returning client before releasing a bearer.
-A cookie plus an arbitrary new initiation proof from any null-origin requester is insufficient restoration authority.
-The prototype must prove how the returning client supplies that binding across reload/new tab/return visits under the actual package storage and popup rules; absent such proof, require fresh verified authentication rather than silently exposing a session.
-This unresolved transport is D01/E01, not a new approval UI or permission product.
-Keep A07's final wire shape dependent on that evidence while implementing the fixed expiry/revocation/identity contract.
-Silent-login hardening is conditional prototype work: adopt only a simple transparent solution with no adverse UX, browser/embed or performance impact; otherwise surface the concrete tradeoff before selecting it.
-CHIPS support alone does not prove Tableau embedding or returning-client binding, and browser ancestry APIs are not assumed to establish package identity.
-No new approval screen or Tableau feature dependency is selected, and this specification task authorizes no live auth prototype.
+Persistent restoration uses a host-only Secure/HttpOnly partitioned service cookie and a credentialed POST to issue a fresh memory bearer from the same still-valid fixed session.
+All Data Apps inside the same Tableau top-level partition are trusted under the accepted scope.
+Neither CHIPS nor a null origin identifies a package, individual Tableau viewer, site or tab.
+The browser SDK validates the service origin, expected popup window and transaction before transferring initiation proof; the callback requires its transaction-specific correlation cookie.
+These checks do not bind an off-browser initiation to the intended browser client.
+An attacker who controls an initiation proof can arrange a victim's silent Tableau login into that transaction and redeem the resulting session from the attacker's client.
+The user explicitly deferred this cross-client silent-enrollment exposure with the decision, "We decided to leave this as is, we can fix later."
+Retain functional established login without a temporary disable gate, new confirmation screen, ancestry attestation or browser restriction.
+The exposure is accepted deferred work, not a solved security property; actual Cloud/Server embedding and full account/session journeys still need runtime evidence.
+A new verified authentication may replace page-local authority; restoration and access refresh never move the fixed authentication boundary.
 Bundle SDK assets for the actual package and test its opaque-origin network, popup and CSP prerequisites on Cloud and Server.
 Discard identity-provider tokens after verification unless a supported validation step requires short-lived encrypted retention.
 

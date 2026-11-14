@@ -9,7 +9,7 @@ This register maps owners and evidence rather than repeating normative contracts
 
 | ID | Topic | Status | Accepted policy or specified mechanism | Engineering holds |
 | --- | --- | --- | --- | --- |
-| D01 | Access / SDK sessions | Policy accepted; partially evidenced | Verified Cloud/Server identity, persistent sessions and fixed authentication maximum; no viewer-equality requirement. | Actual returning-client binding, full platform/session/account journeys. |
+| D01 | Access / SDK sessions | Policy accepted; partially evidenced | Verified Cloud/Server identity, persistent sessions and fixed authentication maximum; no viewer-equality requirement. | Initial cross-client silent-enrollment hardening explicitly deferred; full platform/session/account journeys remain unproved. |
 | D02 | Jobs / process architecture | Accepted; contract specified | Explicitly selected Jobs on the owned Postgres table; ordinary capabilities use API requests; replicable roles retain background sibling interruption. | Real replica races, scans, hung-attempt and host termination proof. |
 | D03 | Resource protection | Policy accepted; sizing unverified | Physical bytes/memory/socket/pool budgets without app/user/IP/count quotas or future reservations. | Near-cap JSON/crypto/driver copies, mixed workload and total deployment capacity. |
 | D04 | Native transport | Accepted; contract specified | Node byte streaming, native GET/HEAD-body and no-follow response carriers, no arbitrary response cap. | Actual Cloud/Server media, header/runtime/ingress/provider proof. |
@@ -22,15 +22,16 @@ This register maps owners and evidence rather than repeating normative contracts
 
 **Policy summary:** Service sessions have a configurable seven-day (604800-second) maximum since verified Tableau authentication, with secure return visits and no separate inactivity/signout product.
 
-[Access](../specs/access-connections.md#recommended-session-prototype) owns the shared transaction/window handoff, fixed timestamp and restoration evidence gate.
+[Access](../specs/access-connections.md#recommended-session-prototype) owns the shared transaction/window handoff, fixed timestamp and restoration contract.
 App IDs/null origins do not prove package identity, and an opaque opener cannot be authenticated by exact origin.
 Separate authorizing login is sufficient; viewer equality is not required.
 The [Cloud observation](../specs/access-connections.md#published-identity-evidence) establishes only initialization and separate backend-verified identity/site IDs.
 Cloud and Server need actual supported adapter/browser journeys before support claims, with no assumed Tableau feature dependency.
-A cookie and arbitrary new null-origin initiation proof cannot restore bearer authority; the returning-client binding must be demonstrated before A07 is finalized.
-Adopt silent-login hardening only after a simple transparent prototype proves no adverse UX/browser/embed/performance impact; otherwise surface the concrete tradeoff.
-CHIPS alone is not Tableau embedding proof, and no browser ancestry claim or approval screen resolves this gate.
-This is remaining engineering evidence, not a new approval UI or a request to reopen session lifetime policy.
+Functional login and partitioned-cookie restoration remain enabled under the user's explicit decision to defer initial cross-client silent-enrollment hardening.
+An attacker controlling an initiation proof can arrange a victim's silent Tableau login into that transaction and redeem from the attacker's client; this exposure is deferred, not solved.
+Preserve PKCE/state, expected popup/window/proof correlation, callback cookie checks and one-use redemption.
+No temporary disable gate, extra confirmation screen, ancestry attestation or new browser restriction is selected.
+CHIPS alone does not establish Tableau embedding, package identity or viewer identity; full live platform/account journeys remain an evidence limitation.
 
 ## D02 - Owned jobs and worker recovery
 
