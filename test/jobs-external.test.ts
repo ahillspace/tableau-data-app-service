@@ -35,6 +35,164 @@ const external = {
   callback,
 };
 
+for (const attachment of [
+  "handler",
+  "pending callback",
+  "terminal callback",
+  "different task",
+] as const)
+  for (const terminalKind of ["succeeded", "failed"] as const)
+    test(`terminal ${terminalKind} callback resolves after ${attachment} wins task attachment`, {
+      timeout: 15000,
+    }, async (t) => {
+      const handlerRelease = Promise.withResolvers<void>();
+      const callbackRelease = Promise.withResolvers<void>();
+      let starts = 0;
+      let preparing = false;
+      const declaration: JobDeclaration = {
+        ...jobDeclaration,
+        external,
+        handler: async () => {
+          starts++;
+          await handlerRelease.promise;
+          return { kind: "waiting", task };
+        },
+      };
+      const f = await jobsFixture([declaration]);
+      const worker = new JobsWorker(f.jobs2, workerOptions);
+      const app = await createHttpApp({
+        db: f.db,
+        core: f.core,
+        extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+      });
+      const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+      const prepareTask = f.jobs.prepareTask.bind(f.jobs);
+      t.mock.method(f.jobs, "prepareTask", async (...args: Parameters<typeof prepareTask>) => {
+        // Hold only outside-lock payload preparation, after the real null-task read.
+        assert.equal(args[0].task_id, null);
+        const prepared = await prepareTask(...args);
+        preparing = true;
+        await callbackRelease.promise;
+        return prepared;
+      });
+      const post = async (evidence: CallbackEvidence) => {
+        const raw = JSON.stringify(evidence);
+        return fetch(`${origin}/v1/providers/fixture/tasks/tasks`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-proof": proof(raw) },
+          body: raw,
+        });
+      };
+      try {
+        const job = await f.jobs.admit(f.alice.access, command("attachment-race"));
+        await worker.start();
+        await eventually(
+          async () => starts,
+          (count) => count === 1,
+        );
+        const running = (await f.jobs.row(job.job.id))!;
+        assert.equal(running.state, "running");
+        assert.equal(running.task_id, null);
+        const evidence: CallbackEvidence = {
+          correlation: running.callback_correlation!,
+          task: { ...task, context: { poll: "terminal-callback" } },
+          outcome:
+            terminalKind === "succeeded"
+              ? { kind: "succeeded", result: { value: "committed" } }
+              : {
+                  kind: "failed",
+                  error: { code: "provider-failed", message: "Settled failure" },
+                  result: { value: "committed" },
+                },
+        };
+        const response = post(evidence);
+        await eventually(async () => preparing, Boolean);
+        const winnerTask =
+          attachment === "different task" ? { ...task, externalId: "other-task" } : task;
+        if (attachment === "handler") handlerRelease.resolve();
+        else {
+          const raw = JSON.stringify({
+            ...evidence,
+            task: winnerTask,
+            outcome:
+              attachment === "terminal callback"
+                ? { kind: "succeeded", result: { value: "winner" } }
+                : { kind: "pending" },
+          });
+          assert.equal(
+            await f.jobs2.callback(
+              declaration,
+              Buffer.from(raw),
+              new Headers({ "x-proof": proof(raw) }),
+            ),
+            "accepted",
+          );
+        }
+        const attached = await eventually(
+          () => f.jobs2.row(job.job.id),
+          (row) =>
+            row?.state === (attachment === "terminal callback" ? "succeeded" : "waiting-provider"),
+        );
+        assert.equal(attached!.has_result, attachment === "terminal callback");
+        callbackRelease.resolve();
+        const accepted = await response;
+        if (attachment === "different task") {
+          assert.equal(accepted.status, 404);
+          await accepted.arrayBuffer();
+          const current = (await f.jobs2.row(job.job.id))!;
+          assert.equal(current.state, "waiting-provider");
+          assert.equal(current.has_result, false);
+          assert.deepEqual(await f.jobs2.task(current), winnerTask);
+          assert.equal(starts, 1);
+          return;
+        }
+        assert.equal(accepted.status, 200);
+        assert.deepEqual(await accepted.json(), {
+          status: attachment === "terminal callback" ? "duplicate" : "accepted",
+        });
+        // Acknowledgment must mean the result and terminal state are already durable.
+        const terminal = (await f.jobs2.row(job.job.id))!;
+        assert.equal(
+          terminal.state,
+          attachment === "terminal callback" ? "succeeded" : terminalKind,
+        );
+        assert.equal(terminal.has_result, true);
+        assert.equal(terminal.claim_token, null);
+        const result = { value: attachment === "terminal callback" ? "winner" : "committed" };
+        assert.deepEqual(await f.jobs2.result(f.alice.access, job.job.id), result);
+        assert.deepEqual(await f.jobs2.task(terminal), task);
+        if (attachment === "terminal callback") {
+          assert.equal(terminal.completed_at!.getTime(), attached!.completed_at!.getTime());
+          assert.equal(
+            terminal.result_expires_at!.getTime(),
+            attached!.result_expires_at!.getTime(),
+          );
+        }
+        handlerRelease.resolve();
+        await eventually(
+          async () => worker.activeExecutions,
+          (count) => count === 0,
+        );
+        const duplicate = await post({
+          ...evidence,
+          outcome: { kind: "succeeded", result: { value: "replacement" } },
+        });
+        assert.equal(duplicate.status, 200);
+        assert.deepEqual(await duplicate.json(), { status: "duplicate" });
+        const retained = (await f.jobs2.row(job.job.id))!;
+        assert.equal(retained.completed_at!.getTime(), terminal.completed_at!.getTime());
+        assert.equal(retained.result_expires_at!.getTime(), terminal.result_expires_at!.getTime());
+        assert.deepEqual(await f.jobs2.result(f.alice.access, job.job.id), result);
+        assert.equal(starts, 1);
+      } finally {
+        callbackRelease.resolve();
+        handlerRelease.resolve();
+        await worker.close();
+        await app.close();
+        await f.close();
+      }
+    });
+
 test("real provider HTTP can callback before submit returns; verified duplicate/late callbacks fence handlers without result regression", async () => {
   const declaration: JobDeclaration = {
     ...jobDeclaration,

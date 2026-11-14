@@ -1096,6 +1096,13 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
     const callback = declaration.external?.callback;
     if (!callback) absent();
     const evidence = await callback.verify(raw, headers);
+    const bound = (row: JobRow) =>
+      row.callback_correlation === evidence.correlation &&
+      row.provider_registration_id === declaration.providerRegistrationId &&
+      row.capability_id === declaration.ref.id &&
+      row.capability_version === declaration.ref.version &&
+      row.account_key === evidence.task.accountKey &&
+      (!row.task_id || row.task_id === evidence.task.externalId);
     const hint = await this.db
       .selectFrom("jobs")
       .selectAll()
@@ -1104,12 +1111,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       .where("capability_id", "=", declaration.ref.id)
       .where("capability_version", "=", declaration.ref.version)
       .executeTakeFirst();
-    if (
-      !hint ||
-      hint.account_key !== evidence.task.accountKey ||
-      (hint.task_id && hint.task_id !== evidence.task.externalId)
-    )
-      absent();
+    if (!hint || !bound(hint)) absent();
     const progress =
       evidence.outcome.kind === "pending" && evidence.outcome.progress !== undefined
         ? this.validatedProgress(hint, evidence.outcome.progress)
@@ -1125,7 +1127,14 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
           ? await this.prepareResult(hint, evidence.outcome.result)
           : undefined;
       return await this.db.transaction().execute(async (tx) => {
-        if (task) await this.insertPayload(tx, hint.id, "task", task);
+        // Another attachment can win while payload preparation runs outside locks.
+        // Preserve its context, then check its authoritative binding under the Job lock.
+        if (task)
+          await tx
+            .insertInto("job_payloads")
+            .values({ ...task, job_id: hint.id, kind: "task" })
+            .onConflict((oc) => oc.columns(["job_id", "kind"]).doNothing())
+            .execute();
         if (result) await this.insertPayload(tx, hint.id, "result", result);
         const row = await tx
           .selectFrom("jobs")
@@ -1134,12 +1143,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
           .forUpdate()
           .executeTakeFirstOrThrow();
         const now = await wallTime(tx);
-        if (
-          row.callback_correlation !== evidence.correlation ||
-          row.account_key !== evidence.task.accountKey ||
-          (row.task_id && row.task_id !== evidence.task.externalId)
-        )
-          absent();
+        if (!bound(row)) absent();
         if (terminal(row)) {
           if (
             !row.task_id &&
@@ -1205,14 +1209,20 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
     } catch (error) {
       if (error instanceof ServiceError && error.code === "callback-late")
         return error.message === "duplicate" ? "duplicate" : "late";
-      // A simultaneous verified callback may have won its immutable task/result insert.
+      // A result conflict is a duplicate only after its terminal commit is confirmed.
       if ((error as { code?: string }).code === "23505") {
-        const row = await this.row(hint.id);
-        if (
-          row?.task_id === evidence.task.externalId &&
-          (terminal(row) || row.state === "waiting-provider")
-        )
-          return terminal(row) ? "duplicate" : "accepted";
+        return await this.db.transaction().execute(async (tx) => {
+          const row = await tx
+            .selectFrom("jobs")
+            .selectAll()
+            .where("id", "=", hint.id)
+            .forUpdate()
+            .executeTakeFirst();
+          if (!row || !bound(row)) absent();
+          if (row.task_id === evidence.task.externalId && terminal(row))
+            return "duplicate" as const;
+          throw error;
+        });
       }
       throw error;
     } finally {
