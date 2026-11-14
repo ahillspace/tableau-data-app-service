@@ -1,19 +1,22 @@
+import { createApplication } from "./application.js";
+import { readApplicationConfig } from "./application-config.js";
 import { loadConfig } from "./config.js";
-import { assertSchema, createDatabase } from "./db/database.js";
-import { createHttpApp } from "./http/app.js";
-import { SecretBox } from "./security/encryption.js";
 
 const config = loadConfig(process.env);
-const db = createDatabase(config);
-new SecretBox(config.ENCRYPTION_ACTIVE_KEY_ID, config.keys);
-await assertSchema(db);
-const app = await createHttpApp({ db });
-app.addHook("onClose", async () => db.destroy());
+const settings = await readApplicationConfig(process.env);
+const application = await createApplication(config, settings, process.env);
+let closing = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void app.close().catch(() => {
-      process.exitCode = 1;
-    });
+    if (closing) return;
+    closing = true;
+    const timer = setTimeout(() => process.exit(1), settings.worker.terminateGraceMs);
+    void application
+      .close()
+      .catch(() => {
+        process.exitCode = 1;
+      })
+      .finally(() => clearTimeout(timer));
   });
 }
-await app.listen({ host: config.HOST, port: config.PORT });
+await application.app.listen({ host: config.HOST, port: config.PORT });

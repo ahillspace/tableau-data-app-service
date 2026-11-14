@@ -1511,19 +1511,17 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       if (filters.next.length > 2048)
         throw new ServiceError(400, "invalid-continuation", "Invalid continuation");
       try {
-        after = z
-          .strictObject({ at: z.iso.datetime(), id: opaqueId, filter: z.string() })
-          .parse(
-            JSON.parse(
-              this.options.core.secrets
-                .open(JSON.parse(Buffer.from(filters.next, "base64url").toString()), {
-                  kind: "job-cursor",
-                  id: access.ownerId,
-                  revision: "1",
-                })
-                .toString(),
-            ),
-          );
+        after = z.strictObject({ at: z.iso.datetime(), id: opaqueId, filter: z.string() }).parse(
+          JSON.parse(
+            this.options.core.secrets
+              .open(JSON.parse(Buffer.from(filters.next, "base64url").toString()), {
+                kind: "job-cursor",
+                id: access.ownerId,
+                revision: "1",
+              })
+              .toString(),
+          ),
+        );
       } catch {
         throw new ServiceError(400, "invalid-continuation", "Invalid continuation");
       }

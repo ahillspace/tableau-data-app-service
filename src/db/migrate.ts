@@ -5,6 +5,7 @@ import { createDatabase, type Database } from "./database.js";
 import * as core from "./migrations/001_core.js";
 import * as identity from "./migrations/010_identity.js";
 import * as authorizations from "./migrations/011_authorizations.js";
+import * as configuration from "./migrations/012_configuration.js";
 import * as jobs from "./migrations/020_jobs.js";
 import * as events from "./migrations/030_events.js";
 
@@ -17,6 +18,7 @@ export async function migrate(db: Database): Promise<void> {
         "001_core": core,
         "010_identity": identity,
         "011_authorizations": authorizations,
+        "012_configuration": configuration,
         "020_jobs": jobs,
         "030_events": events,
       }),

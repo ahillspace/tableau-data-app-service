@@ -16,7 +16,8 @@
     "start": "node dist/api.js",
     "worker": "node dist/worker.js",
     "example": "tsx examples/slack/dev.ts",
-    "typecheck:example": "tsc --noEmit -p examples/tsconfig.json"
+    "typecheck:example": "tsc --noEmit -p examples/tsconfig.json",
+    "config:apply": "tsx src/config-command.ts"
   },
   "dependencies": {
     "ajv": "^8.20.0",

@@ -33,4 +33,17 @@ export async function assertSchema(db: Database): Promise<void> {
   }>`select version from service_schema where singleton = true`.execute(db);
   if (result.rows[0]?.version !== 1)
     throw new Error("Incompatible service schema; run the migration owner command");
+  const installed = (await sql<{ name: string }>`select name from kysely_migration`.execute(db))
+    .rows;
+  if (
+    [
+      "001_core",
+      "010_identity",
+      "011_authorizations",
+      "012_configuration",
+      "020_jobs",
+      "030_events",
+    ].some((name) => !installed.some((row) => row.name === name))
+  )
+    throw new Error("Required service migrations are missing");
 }

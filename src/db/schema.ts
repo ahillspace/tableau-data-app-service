@@ -7,6 +7,11 @@ export interface DeploymentsTable {
   id: string;
   kind: "cloud" | "server";
   adapter_id: string;
+  protocol_identity: ColumnType<
+    Record<string, string>,
+    Record<string, string> | undefined,
+    Record<string, string>
+  >;
   config_revision: number;
   enabled: boolean;
 }

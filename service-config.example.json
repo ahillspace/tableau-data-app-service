@@ -1,0 +1,11 @@
+{
+  "apps": [{"id":"slack-example","revision":1,"enabled":true,"defaults":{},"corsOrigins":["null"]}],
+  "deployments": [{"id":"tableau-cloud","revision":1,"enabled":true,"kind":"cloud","podOrigin":"https://your-pod.online.tableau.com","clientPath":"/client-cloud.json"}],
+  "slack": {"id":"slack","revision":1,"enabled":true,"mode":"personal","reauthSeconds":null},
+  "registryCredentials": [],
+  "transport": {"connectTimeoutMs":10000,"headersTimeoutMs":30000,"stallTimeoutMs":30000,"maxSockets":32},
+  "jsonPreparationBytes":1048576,
+  "maintenance": {"scanMs":1000,"batch":50,"operationMs":300000,"leaseMs":300000,"contentionMs":100,"cleanupMs":5000},
+  "worker": {"executionSlots":1,"observationSlots":1,"batchSize":20,"leaseMs":30000,"heartbeatMs":5000,"scanMs":1000,"heartbeatIntervalMs":1000,"unresponsiveMs":10000,"terminateGraceMs":10000},
+  "jobs": {"workingBytes":2200000000}
+}

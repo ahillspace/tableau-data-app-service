@@ -216,8 +216,9 @@ export class ConnectionService implements ConnectionPort {
         ),
       );
     if (
-      selected?.credential_expires_at &&
-      selected.credential_expires_at <= new Date() &&
+      selected &&
+      (selected.mutation_id ||
+        (selected.credential_expires_at && selected.credential_expires_at <= new Date())) &&
       this.#renew
     ) {
       await this.#renew(
@@ -284,17 +285,26 @@ export class ConnectionService implements ConnectionPort {
             ? "remote-cancel"
             : "event-source",
     };
-    await this.lockBackgroundRows(tx, scope, allowExpiry ? { allowExpiry: true } : undefined);
+    await this.lockBackgroundRows(
+      tx,
+      scope,
+      allowExpiry ? { allowExpiry: true, allowMutation: true } : undefined,
+    );
     await owner.lockClaim(tx, authority);
-    return this.lockBackgroundRows(tx, scope, allowExpiry ? { allowExpiry: true } : undefined);
+    return this.lockBackgroundRows(
+      tx,
+      scope,
+      allowExpiry ? { allowExpiry: true, allowMutation: true } : undefined,
+    );
   }
   async lockBackground(tx: CoreTransaction, scope: BackgroundScope): Promise<void> {
-    await this.lockBackgroundRows(tx, scope);
+    const renewable = !!this.#renew && !!this.providers.get(scope.providerRegistrationId).renewal;
+    await this.lockBackgroundRows(tx, scope, renewable ? { allowExpiry: true } : undefined);
   }
   private async lockBackgroundRows(
     tx: CoreTransaction,
     scope: BackgroundScope,
-    renewal?: { mutationId?: string; allowExpiry?: boolean },
+    renewal?: { mutationId?: string; allowExpiry?: boolean; allowMutation?: boolean },
   ) {
     const registrationId = scope.providerRegistrationId;
     const connectionId = scope.connectionId;
@@ -378,7 +388,7 @@ export class ConnectionService implements ConnectionPort {
           .where("id", "=", connection.mutation_id)
           .forShare()
           .executeTakeFirst();
-        if (mutation?.may_invalidate && !renewal)
+        if (mutation?.may_invalidate && !renewal?.allowMutation)
           throw new ServiceError(422, "renewal-uncertain", "Connection is unavailable");
       }
     } else if (connectionId)
@@ -449,10 +459,16 @@ export class ConnectionService implements ConnectionPort {
         if (providerId !== registrationId || (ref && ref.connectionId !== connectionId)) absent();
         if (authority.source === "request")
           await this.access.lockAuthority(tx, authority.access, registrationId);
-        await this.lockBackgroundRows(tx, scope, ref ? { mutationId: ref.id } : {});
+        await this.lockBackgroundRows(tx, scope, {
+          allowMutation: true,
+          ...(ref ? { mutationId: ref.id } : {}),
+        });
         await owner?.lockClaim(tx, authority as Exclude<OperationAuthority, { source: "request" }>);
         // Recheck database wall time after waiting on the operation claim.
-        await this.lockBackgroundRows(tx, scope, ref ? { mutationId: ref.id } : {});
+        await this.lockBackgroundRows(tx, scope, {
+          allowMutation: true,
+          ...(ref ? { mutationId: ref.id } : {}),
+        });
       },
     };
   }
