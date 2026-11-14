@@ -153,3 +153,20 @@ export const connectionCollectionSchema = z.strictObject({ items: z.array(connec
 export const capabilityCollectionSchema = z.strictObject({
   items: z.array(capabilityDefinitionSchema),
 });
+export const sessionBeginSchema = z.strictObject({
+  appId: opaqueId,
+  deploymentId: opaqueId,
+  initiationVerifier: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const sessionTransactionSchema = z.strictObject({
+  id: opaqueId,
+  expiresAt: z.iso.datetime(),
+  launchUrl: z.url(),
+});
+export const sessionResponseSchema = z.strictObject({
+  accessToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  expiresAt: z.iso.datetime(),
+  authenticationExpiresAt: z.iso.datetime(),
+  identity: z.strictObject({ deploymentId: opaqueId, siteId: opaqueId, subjectId: opaqueId }),
+});
+export type SessionResponse = z.infer<typeof sessionResponseSchema>;

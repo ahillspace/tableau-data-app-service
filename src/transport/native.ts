@@ -149,6 +149,7 @@ export class TransportScope {
     const connector = buildConnector({
       timeout: this.policy.connectTimeoutMs,
       rejectUnauthorized: true,
+      ...(endpoint.tlsCa ? { ca: endpoint.tlsCa } : {}),
       autoSelectFamily: false,
       family: address.family,
       lookup: (_hostname, _options, callback) => callback(null, address.address, address.family),

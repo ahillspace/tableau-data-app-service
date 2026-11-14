@@ -101,6 +101,8 @@ export interface CredentialMutationsTable {
   evidence: string | null;
 }
 export interface CoreDatabase {
+  session_transactions: SessionTransactionsTable;
+  restoration_bindings: RestorationBindingsTable;
   deployments: DeploymentsTable;
   tableau_sites: SitesTable;
   site_changes: SiteChangesTable;
@@ -112,4 +114,25 @@ export interface CoreDatabase {
   connections: ConnectionsTable;
   connection_audience: ConnectionAudienceTable;
   credential_mutations: CredentialMutationsTable;
+}
+export interface SessionTransactionsTable {
+  id: string;
+  deployment_id: string;
+  app_id: string;
+  initiation_verifier: string;
+  state: "pending" | "launched" | "exchanging" | "succeeded" | "failed" | "redeemed";
+  state_verifier: string | null;
+  browser_verifier: string | null;
+  protected_state: Json<EncryptedEnvelope> | null;
+  expires_at: Timestamp;
+  session_id: string | null;
+  claim_token: string | null;
+  claim_incarnation: string | null;
+  claim_until: Timestamp | null;
+}
+export interface RestorationBindingsTable {
+  verifier: string;
+  session_id: string;
+  browser_profile: string;
+  created_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }

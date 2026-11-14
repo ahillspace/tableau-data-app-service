@@ -3,12 +3,13 @@ import { Migrator } from "kysely/migration";
 import { loadConfig } from "../config.js";
 import { createDatabase, type Database } from "./database.js";
 import * as core from "./migrations/001_core.js";
+import * as identity from "./migrations/010_identity.js";
 
 // Module owners add their immutable migration here; API/worker startup never migrates.
 export async function migrate(db: Database): Promise<void> {
   const migrator = new Migrator({
     db,
-    provider: { getMigrations: async () => ({ "001_core": core }) },
+    provider: { getMigrations: async () => ({ "001_core": core, "010_identity": identity }) },
   });
   const { error, results } = await migrator.migrateToLatest();
   if (error || results?.some((result) => result.status === "Error"))

@@ -82,98 +82,106 @@ export class AccessService implements AccessPort {
       throw authFailure();
   }
 
+  async publishIdentity(
+    tx: CoreTransaction,
+    identity: VerifiedIdentity,
+    appId: string,
+  ): Promise<AccessContext> {
+    const sessionId = randomUUID();
+    const deployment = await tx
+      .selectFrom("deployments")
+      .selectAll()
+      .where("id", "=", identity.deploymentId)
+      .forShare()
+      .executeTakeFirst();
+    const site = await tx
+      .selectFrom("tableau_sites")
+      .selectAll()
+      .where("deployment_id", "=", identity.deploymentId)
+      .where("site_id", "=", identity.siteId)
+      .forShare()
+      .executeTakeFirst();
+    if (!deployment?.enabled || deployment.adapter_id !== identity.adapterId || !site?.enabled)
+      throw new ServiceError(403, "site-disabled", "Site is not enabled");
+    const app = await tx
+      .selectFrom("apps")
+      .select("enabled")
+      .where("id", "=", appId)
+      .forShare()
+      .executeTakeFirst();
+    if (!app?.enabled) throw new ServiceError(404, "not-found", "App not found");
+    const time = await databaseTime(tx);
+    const expiresAt = new Date(
+      identity.verifiedAt.getTime() + this.config.SESSION_MAX_AGE_SECONDS * 1000,
+    );
+    if (!Number.isFinite(expiresAt.getTime()) || identity.verifiedAt > time || expiresAt <= time)
+      throw authFailure();
+    await tx
+      .insertInto("owners")
+      .values({
+        id: randomUUID(),
+        deployment_id: identity.deploymentId,
+        site_id: identity.siteId,
+        subject_id: identity.subjectId,
+      })
+      .onConflict((conflict) =>
+        conflict.columns(["deployment_id", "site_id", "subject_id"]).doNothing(),
+      )
+      .execute();
+    const owner = await tx
+      .selectFrom("owners")
+      .select("id")
+      .where("deployment_id", "=", identity.deploymentId)
+      .where("site_id", "=", identity.siteId)
+      .where("subject_id", "=", identity.subjectId)
+      .executeTakeFirstOrThrow();
+    await tx
+      .insertInto("sessions")
+      .values({
+        id: sessionId,
+        owner_id: owner.id,
+        verified_at: identity.verifiedAt,
+        authentication_expires_at: expiresAt,
+        adapter_id: identity.adapterId,
+      })
+      .execute();
+
+    return {
+      ownerId: owner.id,
+      deploymentId: identity.deploymentId,
+      siteId: identity.siteId,
+      subjectId: identity.subjectId,
+      sessionId,
+      authenticationExpiresAt: expiresAt,
+      appId,
+    };
+  }
+  async issueAccess(tx: CoreTransaction, access: AccessContext, token: string): Promise<Date> {
+    const time = await databaseTime(tx);
+    const expiresAt = new Date(
+      Math.min(
+        access.authenticationExpiresAt.getTime(),
+        time.getTime() + this.config.ACCESS_TOKEN_AGE_SECONDS * 1000,
+      ),
+    );
+    if (expiresAt <= time) throw authFailure();
+    await tx
+      .insertInto("access_tokens")
+      .values({ verifier: verifier(token), session_id: access.sessionId, expires_at: expiresAt })
+      .execute();
+    return expiresAt;
+  }
   async createSession(
     identity: VerifiedIdentity,
     appId: string,
   ): Promise<{ token: string; access: AccessContext; sessionId: string }> {
     const token = randomSecret();
-    const sessionId = randomUUID();
-    const result = await this.db.transaction().execute(async (tx) => {
-      const deployment = await tx
-        .selectFrom("deployments")
-        .selectAll()
-        .where("id", "=", identity.deploymentId)
-        .forShare()
-        .executeTakeFirst();
-      const site = await tx
-        .selectFrom("tableau_sites")
-        .selectAll()
-        .where("deployment_id", "=", identity.deploymentId)
-        .where("site_id", "=", identity.siteId)
-        .forShare()
-        .executeTakeFirst();
-      if (!deployment?.enabled || deployment.adapter_id !== identity.adapterId || !site?.enabled)
-        throw new ServiceError(403, "site-disabled", "Site is not enabled");
-      const app = await tx
-        .selectFrom("apps")
-        .select("enabled")
-        .where("id", "=", appId)
-        .forShare()
-        .executeTakeFirst();
-      if (!app?.enabled) throw new ServiceError(404, "not-found", "App not found");
-      const time = await databaseTime(tx);
-      const expiresAt = new Date(
-        identity.verifiedAt.getTime() + this.config.SESSION_MAX_AGE_SECONDS * 1000,
-      );
-      if (!Number.isFinite(expiresAt.getTime()) || identity.verifiedAt > time || expiresAt <= time)
-        throw authFailure();
-      await tx
-        .insertInto("owners")
-        .values({
-          id: randomUUID(),
-          deployment_id: identity.deploymentId,
-          site_id: identity.siteId,
-          subject_id: identity.subjectId,
-        })
-        .onConflict((conflict) =>
-          conflict.columns(["deployment_id", "site_id", "subject_id"]).doNothing(),
-        )
-        .execute();
-      const owner = await tx
-        .selectFrom("owners")
-        .select("id")
-        .where("deployment_id", "=", identity.deploymentId)
-        .where("site_id", "=", identity.siteId)
-        .where("subject_id", "=", identity.subjectId)
-        .executeTakeFirstOrThrow();
-      await tx
-        .insertInto("sessions")
-        .values({
-          id: sessionId,
-          owner_id: owner.id,
-          verified_at: identity.verifiedAt,
-          authentication_expires_at: expiresAt,
-          adapter_id: identity.adapterId,
-        })
-        .execute();
-      await tx
-        .insertInto("access_tokens")
-        .values({
-          verifier: verifier(token),
-          session_id: sessionId,
-          expires_at: new Date(
-            Math.min(
-              expiresAt.getTime(),
-              time.getTime() + this.config.ACCESS_TOKEN_AGE_SECONDS * 1000,
-            ),
-          ),
-        })
-        .execute();
-      return { ownerId: owner.id, expiresAt };
+    const access = await this.db.transaction().execute(async (tx) => {
+      const access = await this.publishIdentity(tx, identity, appId);
+      await this.issueAccess(tx, access, token);
+      return access;
     });
-    return {
-      token,
-      sessionId,
-      access: {
-        ownerId: result.ownerId,
-        deploymentId: identity.deploymentId,
-        siteId: identity.siteId,
-        subjectId: identity.subjectId,
-        sessionId,
-        authenticationExpiresAt: result.expiresAt,
-        appId,
-      },
-    };
+    return { token, access, sessionId: access.sessionId };
   }
 
   async connectionVisible(access: AccessContext, connectionId: string): Promise<boolean> {

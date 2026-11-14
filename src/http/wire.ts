@@ -135,7 +135,20 @@ export async function sendResponse(
   } catch {
     return fail();
   }
-  reply.header("X-Integration-Origin", origin).header("cache-control", "no-store");
+  reply
+    .header("X-Integration-Origin", origin)
+    .header("cache-control", "no-store")
+    .header(
+      "access-control-expose-headers",
+      [
+        ...new Set([
+          "X-Integration-Origin",
+          "X-Integration-Error",
+          "X-Integration-Response-Metadata",
+          ...pairs.map(([name]) => name),
+        ]),
+      ].join(", "),
+    );
   if (metadata) {
     reply.status(200).header("X-Integration-Response-Metadata", metadata);
     if (!bodyless)

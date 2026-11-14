@@ -15,6 +15,7 @@ export type Endpoint = {
   baseUrl: string;
   privateCidrs?: readonly string[];
   allowHttp?: boolean;
+  tlsCa?: string;
   resolveBase?: (context: Readonly<Record<string, unknown>>) => string;
   blockedPaths?: readonly string[];
 };
