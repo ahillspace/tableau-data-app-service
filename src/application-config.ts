@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { Config } from "./config.js";
+import { type InstalledDeclarations, installedDeclarations } from "./installed.js";
 import { opaqueId } from "./public/schemas.js";
 
 const positive = z.number().int().positive().safe();
@@ -13,6 +14,14 @@ const origin = z.url().refine((raw) => {
     return false;
   }
 }, "Canonical HTTPS origin required");
+const providerRegistrationSchema = z.strictObject({
+  id: opaqueId,
+  revision: positive,
+  enabled: z.boolean(),
+  mode: z.enum(["none", "personal", "operator"]),
+  reauthSeconds: positive.nullable(),
+});
+export type ProviderRegistrationConfig = z.infer<typeof providerRegistrationSchema>;
 const deployment = { id: opaqueId, revision: positive, enabled: z.boolean() };
 export const applicationConfigSchema = z.strictObject({
   apps: z.array(
@@ -45,13 +54,10 @@ export const applicationConfigSchema = z.strictObject({
       }),
     ]),
   ),
-  slack: z
-    .strictObject({
-      id: opaqueId,
-      revision: positive,
-      enabled: z.boolean(),
+  providers: z.array(providerRegistrationSchema).default([]),
+  slack: providerRegistrationSchema
+    .extend({
       mode: z.enum(["personal", "operator"]),
-      reauthSeconds: positive.nullable(),
       oauth: z
         .strictObject({
           clientId: z.string().min(1),
@@ -154,10 +160,40 @@ export function requiredSecret(env: NodeJS.ProcessEnv, name: string): string {
   if (!value) throw new Error("Required configured secret is missing");
   return value;
 }
+// This inventory contains metadata only. Executable providers remain source-installed.
+export function providerRegistrationInventory(
+  config: ApplicationConfig,
+  installed: InstalledDeclarations = installedDeclarations,
+): readonly ProviderRegistrationConfig[] {
+  const definitions = new Map(installed.providers.map((provider) => [provider.id, provider]));
+  if (definitions.size !== installed.providers.length)
+    throw new Error("Duplicate installed provider registration");
+  for (const item of config.providers) {
+    const definition = definitions.get(item.id);
+    if (!definition || definition.revision !== item.revision || definition.mode !== item.mode)
+      throw new Error("Configured provider differs from its trusted installed declaration");
+  }
+  if (
+    installed.providers.some(
+      (definition) => !config.providers.some((item) => item.id === definition.id),
+    )
+  )
+    throw new Error("Installed provider has no registration configuration");
+  const inventory: ProviderRegistrationConfig[] = [...config.providers];
+  if (config.slack) {
+    const { id, revision, enabled, mode, reauthSeconds } = config.slack;
+    inventory.push({ id, revision, enabled, mode, reauthSeconds });
+  }
+  if (new Set(inventory.map((item) => item.id)).size !== inventory.length)
+    throw new Error("Duplicate configured provider registration");
+  return inventory;
+}
 export async function applyConfiguration(
   db: import("./db/database.js").Database,
   config: ApplicationConfig,
+  installed: InstalledDeclarations = installedDeclarations,
 ): Promise<void> {
+  const inventory = providerRegistrationInventory(config, installed);
   await db.transaction().execute(async (tx) => {
     for (const item of [...config.deployments].sort((a, b) => a.id.localeCompare(b.id))) {
       const adapterId = item.kind === "cloud" ? "tableau-cloud" : "tableau-server-reference";
@@ -215,8 +251,7 @@ export async function applyConfiguration(
           }),
         )
         .execute();
-    if (config.slack) {
-      const item = config.slack;
+    for (const item of [...inventory].sort((a, b) => a.id.localeCompare(b.id))) {
       const previous = await tx
         .selectFrom("provider_registrations")
         .selectAll()
@@ -249,7 +284,9 @@ export async function assertConfiguration(
   db: import("./db/database.js").Database,
   config: ApplicationConfig,
   _base: Config,
+  installed: InstalledDeclarations = installedDeclarations,
 ): Promise<void> {
+  const inventory = providerRegistrationInventory(config, installed);
   const [apps, deployments, providers] = await Promise.all([
     db.selectFrom("apps").selectAll().where("enabled", "=", true).execute(),
     db.selectFrom("deployments").selectAll().where("enabled", "=", true).execute(),
@@ -279,15 +316,18 @@ export async function assertConfiguration(
     ) ||
     providers.some(
       (row) =>
-        config.slack?.id !== row.id ||
-        !config.slack.enabled ||
-        config.slack.revision !== row.config_revision ||
-        config.slack.mode !== row.mode ||
-        config.slack.reauthSeconds !== row.reauth_seconds,
+        !inventory.some(
+          (item) =>
+            item.id === row.id &&
+            item.enabled &&
+            item.revision === row.config_revision &&
+            item.mode === row.mode &&
+            item.reauthSeconds === row.reauth_seconds,
+        ),
     ) ||
     config.apps.filter((item) => item.enabled).length !== apps.length ||
     config.deployments.filter((item) => item.enabled).length !== deployments.length ||
-    (config.slack?.enabled ? 1 : 0) !== providers.length
+    inventory.filter((item) => item.enabled).length !== providers.length
   )
     throw new Error("Installed configuration differs from enabled database configuration");
 }

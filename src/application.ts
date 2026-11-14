@@ -24,39 +24,23 @@ import { Renewals } from "./connections/renewals.js";
 import { ConnectionService } from "./connections/service.js";
 import type { CoreServices } from "./core-ports.js";
 import { assertSchema, createDatabase } from "./db/database.js";
-import {
-  createEventsExtension,
-  type EventProvider,
-  SourceMaintenance,
-  Sources,
-} from "./events/index.js";
+import { createEventsExtension, SourceMaintenance, Sources } from "./events/index.js";
 import { createHttpApp } from "./http/app.js";
 import { registerAuthorizationRoutes } from "./http/authorization-routes.js";
 import { registerCoreRoutes } from "./http/core-routes.js";
 import { registerOperatorRoutes } from "./http/operator-routes.js";
 import { registerSessionRoutes } from "./http/session-routes.js";
+import { type InstalledDeclarations, installedDeclarations } from "./installed.js";
 import { jobsApi } from "./jobs/api.js";
 import { jobLimitsFromEnvironment } from "./jobs/config.js";
 import { PayloadProcessor } from "./jobs/payloads.js";
 import { JobsService } from "./jobs/service.js";
-import type { JobDeclaration } from "./jobs/types.js";
-import { type ProviderRegistration, ProviderRegistry } from "./providers/registry.js";
+import { ProviderRegistry } from "./providers/registry.js";
 import { slackRegistration } from "./providers/slack.js";
 import { SecretBox } from "./security/encryption.js";
 import { verifyProtectedKeys } from "./security/records.js";
 
-// Additional trusted declarations are installed in source. The browser and
-// configuration files cannot load modules, select fixture identities or add Jobs.
-export type InstalledDeclarations = {
-  providers: readonly ProviderRegistration[];
-  jobs: readonly JobDeclaration[];
-  events: ReadonlyMap<string, EventProvider>;
-};
-export const installedDeclarations: InstalledDeclarations = {
-  providers: [],
-  jobs: [],
-  events: new Map(),
-};
+export { type InstalledDeclarations, installedDeclarations } from "./installed.js";
 
 export async function createApplication(
   base: Config,
@@ -70,7 +54,7 @@ export async function createApplication(
   let app: Awaited<ReturnType<typeof createHttpApp>> | undefined;
   try {
     await assertSchema(db);
-    await assertConfiguration(db, settings, base);
+    await assertConfiguration(db, settings, base, installed);
     const { uploadLimitBytes, ...transportTimes } = settings.transport;
     const policy = {
       ...transportTimes,
