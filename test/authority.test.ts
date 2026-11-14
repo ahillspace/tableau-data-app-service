@@ -2,10 +2,69 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sql } from "kysely";
 import { registerSiteRoutes } from "../src/access/sites.js";
+import { ConnectionService } from "../src/connections/service.js";
 import { prepareRequest } from "../src/connections/snapshot.js";
 import { createHttpApp } from "../src/http/app.js";
+import { ProviderRegistry } from "../src/providers/registry.js";
 import { randomSecret, verifier } from "../src/security/secrets.js";
 import { candidate, coreFixture, fixtureProvider } from "./core-fixture.js";
+
+test("background start distinguishes reconnectable freshness from lost original generation", async () => {
+  const f = await coreFixture();
+  try {
+    const providers = new ProviderRegistry([fixtureProvider]);
+    const connections = new ConnectionService(f.db, f.access, f.secrets, providers, {
+      connectTimeoutMs: 1000,
+      headersTimeoutMs: 1000,
+      stallTimeoutMs: 1000,
+      maxSockets: 4,
+    });
+    const row = await f.credentials.publishLocal(f.alice.access, fixtureProvider, candidate());
+    const scope = {
+      access: f.alice.access,
+      providerRegistrationId: "fixture",
+      connectionId: row.id,
+      authorityGeneration: 1,
+      started: false,
+      purpose: "start" as const,
+    };
+    await f.db
+      .updateTable("connections")
+      .set({ state: "reauthorization-required" })
+      .where("id", "=", row.id)
+      .execute();
+    await assert.rejects(
+      f.db.transaction().execute((tx) => connections.lockBackground(tx, scope)),
+      { status: 422, code: "reauthorization-required" },
+    );
+    await assert.rejects(
+      f.db
+        .transaction()
+        .execute((tx) => connections.lockBackground(tx, { ...scope, access: f.bob.access })),
+      { status: 404 },
+    );
+    await f.db
+      .updateTable("connections")
+      .set({ authority_generation: 2 })
+      .where("id", "=", row.id)
+      .execute();
+    await assert.rejects(
+      f.db.transaction().execute((tx) => connections.lockBackground(tx, scope)),
+      { status: 404 },
+    );
+    await f.db
+      .updateTable("connections")
+      .set({ authority_generation: 1, state: "disconnected", bundle: null })
+      .where("id", "=", row.id)
+      .execute();
+    await assert.rejects(
+      f.db.transaction().execute((tx) => connections.lockBackground(tx, scope)),
+      { status: 404 },
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 test("personal authority crosses configured apps but never owners; usable proxy snapshot succeeds on a read-only database", async () => {
   const f = await coreFixture();

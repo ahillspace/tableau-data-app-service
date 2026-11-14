@@ -275,7 +275,7 @@ export class ConnectionService implements ConnectionPort {
         !connection ||
         connection.provider_registration_id !== registrationId ||
         connection.authority_generation !== scope.authorityGeneration ||
-        connection.state !== "active" ||
+        connection.state === "disconnected" ||
         !connection.bundle
       )
         absent();
@@ -291,6 +291,14 @@ export class ConnectionService implements ConnectionPort {
           .executeTakeFirst();
         if (connection.owner_id !== null || !membership) absent();
       }
+      if (connection.state === "reauthorization-required")
+        throw new ServiceError(
+          422,
+          "reauthorization-required",
+          "Connector reauthorization required",
+        );
+      if (connection.state === "renewal-uncertain")
+        throw new ServiceError(422, "renewal-uncertain", "Connection is unavailable");
       if (connection.mutation_id) {
         const mutation = await tx
           .selectFrom("credential_mutations")
