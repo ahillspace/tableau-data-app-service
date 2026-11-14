@@ -1,6 +1,6 @@
-# Specification work
+# Application and specification work
 
-Read GOALS.md before changing a specification.
+Read docs/product.md before changing a specification.
 Local application implementation and task-scoped development dependency setup are authorized; do not publish, deploy, create remotes, or merge into the primary branch.
 Keep one shared service deployment with an operator-controlled administrative boundary.
 Describe the public product for Data App developers and viewers without restricting its audience to a profession or team.

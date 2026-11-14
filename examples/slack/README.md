@@ -33,4 +33,4 @@ Direct image/video/download navigation cannot attach the service bearer and is n
 An arbitrary-size direct-to-disk download remains outside the demonstrated browser path; do not substitute an unbounded Blob accumulation.
 
 Run `npm run typecheck:example` for the example's strict TypeScript check.
-The isolated browser harness is documented in `test/sdk-browser.md`.
+The isolated browser harness is documented in [synthetic browser verification](../../docs/running.md#synthetic-browser-verification).

@@ -12,12 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source_paths(root: Path) -> list[Path]:
     manifest = root / 'specification.json'
-    if manifest.exists():
-        return sorted(root / entry['path'] for entry in json.loads(manifest.read_text())['documents'])
-    # Frozen snapshots predate the explicit current-source manifest.
-    paths = [p for p in root.glob('*.md') if p.name != 'AGENTS.md']
-    for folder in ('specs', 'decisions'):
-        paths.extend((root / folder).rglob('*.md'))
+    if not manifest.is_file():
+        raise ValueError('Current specification.json is required; archives are not a fallback.')
+    entries = json.loads(manifest.read_text())['documents']
+    paths = []
+    for entry in entries:
+        path = root / entry['path']
+        if not entry['path'].startswith('docs/') or not path.resolve().is_relative_to((root/'docs').resolve()):
+            raise ValueError('Current sources must be inside docs/: ' + entry['path'])
+        paths.append(path)
     return sorted(paths)
 
 def snapshot(root: Path) -> dict:
@@ -46,8 +49,7 @@ def snapshot(root: Path) -> dict:
     encoded = json.dumps(entries, sort_keys=True, separators=(',', ':')).encode()
     return {'format': 1, 'sha256': hashlib.sha256(encoded).hexdigest(),
             'files': entries, 'errors': errors,
-            'scope': 'Current specification.json documents when present; otherwise frozen legacy '
-                     'top-level Markdown, specs/ and decisions/. Review records and rendered artifacts are excluded.',
+            'scope': 'Only current specification.json documents under docs/. Archives and rendered artifacts are excluded.',
             'limits': 'Checks file presence and local file links only; does not prove semantic '
                       'consistency, external URL availability, or implementation behavior.'}
 

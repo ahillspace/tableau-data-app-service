@@ -1,0 +1,1254 @@
+{
+  "sourceCommit": "5638d38d4ee39885a2a549382a9fdc7a22f822dc",
+  "authority": "Historical only; excluded from current manifest and build.",
+  "files": [
+    {
+      "original": ".agents/skills/.openspec-target",
+      "archive": "archives/planning-2026-11-14/.agents/skills/.openspec-target",
+      "sha256": "243b0dc9b847e66c440dca985e10fe0ce9e29c379b018ddd5747ba8948f84cc8",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-apply-change/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-apply-change/SKILL.md",
+      "sha256": "a5439fa66fc69a907175f90929e88e7f3f00126e24ae1be04e3369d24b716e89",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-archive-change/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-archive-change/SKILL.md",
+      "sha256": "96ce3d997fb7bfadeabd52a875c9933d293543ed4c906f6f1c319ad996ea5542",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-explore/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-explore/SKILL.md",
+      "sha256": "1ad310a2ae79acc18e626410b1c055d49c1e432e2f2f1479760eaf16cc655ce7",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-propose/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-propose/SKILL.md",
+      "sha256": "66f8cfbe7fae4b710b3c881a7921560cbd4b2c4539c2fe10127618fe7e5496ab",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-sync-specs/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-sync-specs/SKILL.md",
+      "sha256": "623ae1ddf825cced6d0048bda285a8717d167400c651046ff54fe07c868e3f95",
+      "current": null
+    },
+    {
+      "original": ".agents/skills/openspec-update-change/SKILL.md",
+      "archive": "archives/planning-2026-11-14/.agents/skills/openspec-update-change/SKILL.md",
+      "sha256": "470ead89c835288c28f8cb45ee5350168d47187e4ef328c571eefc16bf6b618f",
+      "current": null
+    },
+    {
+      "original": "GOALS.md",
+      "archive": "archives/planning-2026-11-14/GOALS.md",
+      "sha256": "d914d9f676ca7d22b1c54e03cf157a96abde750ad25c50ee505db281b9fcbe8c",
+      "current": "docs/product.md"
+    },
+    {
+      "original": "PRD.md",
+      "archive": "archives/planning-2026-11-14/PRD.md",
+      "sha256": "a42b32fe48e89730412f043488ba5e6be095950353b19eb3e0ffe3bf7a76e37f",
+      "current": "docs/product.md"
+    },
+    {
+      "original": "README.md",
+      "archive": "archives/planning-2026-11-14/README.md",
+      "sha256": "ded7ed701ec210e1faaefcd912ddfa7f97c189c4457b697242c0196cd3c1e081",
+      "current": "docs/README.md"
+    },
+    {
+      "original": "RUNNING.md",
+      "archive": "archives/planning-2026-11-14/RUNNING.md",
+      "sha256": "f246a224b8a1f2a3982cde5f71d22e11002fed2ef2f3449b15e9a3f5a4df200f",
+      "current": "docs/running.md"
+    },
+    {
+      "original": "architecture.md",
+      "archive": "archives/planning-2026-11-14/architecture.md",
+      "sha256": "f2e252818d63e48a03cc501df50f04036023f9077665e4c082a297264f4744a8",
+      "current": "docs/architecture.md"
+    },
+    {
+      "original": "decisions/AGENTS.md",
+      "archive": "archives/planning-2026-11-14/decisions/AGENTS.md",
+      "sha256": "9f5456a6fbc85b3f1663284c4736e98634f93b7d813187cd236a0b376a257519",
+      "current": null
+    },
+    {
+      "original": "decisions/choices.md",
+      "archive": "archives/planning-2026-11-14/decisions/choices.md",
+      "sha256": "71167c63360df943e7c73310bad0d5bfb1b9a7a37bf9e9de5b54b4365d95e494",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/README.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/README.md",
+      "sha256": "8ee188498a42fe2b6884d2d243ee46e0cb86903332abb0cedc3487684334e47c",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-001-durable-execution.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-001-durable-execution.md",
+      "sha256": "b208d4a3728d8015aaf407a9490ba49920e3ae814d49fae2700c4b61eb461f45",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-002-shared-provider-flows.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-002-shared-provider-flows.md",
+      "sha256": "6b11558d1aef0ed8ebeb0e789a2f193214d106a4812604950e532b3f5110a868",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-003-tableau-identity-and-sdk.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-003-tableau-identity-and-sdk.md",
+      "sha256": "cd1acf1276a6eb465149251e07091cbda5b2aa2c5f7f240b94813a2e65c92722",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-004-authorization-attachment.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-004-authorization-attachment.md",
+      "sha256": "1ab61b25eabf313eb0d0904aa600812982ca2cdecc427ceb79b496d3b07b2145",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-005-credential-refresh-safety.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-005-credential-refresh-safety.md",
+      "sha256": "e5b3e0ed04653b8ffead60aaa649c325c4cb65749582cf4cf855f0a749ddd224",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-006-helper-default-and-credential-access.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-006-helper-default-and-credential-access.md",
+      "sha256": "95d27731a47da225165b68b7e389613b6868a6fd3c0f1f6bf50ea8198a1a3290",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-007-simple-errors-and-opt-in-retries.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-007-simple-errors-and-opt-in-retries.md",
+      "sha256": "4e177d20ba313246ab4b90da8495b9b627bace348ebfddf0d1d7109c0bb8a490",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-008-basic-job-deduplication.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-008-basic-job-deduplication.md",
+      "sha256": "efb812890c40a2f7d3d7b74a2c70f62bcc058412f6921b8c8b57f068fbabad53",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-009-capability-defined-pagination.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-009-capability-defined-pagination.md",
+      "sha256": "3a4e061d422cf81b3812c593399a418a061ec67c05cd6f26d9de85153531908f",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-010-authenticated-proxy-foundation.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-010-authenticated-proxy-foundation.md",
+      "sha256": "c068fd690bfd50b3c76f3d6024a344abe79af962a6e5c8d190a53034f49d6649",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-011-provider-event-delivery.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-011-provider-event-delivery.md",
+      "sha256": "4ebbd83bcbfd56173c2b3d464b1bfd1bd2ad2777ade4fdc8150278b159947f90",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-012-maintenance-window-key-rotation.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-012-maintenance-window-key-rotation.md",
+      "sha256": "23979be039417354ffc49ea5d2953f721aade25edf8bfb89bf9ebb96db779c00",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-013-standard-database-recovery.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-013-standard-database-recovery.md",
+      "sha256": "14d45bada2bfa0e110ab133f972c85f3c3ea5d5723d1623530a5a79aacd85aa6",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-014-tableau-preferred-cross-app-identity.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-014-tableau-preferred-cross-app-identity.md",
+      "sha256": "080dd5f41fc97a1b550065443f75315d449bc8f79ca2fd64d80dc2fbb06e3068",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-015-native-provider-access-by-default.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-015-native-provider-access-by-default.md",
+      "sha256": "d814e4c7a2f0e1a3cd7e81050b552a16b9a5f91f841d3c19e6534779a65d3d10",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-016-caller-controlled-proxy-retries.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-016-caller-controlled-proxy-retries.md",
+      "sha256": "ac160036afd96bcaaa5613d2bc2bcbb722861a51e6f1bef354f5147aacd4b344",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-017-native-provider-responses.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-017-native-provider-responses.md",
+      "sha256": "d8ae800a342c14e79f59f3338aec77ab9c6007e68d6f9852f6988a5df5c44c21",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-018-backend-api-credentials.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-018-backend-api-credentials.md",
+      "sha256": "f5b73cca6529c63dbf5203d0d27f2b785fccf0bacde9a17b421efd2b3f7fa562",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-019-single-managed-job-execution-path.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-019-single-managed-job-execution-path.md",
+      "sha256": "e10650df22cf4c003516a8071082b445faf2cdabfdd486fe0422d114328d2391",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-020-job-lifetime-and-provider-revocation.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-020-job-lifetime-and-provider-revocation.md",
+      "sha256": "8dd6d2a21630d7b8fa46871f26fda5799616521018ef6036cd5daf3fa2041e08",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-021-job-retention.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-021-job-retention.md",
+      "sha256": "42fd28836566e9c3b9dd7fe86420fd7cbce1916601a1a421a57772fed6530ed4",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-022-simple-live-event-forwarding.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-022-simple-live-event-forwarding.md",
+      "sha256": "532f8c34c6e5725d36e870ea3c3d16e5c40258571b8ec4085654214e32baf514",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-023-connection-runtime-context.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-023-connection-runtime-context.md",
+      "sha256": "a8b672b7ed89369d229ec9033c69b2dffef3e40553cc89ea73ee00ca2bd62c87",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-024-provider-specific-event-lifecycle.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-024-provider-specific-event-lifecycle.md",
+      "sha256": "4bbef43e854b30175ff8496734f49f72883e1162df367fa0abd768cd82372236",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-025-schema-setup-and-startup-order.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-025-schema-setup-and-startup-order.md",
+      "sha256": "b465219f09a8d54819a3511dfa177c0940ebf0535b2f52acd1c8c5fa08e98d49",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-026-accepted-hardening-safeguards.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-026-accepted-hardening-safeguards.md",
+      "sha256": "0fe558c2f0197f982706463fe613216ad693dda62559063b9f35bcf58aa2d7c1",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-027-persistent-service-sessions.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-027-persistent-service-sessions.md",
+      "sha256": "fb32a6d509b29d261d70e9339f1b4b307d6a667b1da5d88c7ba75aa8f0a388f8",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-028-trusted-tableau-site-registry.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-028-trusted-tableau-site-registry.md",
+      "sha256": "a96707b409ef088a6870f6b399b9377e9157e3d4223b7065273629b7fe07247b",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-029-simple-provider-consent-expiry.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-029-simple-provider-consent-expiry.md",
+      "sha256": "d828b67820ef101f4622ee2c7d78709c11a18e012a9a3f7826050c1bbedb3011",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-030-streaming-and-large-responses.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-030-streaming-and-large-responses.md",
+      "sha256": "77c85d304b107aa7fc1687a0e4e1adfb336848a55b853f9b54e5993ba347e516",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-031-session-and-provider-lifetime-policy.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-031-session-and-provider-lifetime-policy.md",
+      "sha256": "c539d78774eb1763f0b3c961ec55a4c62530f3dd3f2bfd25ba415fba6d519fe1",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-032-connector-reauthorization-policy.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-032-connector-reauthorization-policy.md",
+      "sha256": "0720cb7fba2e0a6b145e66905489617a7fd80539740647e922f67ffd628c3424",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-033-browser-request-authentication-boundary.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-033-browser-request-authentication-boundary.md",
+      "sha256": "d13620b0422b685a96add7f96005e2c5af881ffdb69a1680e5bcaac3cf849f45",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-034-data-app-and-provider-boundary.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-034-data-app-and-provider-boundary.md",
+      "sha256": "0043e15058c99fc6fbf2a644156effc50448409a25226003a72087775291b2ad",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-035-owned-postgres-job-worker.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-035-owned-postgres-job-worker.md",
+      "sha256": "b3c57ebb7376ce58b1c13e10a57e063f268889a81f9e28b7da7a2f03c7fbd925",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-036-retained-owner-results-after-disconnect.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-036-retained-owner-results-after-disconnect.md",
+      "sha256": "15522f0e7a40c8b540067052f74ec1f42fadd39e243798e195981bfc250b754d",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-037-local-file-provider-uploads.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-037-local-file-provider-uploads.md",
+      "sha256": "fb8ec4fabc08b9427e1bbcc1cf939bf3d3749ec25b49a5e52b4ff7e7cd2ce8f9",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-038-optional-capability-limit-overrides.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-038-optional-capability-limit-overrides.md",
+      "sha256": "e96365541ac3cf3f38bfc5193b0e4b22c04fb894f26835fa882bae0f7ce47f36",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-039-job-input-and-result-defaults.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-039-job-input-and-result-defaults.md",
+      "sha256": "c5e2365d5cb7cdce8ecc6622a7bb4c94828d50a2a9742ba2b84d35e5821d2518",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-040-single-job-payload-caps.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-040-single-job-payload-caps.md",
+      "sha256": "f76ffbeea189f4d4741e9dfb727dd61d32a2619845c9aac9cc9f59ae6367e190",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-041-job-execution-cap.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-041-job-execution-cap.md",
+      "sha256": "62c1e903b7e86ecdec3110e5fb60d8c442d5a284f38ac73cee24cabf7caf70ab",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-042-no-separate-service-signout.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-042-no-separate-service-signout.md",
+      "sha256": "78e1af5c4e92a384f342fe177869ee02a86299f1366dc595c0bc4a684a2d994c",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/REWRITE-043-verified-tableau-session-maximum.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/REWRITE-043-verified-tableau-session-maximum.md",
+      "sha256": "eb33bb22bc490af4a3918a6b43cecf5680e6555a0a4f4cd658ac338640e2948f",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-001-maintenance-restore.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-001-maintenance-restore.md",
+      "sha256": "a515d556d132dca99e4cd0b3b18f5c4d0d04b8f95e2baf5adb2917c6f27b7f96",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-002-browser-identity-and-authorization.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-002-browser-identity-and-authorization.md",
+      "sha256": "9d0743eafd3022d730aac3e3267c0344fee5511676ac2004b3969546d63eeb04",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-003-proxy-and-provider-extension.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-003-proxy-and-provider-extension.md",
+      "sha256": "5dc618d5ae4d8c7eeef6bf4bfae34b91fe1d9b9b724309a5eff4de7dbf9f937d",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-004-durable-jobs.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-004-durable-jobs.md",
+      "sha256": "fb1879dc1e45c9f2684e49e90209fa682dd4487195fd4c7cf1e2f22660cc6833",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-005-events-and-delivery.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-005-events-and-delivery.md",
+      "sha256": "55cafe13223118c673643b367faf498665c83e34704b21a965a4974a3218a2da",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-006-backend-consumers.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-006-backend-consumers.md",
+      "sha256": "33a298826599dfae0f29735d9eca2ccad850c1ec093931f52d5a921366deb5d2",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-007-credentials-maintenance-and-deployment.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-007-credentials-maintenance-and-deployment.md",
+      "sha256": "94ba345fd4fd362e5ccd424fad0fe97edcb1cbb61672259731cd0e432c2d5965",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/PROPOSAL-008-ownership-modes.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/PROPOSAL-008-ownership-modes.md",
+      "sha256": "cc027f22197b3617f177432b1ec89f3151b558e84c95baaa6d58bfa67ce8d16f",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/README.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/README.md",
+      "sha256": "175db2ad84742289743cf4a76b4b6c0ec826fd452073039a192f54413b4d35d1",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/document-checks.json",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/document-checks.json",
+      "sha256": "51f9526323fa1f856d1cc97cf0a774e14a83bbcb34046071a809fb325ebed090",
+      "current": null
+    },
+    {
+      "original": "decisions/rewrite/proposals/independent-review.md",
+      "archive": "archives/planning-2026-11-14/decisions/rewrite/proposals/independent-review.md",
+      "sha256": "dfc641ac0cc978881f0bf27c60000f699aea7320bea910b67694a591e7c99d61",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/architecture.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/architecture.md",
+      "sha256": "5c848ee42b2690fb9ebf8a7fdaf32a09b0d5395d489a5dc352a19d88da8f7e36",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/decisions/choices.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/decisions/choices.md",
+      "sha256": "d5873e5602665af01dba0733979093a0c085f637b8f83e79f475a109d682a68b",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/goals-assessment.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/goals-assessment.md",
+      "sha256": "b960a78519e3eeafecab7d52795db6a015fc067f07e65ec14a69e7ecbca9cb65",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/specs/access-connections.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/specs/access-connections.md",
+      "sha256": "6f5b9ce8ec4c0301b5ba5dc616067cd33d089a12825c84486bda4fac44161a11",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/specs/contracts.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/specs/contracts.md",
+      "sha256": "5f785932721b7f9d764c2a1bcfd55e0006a5f38948b468564a013e6ced59c379",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/specs/events-http-sdk.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/specs/events-http-sdk.md",
+      "sha256": "e32ed87198f75cabb3ab5215703436cac8cee76d6a84285fdacdec7f546f6006",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/specs/persistence-operations.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/specs/persistence-operations.md",
+      "sha256": "e302f360a21e91e66b4fbd8a0bcae72e3c634550aee6d22629b2eb44d344d406",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/specs/providers-execution.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/specs/providers-execution.md",
+      "sha256": "80b2b75d7093a6d6fb31bd1f6c8a8376524c65d9ab3661cf7d0a065592357aa9",
+      "current": null
+    },
+    {
+      "original": "design/astra-initial/verification.md",
+      "archive": "archives/planning-2026-11-14/design/astra-initial/verification.md",
+      "sha256": "de777927187b77e9bbae573a2d83ec9db32ec24fc035593cdb2a2fa7d8323c3f",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/GOALS.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/GOALS.md",
+      "sha256": "b4e25d550c6670b46c51949dd2f5f713b1a1b44c109bf36abbf5ed6168d4edc4",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/PRD.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/PRD.md",
+      "sha256": "52c77e3f60a7f11d11b99d7d44183edc97291131bd4beeb722cc64bd8c1d6128",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/README.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/README.md",
+      "sha256": "2a92fba683f0ea151161e030c5d210176a94230e58121c4cbc87928d858b44dd",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/architecture.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/architecture.md",
+      "sha256": "4b66952954fafb531ee7aa5637cdd0c20315b93481d05b08a52aaf48e50607a7",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/decisions/choices.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/decisions/choices.md",
+      "sha256": "e963baf208129a88e3825f307d13d9b17144e529d873ee458bf15bfbcc8ddf2c",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/reviews/astra-revised-source.json",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/reviews/astra-revised-source.json",
+      "sha256": "3739ad3ed22db1a7932ee1ee3dd5c747cefbfdbfbd3149c46203d9967d8ce262",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/specs/access-connections.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/specs/access-connections.md",
+      "sha256": "5f330d56613d8f3ffd5b033e407d2f9b762ff06b719419c6b507c8f670fa819c",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/specs/contracts.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/specs/contracts.md",
+      "sha256": "f7097bcbdcb925a2d4b02529a48498e1900d73463103526c7910dec9f6e5e762",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/specs/events-http-sdk.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/specs/events-http-sdk.md",
+      "sha256": "28068225a2786e6f060fe04b190f0e81ed81de0a6d69e1266cf18aa9a7ca9943",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/specs/persistence-operations.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/specs/persistence-operations.md",
+      "sha256": "0168d27b52af9766828e3abe2a354442803edfb1e652790179997952bc0d59f9",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/specs/providers-execution.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/specs/providers-execution.md",
+      "sha256": "c16f47d6761c8c43c11dff5719389d8cbc79e8ebcbe89c3a1ad54dda012e3c0f",
+      "current": null
+    },
+    {
+      "original": "design/pre-proxy-rewrite-2026-11-08/verification.md",
+      "archive": "archives/planning-2026-11-14/design/pre-proxy-rewrite-2026-11-08/verification.md",
+      "sha256": "f7ad80991cea242fbda07825d8f0edabfe5209c6acc78bed7306b675a7f4752b",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/README.md",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/README.md",
+      "sha256": "f9d8c6f814fd21607046003a562905f2a47cca322175e3f9a94db3bb06b6ab39",
+      "current": "docs/README.md"
+    },
+    {
+      "original": "design/review-workspace/architecture-review.html",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/architecture-review.html",
+      "sha256": "e8dc2dda54096a471b8a92b71ddbfafd7c92f96015e4269055d476f8118775a7",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/build.py",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/build.py",
+      "sha256": "e10646c61dbeb3180c96b32759959baaff096ba21872d4ba6f82d74967003dd5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/check-ohp-shell.cjs",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/check-ohp-shell.cjs",
+      "sha256": "b42fed6ed9c827e4f15c2a696d604db216997dcf9023e1b0a68fc512a8883b74",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/check-ui.cjs",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/check-ui.cjs",
+      "sha256": "cae095935d30151829085f3b5202bff201935e2a794588ff41cdf3f0a272d387",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/evidence-manifest.json",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/evidence-manifest.json",
+      "sha256": "479a379445c000c89d9f4350e946387c028812ee4af5771bbc95ade7ddbcb6b5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/model.json",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/model.json",
+      "sha256": "f43bb6b70e8afb1ef0c41edcefd023f175f850c20933e04e1b48cd5f160d419b",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/ohp-shell-checks.json",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/ohp-shell-checks.json",
+      "sha256": "f7311464921b901ca187311ab0e74c4a43a6e783c76e1525b481d7cea865f73e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/planning_model.py",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/planning_model.py",
+      "sha256": "3fb14044abfcb312e1891373bc3ab57855aeb3045007d87214dc76418b87921d",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/readability-checks.json",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/readability-checks.json",
+      "sha256": "6331190c660a8df1dacd05993283429a912052820049aa6c9c9a8f24a615dae5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/render-documents.cjs",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/render-documents.cjs",
+      "sha256": "2dd89bd6cc6266e81c3d9eff41dfa65764085db77dc0554b39ba6cd40254a6a7",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/api-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/api-1100.png",
+      "sha256": "6d93a33bc777550de1eabe28b166a420afa80c68136aa93e63d15bca78cd240b",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/api-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/api-1440.png",
+      "sha256": "d7751f9c7fc7ea41f9a622756e1283e9d6b33888249aada85e2d3dea8fdb414f",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/api-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/api-390.png",
+      "sha256": "a372124b8bd41b34563b793fbef80435b85295961305a8279cfc98035123425f",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/decisions-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/decisions-1100.png",
+      "sha256": "b9c0286b3a7877743fa93cc3180c6aeedbc82c4c434b71eb3069a5e0390f37da",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/decisions-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/decisions-1440.png",
+      "sha256": "b3d5aca6c9bb9897b8734728aa2950b13e17f19ecd12a26983a3ee1bce45636e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/decisions-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/decisions-390.png",
+      "sha256": "31dab4bf8ee4575fbdc622916d153d9491d5db45cacf9ffe5cf1225ebb23d718",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/flows-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/flows-1100.png",
+      "sha256": "5813d8747178b946fcf73831cd9b734295cdaf7193d777b06dff9fcfeb1cc09d",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/flows-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/flows-1440.png",
+      "sha256": "b5867f64459535c40e94decfb757b136e962904b7d4175821a53ad2848a6f6d5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/flows-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/flows-390.png",
+      "sha256": "fe23537a52846266e5eb7d1837fc410e20fb2a1636dad8125157523f2adf3b53",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/modules-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/modules-1100.png",
+      "sha256": "45e432a8444170d839cdd7f761361ec1ed775795a4deb60ccccfe3d43d5ca23e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/modules-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/modules-1440.png",
+      "sha256": "e43d9c889d93faefff864681eb6f6070cd818a788034e2c139fe2df8c8917238",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/modules-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/modules-390.png",
+      "sha256": "e685f70573ef54d8eac23918944d2422deb5d10d5d40c2e947963c21bc163da5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-accepted-decisions.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-accepted-decisions.png",
+      "sha256": "e8f7a4f2cc29951e67f9bdec4a11216ed7468d43beeef08e45f4e22432339047",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-api-1720.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-api-1720.png",
+      "sha256": "bf5f58adf88968f4641915de3e112f651b1b55e80fbfdf43d6e59eba790d8506",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-flow-1280.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-flow-1280.png",
+      "sha256": "c3ffd60fff251fb79d633d20c7f28a406439387509e47d2e4e5258d287d5a63c",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-flow-1720.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-flow-1720.png",
+      "sha256": "7c4eadb243b73473dc28ac5a7b23c3d7208cf78a234b00df6b20ae48798d44f6",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-local-selection.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-local-selection.png",
+      "sha256": "86fd32691da03bdbc690aa7ccef55e846c78dd83b0160992c1e75c0d4848be55",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-overview-1720.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-overview-1720.png",
+      "sha256": "6991b3f8b24f9397de4a17163d270ef53215fcdf6ebcc7e6d570c34b8f179426",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/ohp-shell-system-1280.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/ohp-shell-system-1280.png",
+      "sha256": "f825f1d124fbafdbba3ed7d70c8c2dce4a3568050971cbe943888234627e07ec",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/overview-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/overview-1100.png",
+      "sha256": "100e90b40a651eead002faf5ef2f24079aea321c017a928f2aae9506a418c05e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/overview-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/overview-1440.png",
+      "sha256": "65aae350931afacea2eadd955a4842acca917327a7051b1f32b15824b4c8ba5e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/overview-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/overview-390.png",
+      "sha256": "e0a818f7dc64f8cedd4fac069e5a1b9713dd2a634d5293ccbfe6616ad11e2a0f",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/plan-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/plan-1100.png",
+      "sha256": "d18503c5e7dd7ac251f5732b231e238102174497f5145964b43b7534690ee6e0",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/plan-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/plan-1440.png",
+      "sha256": "328a8cbba52c5b69b1cb2c3b61f2a9196c8c5359962684dc11a1563f7a758298",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/plan-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/plan-390.png",
+      "sha256": "6fc650d220b40cb5511e573e272f51b1606400a585cdbfe01eb0558c00e366a6",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/readability-flow-1066.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/readability-flow-1066.png",
+      "sha256": "6117285c5ef03a52c77b501c3144142a37f5bf5a21a6743c9cbc446f0f3b7c7d",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/readability-flow-626.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/readability-flow-626.png",
+      "sha256": "462f4c669680740267d255c08764849f2f77f70f85bd1ca988fe6163147969ba",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/redis-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/redis-1440.png",
+      "sha256": "26a3e1546afe50971e563f891027cd6b6a9de2e25d074f915bbc2bf661def1ae",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/redis-flow-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/redis-flow-1440.png",
+      "sha256": "39458c4bac15a2e837206874142e2d6588780af259a33b3c093f9676358c63d0",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/review-print.pdf",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/review-print.pdf",
+      "sha256": "da2f8e8d1f29f34961ef5d37bb5aa69bc58ade7ab8aebd0ddd6a6c7f7e3eb44e",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/source-contracts-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/source-contracts-390.png",
+      "sha256": "cc93c90c1986381aacfc57e35d4bc0dfea329d9dd0e4c0ca8bc4fcf2ab8cae0c",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/sources-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/sources-1100.png",
+      "sha256": "48d42e11184bfa8a7fb456667a9818ddfa64b744c737209a7ab4d42d5a8d9cde",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/sources-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/sources-1440.png",
+      "sha256": "d189e672ce32a68aa7cb97cf67cc2a8d22bc492b3dcbd6c3f91fec4d9bf62dbb",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/sources-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/sources-390.png",
+      "sha256": "4d08674121c123b65ed05826bb64e87598f58dd11662f98cecb7651cdc99d3f5",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/srcdoc-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/srcdoc-1440.png",
+      "sha256": "fdb5704b9946a68e5e3da6f4fa1c5eb1ad7668874670cbe57e73aa48b05f1e99",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/system-1100.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/system-1100.png",
+      "sha256": "86cfe1ea9ce0b2195aa167798bd926c173ffdab0f271f1ebf8d741fa16fa32ff",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/system-1440.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/system-1440.png",
+      "sha256": "b59011a56ec613af997fb05f9a883c603547f72cc16bc6094bad78d9a5fb671f",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/screenshots/system-390.png",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/screenshots/system-390.png",
+      "sha256": "ccddbc5e3b0fdda8f21107ca1f2063def2604e4d8c51d69e3a69e97f3216596a",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/template.css",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/template.css",
+      "sha256": "82b788f53ae7b247fe6fa5546e2e849b2e49ca1e48a0f276c8e1885ea26b9281",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/template.html",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/template.html",
+      "sha256": "7bb437609d5d9731eca81668a6175a340498b8990cc8aaf826c3dacc07712ab7",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/template.js",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/template.js",
+      "sha256": "da05d1645328113a2cccdb49de8ab65d8e7af6c452c94acdeacce334d0e2be38",
+      "current": null
+    },
+    {
+      "original": "design/review-workspace/ui-checks.json",
+      "archive": "archives/planning-2026-11-14/design/review-workspace/ui-checks.json",
+      "sha256": "0ed8421b3d737383cf356fb4abff843f19b0257fca53a6083885f1ab7bc4be12",
+      "current": null
+    },
+    {
+      "original": "history.md",
+      "archive": "archives/planning-2026-11-14/history.md",
+      "sha256": "c5b7b0fbdaf729c5488e4ea21f0959ffeaa9a228907f179a2a709e3e305d2a42",
+      "current": null
+    },
+    {
+      "original": "implementation-readiness.md",
+      "archive": "archives/planning-2026-11-14/implementation-readiness.md",
+      "sha256": "e126a41aadda8cac5f5898de5ac74ba32b7c5911c6e3ac1b329d1e02b77a2667",
+      "current": "docs/verification.md"
+    },
+    {
+      "original": "implementation-status.md",
+      "archive": "archives/planning-2026-11-14/implementation-status.md",
+      "sha256": "7d3fe69eb41e06123a9bbbdebdd1007537f7dd5485156d62e288877fd9df5fb7",
+      "current": "docs/implementation.md"
+    },
+    {
+      "original": "openspec/changes/archive/.gitkeep",
+      "archive": "archives/planning-2026-11-14/openspec/changes/archive/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/native-response-streaming/.openspec.yaml",
+      "archive": "archives/planning-2026-11-14/openspec/changes/native-response-streaming/.openspec.yaml",
+      "sha256": "309e6764c826c3fc6250bcce33b56b7e44adebafc76c7df25f058663d6de4299",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/native-response-streaming/design.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/native-response-streaming/design.md",
+      "sha256": "9d941f08a2401ff6bace402809874d8985edbe024d2f5aa5175d188eec74059c",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/native-response-streaming/proposal.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/native-response-streaming/proposal.md",
+      "sha256": "a30d89f29fc1983f0969068f843e37291c6464d227c25ef160a8989054bf592b",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/native-response-streaming/specs/native-response-streaming/spec.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/native-response-streaming/specs/native-response-streaming/spec.md",
+      "sha256": "2a707517eef8d64731261b60cbfb63a7e535fa6ba6aed065c4bf2a184b1c807e",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/native-response-streaming/tasks.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/native-response-streaming/tasks.md",
+      "sha256": "3041fd0323a437d644ed60e3fedd6d1704ca61891c169715ff55222e734644c8",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/tableau-site-access/.openspec.yaml",
+      "archive": "archives/planning-2026-11-14/openspec/changes/tableau-site-access/.openspec.yaml",
+      "sha256": "309e6764c826c3fc6250bcce33b56b7e44adebafc76c7df25f058663d6de4299",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/tableau-site-access/design.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/tableau-site-access/design.md",
+      "sha256": "6ccafd2bbc0d33db29e0706dc60dc221cad45300fcbe45ced4e538e539f5ffef",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/tableau-site-access/proposal.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/tableau-site-access/proposal.md",
+      "sha256": "7575318af1ac8d68f398cd943e31d944fdadf4f644910dfbdeb2c8a1a7f98668",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/tableau-site-access/specs/tableau-site-access/spec.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/tableau-site-access/specs/tableau-site-access/spec.md",
+      "sha256": "d25c7f549fe7c3a15abfc28f88eb3bdccd934c4ebe7fbae7db9e2bde860bd9a9",
+      "current": null
+    },
+    {
+      "original": "openspec/changes/tableau-site-access/tasks.md",
+      "archive": "archives/planning-2026-11-14/openspec/changes/tableau-site-access/tasks.md",
+      "sha256": "70b98054b9c10e52eed99c21c6ddaf05e0a74e9e7fb6574b1052d3d39166add0",
+      "current": null
+    },
+    {
+      "original": "openspec/config.yaml",
+      "archive": "archives/planning-2026-11-14/openspec/config.yaml",
+      "sha256": "f0082e9c22e8ce1d611c0f3b4d4915ce445e7ff2553cda6b713b6c25f390984c",
+      "current": null
+    },
+    {
+      "original": "openspec/specs/.gitkeep",
+      "archive": "archives/planning-2026-11-14/openspec/specs/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "current": null
+    },
+    {
+      "original": "planning/README.md",
+      "archive": "archives/planning-2026-11-14/planning/README.md",
+      "sha256": "203bfecf88bb6fc4b17af12dd9bba05bf37939d44d850f0474c27857b4b4fea5",
+      "current": "docs/README.md"
+    },
+    {
+      "original": "planning/api-design.md",
+      "archive": "archives/planning-2026-11-14/planning/api-design.md",
+      "sha256": "d06fc3f2687d6d1617b5c7584c628bfdaf4598b3b6060138d6d5df04c34cb1e8",
+      "current": "docs/api.md"
+    },
+    {
+      "original": "planning/build-plan.md",
+      "archive": "archives/planning-2026-11-14/planning/build-plan.md",
+      "sha256": "d24a01e7eb6f422e302913949d8ed23fc3ca38e533caaffa90f549fb309deee7",
+      "current": "docs/implementation.md"
+    },
+    {
+      "original": "planning/data-flows.md",
+      "archive": "archives/planning-2026-11-14/planning/data-flows.md",
+      "sha256": "01e720bbc6342e6ffe26db8fb165b534bbc8cedd1c1009cb72e03d8585b09d9b",
+      "current": "docs/flows.md"
+    },
+    {
+      "original": "planning/decision-register.md",
+      "archive": "archives/planning-2026-11-14/planning/decision-register.md",
+      "sha256": "f2fedf11eef06876f99badb384e0f23231e1bbd8884ebe3e2ab019f2020c36b6",
+      "current": "docs/architecture.md"
+    },
+    {
+      "original": "planning/limitations-audit.md",
+      "archive": "archives/planning-2026-11-14/planning/limitations-audit.md",
+      "sha256": "953a96f46e92fae6267f4b16fe5bd0857db00e6687b3f2ed2154e53494a11e55",
+      "current": "docs/verification.md"
+    },
+    {
+      "original": "planning/module-design.md",
+      "archive": "archives/planning-2026-11-14/planning/module-design.md",
+      "sha256": "e5e9f1b1f0284ef74311ccc92797bb4e605e3f46e56cef953ca967ce99c613c5",
+      "current": "docs/architecture.md"
+    },
+    {
+      "original": "planning/product-overview.md",
+      "archive": "archives/planning-2026-11-14/planning/product-overview.md",
+      "sha256": "7c07d325a500d0020fe32675fd047de3e9decfbe788bfca8aefead958d23873d",
+      "current": "docs/product.md"
+    },
+    {
+      "original": "planning/system-design.md",
+      "archive": "archives/planning-2026-11-14/planning/system-design.md",
+      "sha256": "76a0dd7c058045f1d528338c8294dc3ec7dae652a084283b1a5e3fab66ff260b",
+      "current": "docs/architecture.md"
+    },
+    {
+      "original": "reviews/accepted-025-integration.md",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-025-integration.md",
+      "sha256": "9e49727af6818ee314a20b598cb409d1ec8579732028bb884e387f725ec4c712",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-025-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-025-source.json",
+      "sha256": "55c1fb674499c5e0f4dc947bf2538108904904ca545178b65d9276202f36862b",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-026-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-026-source.json",
+      "sha256": "eea1395b31c949fbb530846277ed124e2682e5956501ad946891f29262668ca8",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-027-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-027-source.json",
+      "sha256": "da38c8d541f4a27f3ad7ff5dee2a8d44c8d6ce1d3a5e25c61a96d0d81d1fb70a",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-028-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-028-source.json",
+      "sha256": "895be7254b2752b1a16c6c7fe9aaf89fe5b7278dff10dca08b324c577a77be59",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-029-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-029-source.json",
+      "sha256": "77c8d2ae6d82b7187cefe85d09c094f8d9c805eba46b7246f1588fa770c27371",
+      "current": null
+    },
+    {
+      "original": "reviews/accepted-030-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/accepted-030-source.json",
+      "sha256": "6886901072638a5a69862e6e154485d5d99494a23fd5d4720c7a63d1c7040e32",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-historical-comparison.md",
+      "archive": "archives/planning-2026-11-14/reviews/astra-historical-comparison.md",
+      "sha256": "3085ca699ea4140d9458084319b7e6e8e010d2ffc6917e242103dae486e3f913",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-initial-frozen.json",
+      "archive": "archives/planning-2026-11-14/reviews/astra-initial-frozen.json",
+      "sha256": "067a3f170d92001a350e70cd15e2647c7b85dcd315bf7010cba3a8012036b3d1",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-initial-independent-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/astra-initial-independent-review.md",
+      "sha256": "5ec43f6b636cfe5adbd292016afa9b0adc7fec2ac5e343d084fb1669e13198ea",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-review-criteria.md",
+      "archive": "archives/planning-2026-11-14/reviews/astra-review-criteria.md",
+      "sha256": "26237fa2217613ad19ef8d77aad85fcd298a802d601e2d6ecd541e6a571723dc",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-revised-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/astra-revised-source.json",
+      "sha256": "3739ad3ed22db1a7932ee1ee3dd5c747cefbfdbfbd3149c46203d9967d8ce262",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-revision-disposition.md",
+      "archive": "archives/planning-2026-11-14/reviews/astra-revision-disposition.md",
+      "sha256": "61c29d22b652958e695e4f4dc37ac76d37b3bbdd692571542814cc27f5e7c4d6",
+      "current": null
+    },
+    {
+      "original": "reviews/astra-targeted-confirmation.md",
+      "archive": "archives/planning-2026-11-14/reviews/astra-targeted-confirmation.md",
+      "sha256": "60325128369662e62abeba4413415869a4cc7b03bf048a0acbdaff6640e16b3e",
+      "current": null
+    },
+    {
+      "original": "reviews/final-hardening-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/final-hardening-source.json",
+      "sha256": "bbfe2908ac0338750fa2d8677473066e8dfd32e888212a4568e966ca7c74e830",
+      "current": null
+    },
+    {
+      "original": "reviews/final-hardening.md",
+      "archive": "archives/planning-2026-11-14/reviews/final-hardening.md",
+      "sha256": "8dd069f61ab6c8916f3f4164e70beac14bf9784ca0978c55ac6404e95e78de62",
+      "current": null
+    },
+    {
+      "original": "reviews/overnight-build-planning.md",
+      "archive": "archives/planning-2026-11-14/reviews/overnight-build-planning.md",
+      "sha256": "af01e836a5ee49f17b5bdfa2715d90d9627e5885d7787d3c405b7c235193ee4e",
+      "current": null
+    },
+    {
+      "original": "reviews/proxy-first-frozen-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/proxy-first-frozen-source.json",
+      "sha256": "37aa9d9ec3e6150ca05214fec0e41d6d5ef0bf8b1938cd507b54f4049d6305e4",
+      "current": null
+    },
+    {
+      "original": "reviews/proxy-first-independent-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/proxy-first-independent-review.md",
+      "sha256": "a387d5340ea6460aaabf29af1811ff0c2f32dc4b5443d2b48e530809d85137c7",
+      "current": null
+    },
+    {
+      "original": "reviews/proxy-first-rewrite-traceability.md",
+      "archive": "archives/planning-2026-11-14/reviews/proxy-first-rewrite-traceability.md",
+      "sha256": "756ad1c9758780ec937d9d30480a30ea3df495751aa86db29380d74efc7743c6",
+      "current": null
+    },
+    {
+      "original": "reviews/round-1-frozen-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/round-1-frozen-source.json",
+      "sha256": "5a078e2d0d7a2b199880193a021ff9de2c03f3225d9f5e5f9bd82d29fb93b7f6",
+      "current": null
+    },
+    {
+      "original": "reviews/round-1-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/round-1-source.json",
+      "sha256": "473e7703169eef2506773f0baa8d940b05b7de848cd06a5b3e2f140a4699927f",
+      "current": null
+    },
+    {
+      "original": "reviews/round-1.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-1.md",
+      "sha256": "219823bfb1e3665206cf943f3105c7910f921d237b56230e022bdd1b83658a67",
+      "current": null
+    },
+    {
+      "original": "reviews/round-2-connection-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-2-connection-review.md",
+      "sha256": "7868dbcf26bc27053d0ba380490a513b0a5f29bb81759dfaa7d142b960ba1b08",
+      "current": null
+    },
+    {
+      "original": "reviews/round-2-execution-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-2-execution-review.md",
+      "sha256": "b47f0b09c0ba673776b8dbd7131df9f92b5d4be8727b9eb5a0d9d85b99fef6b6",
+      "current": null
+    },
+    {
+      "original": "reviews/round-2-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/round-2-source.json",
+      "sha256": "716dcdfe86a101b9de3cff2cf0430cca8189623949acf4eaa7663bae95d70c29",
+      "current": null
+    },
+    {
+      "original": "reviews/round-2.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-2.md",
+      "sha256": "aaea7cb16c03bb7bef0c692ed443ee0478ddda0210034179df25a1f8460b1c79",
+      "current": null
+    },
+    {
+      "original": "reviews/round-3-connection-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-3-connection-review.md",
+      "sha256": "4aa83496c0d0808a1d6d35ac0ea5eac78ce8608e69931b25807a14c9cd97f5dc",
+      "current": null
+    },
+    {
+      "original": "reviews/round-3-execution-review.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-3-execution-review.md",
+      "sha256": "4c21df42b89de7e72da250ede34f65faaf3113ce7bd8aa435d90466f27a0cf28",
+      "current": null
+    },
+    {
+      "original": "reviews/round-3-source.json",
+      "archive": "archives/planning-2026-11-14/reviews/round-3-source.json",
+      "sha256": "40db82cd08fe48af680f71aa5ae942a6683e7e72efaf607f9614d24ab576b248",
+      "current": null
+    },
+    {
+      "original": "reviews/round-3.md",
+      "archive": "archives/planning-2026-11-14/reviews/round-3.md",
+      "sha256": "cde58cdd8e4aa0510ae5f8365a0a3ebfd6ef802c97ac6edbc53e7b1d6dfa0154",
+      "current": null
+    },
+    {
+      "original": "scripts/spec_snapshot.py",
+      "archive": "archives/planning-2026-11-14/scripts/spec_snapshot.py",
+      "sha256": "8812611da59c19bb0f62708c95f4ad58bcbf0f5c4609a647092b16cbafefb27e",
+      "current": null
+    },
+    {
+      "original": "specification.json",
+      "archive": "archives/planning-2026-11-14/specification.json",
+      "sha256": "4dced8c1161a48063795b366aa21a3001ece77d99e0cb1379761ee34fca02051",
+      "current": null
+    },
+    {
+      "original": "specs/access-connections.md",
+      "archive": "archives/planning-2026-11-14/specs/access-connections.md",
+      "sha256": "e95dd9c3c7b1fa0e2f5c141ced1c5d0670c8a9325170e654139c7537382026f0",
+      "current": "docs/access-connections.md"
+    },
+    {
+      "original": "specs/contracts.md",
+      "archive": "archives/planning-2026-11-14/specs/contracts.md",
+      "sha256": "452567e5574150e8105aeebd4a41c1b17f2abe4a8224a363ca24e81503b9dcea",
+      "current": "docs/contracts.md"
+    },
+    {
+      "original": "specs/events-http-sdk.md",
+      "archive": "archives/planning-2026-11-14/specs/events-http-sdk.md",
+      "sha256": "6e48b2d0dc28bf70818f181d4b78d31c6960cc87163c7c2485d2f27926564c81",
+      "current": "docs/events-http-sdk.md"
+    },
+    {
+      "original": "specs/persistence-operations.md",
+      "archive": "archives/planning-2026-11-14/specs/persistence-operations.md",
+      "sha256": "07dd14ecbd50b9e5a173ef12d78de35e3f3f108a7e1b74558faf0cb3fa539850",
+      "current": "docs/persistence-operations.md"
+    },
+    {
+      "original": "specs/providers-execution.md",
+      "archive": "archives/planning-2026-11-14/specs/providers-execution.md",
+      "sha256": "e64d01bb517a890d09ae2679f03534f3a019160183db9bf0319a37208777af80",
+      "current": "docs/providers-execution.md"
+    },
+    {
+      "original": "test/sdk-browser.md",
+      "archive": "archives/planning-2026-11-14/test/sdk-browser.md",
+      "sha256": "469e26e14a21b5d6c3a45c00adee356dca074d816c90d074c2595f90210e0724",
+      "current": "docs/running.md"
+    },
+    {
+      "original": "verification.md",
+      "archive": "archives/planning-2026-11-14/verification.md",
+      "sha256": "aa714be122813dbb96a568fe84adfa7d390b44d059b67df38908622a53b63380",
+      "current": "docs/verification.md"
+    }
+  ]
+}

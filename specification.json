@@ -1,222 +1,96 @@
 {
-  "description": "Maintained requirements and implementation evidence inventory. Historical reviews are excluded from build authority. The board embeds these documents directly.",
+  "description": "Sole current requirements, contracts and evidence inventory. Only these docs sources enter the offline HTML; archives never supply active requirements or defaults.",
   "documents": [
     {
-      "id": "goals",
-      "title": "Accepted requirements",
-      "path": "GOALS.md",
-      "kind": "Requirements baseline",
-      "description": "Current accepted product requirements and scope."
-    },
-    {
-      "id": "overview",
-      "title": "Review guide",
-      "path": "planning/README.md",
-      "kind": "Planning overview",
-      "description": "Review order, status definitions, accepted scope and implementation authority."
-    },
-    {
-      "id": "decisions",
-      "title": "Current policies and engineering gates",
-      "path": "planning/decision-register.md",
-      "kind": "Policy and evidence",
-      "description": "D01-D08 distinguish current policy from engineering; E01-E05 require observed evidence."
-    },
-    {
-      "id": "system",
-      "title": "System boundaries and data classification",
-      "path": "planning/system-design.md",
-      "kind": "System design",
-      "description": "Processes, trust boundaries, logical state, failure handling and deployment proof."
-    },
-    {
-      "id": "modules",
-      "title": "Module responsibilities and dependency direction",
-      "path": "planning/module-design.md",
-      "kind": "Module design",
-      "description": "M01-M10 interfaces, state owners, invariants, recovery and extension contracts."
-    },
-    {
-      "id": "api",
-      "title": "Draft API contracts",
-      "path": "planning/api-design.md",
-      "kind": "Wire design",
-      "description": "Current route IDs through A39 with retired IDs omitted, ordinary invocation versus explicit Jobs, caller authority and evidence-dependent surfaces."
-    },
-    {
-      "id": "flows",
-      "title": "Seven end-to-end data flows",
-      "path": "planning/data-flows.md",
-      "kind": "Journey design",
-      "description": "F01-F07 step tables, including ordinary capability invocation without Jobs."
-    },
-    {
-      "id": "plan",
-      "title": "Dependency-ordered implementation slices",
-      "path": "planning/build-plan.md",
-      "kind": "Implementation plan",
-      "description": "Implementation slices, engineering dependencies and observable completion evidence."
-    },
-    {
-      "id": "limits",
-      "title": "Current limitations",
-      "path": "planning/limitations-audit.md",
-      "kind": "Constraints and support gaps",
-      "description": "Current constraints, their user impact, configuration and verification status."
-    },
-    {
-      "id": "product",
-      "title": "Product overview",
-      "path": "planning/product-overview.md",
-      "kind": "Current specification",
-      "description": "Product overview."
+      "id": "guide",
+      "title": "Documentation index",
+      "path": "docs/README.md",
+      "kind": "Documentation guide",
+      "description": "Current source owners and reproducible offline build."
     },
     {
       "id": "prd",
-      "title": "Product requirements",
-      "path": "PRD.md",
-      "kind": "Current specification",
-      "description": "Product requirements."
+      "title": "Product requirements and accepted policy",
+      "path": "docs/product.md",
+      "kind": "Requirements baseline",
+      "description": "Accepted scope, policy and observable journeys."
     },
     {
       "id": "architecture",
-      "title": "Application architecture",
-      "path": "architecture.md",
-      "kind": "Current specification",
-      "description": "Application architecture."
+      "title": "Architecture and module ownership",
+      "path": "docs/architecture.md",
+      "kind": "Architecture",
+      "description": "Topology, trust, owner interfaces and extension boundaries."
     },
     {
       "id": "contracts",
       "title": "Shared contracts",
-      "path": "specs/contracts.md",
-      "kind": "Current specification",
-      "description": "Shared contracts."
+      "path": "docs/contracts.md",
+      "kind": "Shared contracts",
+      "description": "Shared illustrative types and cross-component handoffs."
     },
     {
       "id": "access",
       "title": "Access, connections and credentials",
-      "path": "specs/access-connections.md",
-      "kind": "Current specification",
-      "description": "Access, connections and credentials."
+      "path": "docs/access-connections.md",
+      "kind": "Component contract",
+      "description": "Verified identity, sessions, audiences and credential lifecycle."
     },
     {
       "id": "providers",
-      "title": "Provider transport, capabilities and optional Jobs",
-      "path": "specs/providers-execution.md",
-      "kind": "Current specification",
-      "description": "Native routing and ordinary reusable code, with explicit durable execution."
+      "title": "Providers, transport and execution",
+      "path": "docs/providers-execution.md",
+      "kind": "Component contract",
+      "description": "Native transport, ordinary capabilities and optional durable Jobs."
     },
     {
       "id": "events",
       "title": "Events, HTTP and browser SDK",
-      "path": "specs/events-http-sdk.md",
-      "kind": "Current specification",
-      "description": "Events, HTTP and browser SDK."
+      "path": "docs/events-http-sdk.md",
+      "kind": "Component contract",
+      "description": "Redis/SSE, source lifecycle, wire carriers and SDK."
     },
     {
       "id": "persistence",
       "title": "Persistence and operations",
-      "path": "specs/persistence-operations.md",
-      "kind": "Current specification",
-      "description": "Persistence and operations."
+      "path": "docs/persistence-operations.md",
+      "kind": "Component contract",
+      "description": "State, snapshots, locks, resources, migration and rekey."
+    },
+    {
+      "id": "api",
+      "title": "API boundary inventory",
+      "path": "docs/api.md",
+      "kind": "Boundary map",
+      "description": "Current A01-A39 routes with retired surfaces excluded."
+    },
+    {
+      "id": "flows",
+      "title": "End-to-end data flows",
+      "path": "docs/flows.md",
+      "kind": "Journey map",
+      "description": "Authority, data and failure sequences linked to owning contracts."
     },
     {
       "id": "verification",
-      "title": "Verification requirements",
-      "path": "verification.md",
-      "kind": "Current specification",
-      "description": "Verification requirements."
-    },
-    {
-      "id": "readiness",
-      "title": "Implementation readiness",
-      "path": "implementation-readiness.md",
-      "kind": "Current specification",
-      "description": "Implementation readiness."
-    },
-    {
-      "id": "readme",
-      "title": "Specification guide",
-      "path": "README.md",
-      "kind": "Current specification",
-      "description": "Specification guide."
-    },
-    {
-      "id": "task-openspec-changes-native-response-streaming-design",
-      "title": "native-response-streaming / design.md",
-      "path": "openspec/changes/native-response-streaming/design.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-native-response-streaming-proposal",
-      "title": "native-response-streaming / proposal.md",
-      "path": "openspec/changes/native-response-streaming/proposal.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-native-response-streaming-specs-native-response-streaming-spec",
-      "title": "native-response-streaming / specs / native-response-streaming / spec.md",
-      "path": "openspec/changes/native-response-streaming/specs/native-response-streaming/spec.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-native-response-streaming-tasks",
-      "title": "native-response-streaming / tasks.md",
-      "path": "openspec/changes/native-response-streaming/tasks.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-tableau-site-access-design",
-      "title": "tableau-site-access / design.md",
-      "path": "openspec/changes/tableau-site-access/design.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-tableau-site-access-proposal",
-      "title": "tableau-site-access / proposal.md",
-      "path": "openspec/changes/tableau-site-access/proposal.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-tableau-site-access-specs-tableau-site-access-spec",
-      "title": "tableau-site-access / specs / tableau-site-access / spec.md",
-      "path": "openspec/changes/tableau-site-access/specs/tableau-site-access/spec.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
-    },
-    {
-      "id": "task-openspec-changes-tableau-site-access-tasks",
-      "title": "tableau-site-access / tasks.md",
-      "path": "openspec/changes/tableau-site-access/tasks.md",
-      "kind": "Engineering task",
-      "description": "Bounded engineering work and its acceptance criteria."
+      "title": "Verification and limitations",
+      "path": "docs/verification.md",
+      "kind": "Acceptance obligations",
+      "description": "Future proof obligations, evidence gates and limitations."
     },
     {
       "id": "implementation",
       "title": "Implementation status and evidence",
-      "path": "implementation-status.md",
+      "path": "docs/implementation.md",
       "kind": "Implementation evidence",
-      "description": "Current implemented surfaces, actual validation and precise remaining platform/host acceptance."
+      "description": "Observed local evidence, deferred risk and test coverage limits."
     },
     {
       "id": "running",
       "title": "Setup and operation",
-      "path": "RUNNING.md",
+      "path": "docs/running.md",
       "kind": "Operation guide",
-      "description": "Local installation, configuration, migration, commands, role boundaries and offline key replacement."
-    },
-    {
-      "id": "browser-verification",
-      "title": "Synthetic browser verification procedure",
-      "path": "test/sdk-browser.md",
-      "kind": "Implementation evidence",
-      "description": "Actual Chromium fixture procedure and exact separation from live Tableau/Slack acceptance."
+      "description": "Install, configuration, role commands, rekey and browser procedure."
     }
   ]
 }

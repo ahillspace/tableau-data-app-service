@@ -59,4 +59,4 @@ No Last-Event-ID, automatic polling or business replay is sent.
 
 Call `close()` when the page is disposed to abort local requests, windows and subscriptions.
 It does not disconnect accounts, cancel durable Jobs or sign out a server session.
-The small Slack example and actual browser/media verification are documented under `examples/slack` and `test/sdk-browser.md`.
+The small Slack example and actual browser/media verification are documented under `examples/slack` and [synthetic browser verification](../../docs/running.md#synthetic-browser-verification).

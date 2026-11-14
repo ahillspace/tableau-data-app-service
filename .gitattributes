@@ -1,0 +1,4 @@
+# Historical material is retained for traceability, outside the application language inventory.
+archives/** linguist-vendored
+# Rebuilt from specification.json and editable scripts/specification sources.
+docs/specification.html linguist-generated

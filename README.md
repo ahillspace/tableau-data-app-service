@@ -1,38 +1,60 @@
-# Tableau Data App integration service
+# Tableau Data App Service
 
-This repository contains the maintained specification and local implementation of one shared backend serving Tableau Data Apps on Cloud and Server.
-The accepted architecture uses independently replicable API and worker roles, authoritative Postgres and optional lossy Redis Pub/Sub.
-Native routing and ordinary capability calls use HTTP; saved command/result bodies, Job execution limits and retention belong only to explicitly submitted Jobs.
-The Node LTS application, migrations, browser SDK and Slack native authentication/proxy example are implemented locally; no deployment is claimed.
-The optional-Job and read-only routing revision has owner consistency and generated-viewer checks; historical independent reviews cover their recorded snapshots only.
-Architecture acceptance, document checks and runtime/user acceptance remain separate; no additional approval is required for this specification update.
+A TypeScript backend for Tableau Data Apps on Cloud and Server, built with Node LTS, Fastify, Kysely and Postgres.
+It verifies service identity, keeps provider credentials on the server and streams native provider HTTP requests and responses.
+The API and supervised worker run as separate processes from one codebase.
 
-Start with the [product overview](planning/product-overview.md), [product requirements](PRD.md) and [accepted policies](GOALS.md).
-Current sources contain the complete design; historical proposals/reviews do not supply defaults.
+Slack includes native static/OAuth authentication and proxy access with `capabilities: []`.
+Installed providers can optionally add ordinary HTTP capabilities, explicit durable Jobs and verified Events.
+Jobs use Postgres; Events use optional lossy Redis Pub/Sub.
+When Events are disabled, no Redis client or deployment is required by the application.
 
-## Current specification
+## Quick start
 
-| Source | Authority |
-| --- | --- |
-| [GOALS](GOALS.md) / [PRD](PRD.md) | Accepted policy and required user journeys. |
-| [Architecture](architecture.md) | Accepted topology, ownership, tradeoffs and extension boundaries. |
-| [Shared contracts](specs/contracts.md) | Common types, semantic submission comparison and cross-component handoffs. |
-| [Access](specs/access-connections.md) | Verified identity, sessions, registry, personal/shared authority and credential lifecycle. |
-| [Providers and execution](specs/providers-execution.md) | Native transport, ordinary capability calls and explicitly selected Jobs with cancellation/recovery. |
-| [Events and wire](specs/events-http-sdk.md) | Redis/SSE, source lifecycle, browser carriers and SDK. |
-| [Persistence and operations](specs/persistence-operations.md) | Schemas, scoped locks, resource admission, readiness, migration and rekey. |
-| [Verification](verification.md) | Full acceptance obligations and precise evidence limits. |
-| [Implementation status](implementation-status.md) / [run guide](RUNNING.md) | Implemented surfaces, observed tests, remaining live evidence and runnable commands. |
-| [Readiness](implementation-readiness.md) / [planning index](planning/README.md) | Linked rationale, APIs, module/flow maps, implementation sequence and unresolved empirical evidence. |
+Use Node 26.13 or later in the Node 26 LTS line and npm.
 
-The [manifest](specification.json) lists the maintained sources, including bounded [site access](openspec/changes/tableau-site-access/proposal.md) and [native streaming](openspec/changes/native-response-streaming/proposal.md) implementation plans.
-Planning maps refer to owning contracts rather than creating competing normative rules.
-The [review workspace](design/review-workspace/README.md) generates a local presentation from those exact sources; it is not independently maintained policy.
-[History](history.md) preserves prior reviews and frozen designs without certifying the current candidate.
+```sh
+npm ci
+cp .env.example .env
+cp service-config.example.json service-config.local.json
+```
 
-The [Cloud evidence](specs/access-connections.md#published-identity-evidence) establishes separate verified login/site-user identity only.
-Actual Postgres/Redis/HTTP/TLS/process tests and synthetic Chromium login/restoration/media journeys provide bounded implementation evidence.
-Live Cloud/Server embedding, live Slack acceptance, long-term sessions and deployment-specific ingress/capacity/recovery remain unverified; see the implementation inventory.
-Do not claim a runtime test passed because a document or viewer check passed.
-Local implementation and task-scoped development setup are authorized.
-Publication, deployment and Git landing remain separate actions.
+Keep the populated configuration outside version control.
+Set `SERVICE_CONFIG_FILE` to its absolute path, replace example database/deployment/origin settings and supply fresh encryption keys through protected environment custody.
+The sample contains no production credentials.
+Follow the [run guide](docs/running.md) for registry/operator provisioning and Cloud/Server registration requirements.
+
+```sh
+npm run build
+node --env-file=.env dist/db/migrate.js
+node --env-file=.env dist/config-command.js
+node --env-file=.env dist/api.js
+# Run the supervised worker in another terminal with the same environment.
+node --env-file=.env dist/worker.js
+```
+
+Run `npm run example` for the [Slack browser example](examples/slack/README.md) after configuring the service.
+The app uses native `/auth.test`; Slack business responses retain their native meaning.
+
+## Development and documentation
+
+```sh
+npm run typecheck
+npm run typecheck:example
+npm run lint
+npm run build
+REDIS_SERVER=/absolute/path/to/redis-server npm test
+```
+
+The integrated tests start private temporary Postgres and Redis processes.
+The full suite needs the Redis executable even though runtime Events are optional.
+
+Start with [docs](docs/README.md) for setup, current contracts and the latest [offline HTML specification](docs/specification.html).
+[specification.json](specification.json) lists only current supporting sources; [archives](archives/README.md) preserves superseded planning and review history.
+Runtime code is in `src/`, browser example code in `examples/`, tests in `test/`, and documentation tooling in `scripts/`.
+
+The prior application snapshot `5638d38d4ee39885a2a549382a9fdc7a22f822dc` records 85 passing integrated tests plus separately scoped synthetic browser evidence.
+A later audit identified five test coverage gaps, not reproduced product defects; see [implementation evidence](docs/implementation.md#test-coverage-audit).
+Initial cross-client silent-login hardening remains explicitly deferred.
+Live Cloud/Server embedding, supported Server registration, Slack acceptance and deployment capacity/recovery are not established.
+No deployment is claimed.
