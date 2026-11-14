@@ -1,10 +1,15 @@
 import {
+  type JobListQuery,
   type JobSubmission,
+  jobCollectionSchema,
+  jobListQuerySchema,
   jobSubmissionSchema,
   jobViewSchema,
   opaqueId,
 } from "../public/schemas.js";
 import { ClientHttp, jsonRequest } from "./http.js";
+
+export type JobListOptions = JobListQuery & { signal?: AbortSignal };
 
 export class JobsClient {
   constructor(private readonly http: ClientHttp) {}
@@ -18,6 +23,18 @@ export class JobsClient {
       `${this.http.appPath}/jobs`,
       jobViewSchema.parse,
       jsonRequest(input, options.signal),
+    );
+  }
+  list(options: JobListOptions = {}) {
+    const { signal, ...input } = options;
+    const filters = jobListQuerySchema.parse(input);
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters))
+      if (value !== undefined) query.set(key, String(value));
+    return this.http.json(
+      `${this.http.appPath}/jobs${query.size ? `?${query}` : ""}`,
+      jobCollectionSchema.parse,
+      signal ? { signal } : {},
     );
   }
   get(id: string, options: { signal?: AbortSignal } = {}) {

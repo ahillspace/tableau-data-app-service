@@ -8,7 +8,9 @@ import { createEventsExtension } from "../src/events/index.js";
 import { decodeEnvelope, type EventLimits, eventBudgets } from "../src/events/protocol.js";
 import { slackEventProvider } from "../src/events/slack.js";
 import { createHttpApp } from "../src/http/app.js";
+import { registerCoreRoutes } from "../src/http/core-routes.js";
 import { ProviderRegistry } from "../src/providers/registry.js";
+import { type LiveNotification, ServiceClient } from "../src/sdk/index.js";
 import { candidate, coreFixture, fixtureProvider } from "./core-fixture.js";
 import { eventually, testRedis } from "./events-runtime.js";
 
@@ -94,6 +96,15 @@ async function fixture(redisUrl: string, profile = limits) {
     providers: new Map([["fixture", provider]]),
   });
   const app = await createHttpApp({ db: f.db, core, extensions: [extension] });
+  registerCoreRoutes(app, {
+    access: f.access,
+    credentials: f.credentials,
+    connections,
+    providers: new ProviderRegistry([fixtureProvider]),
+    corsOrigins: [],
+    jsonPreparationBytes: 65536,
+    eventPayloadBytes: profile.payloadBytes,
+  });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
   if (!address || typeof address === "string") throw new Error("No HTTP test port");
@@ -315,6 +326,15 @@ test("maximum native payload survives real Redis/SSE; shared audience revocation
   const redis = await testRedis();
   const f = await fixture(redis.url);
   let a: ReturnType<typeof listen> | undefined, b: ReturnType<typeof listen> | undefined;
+  const client = new ServiceClient({
+    serviceOrigin: f.origin,
+    appId: "one",
+    deploymentId: "cloud",
+  });
+  client.http.setBearer(f.alice.token);
+  const received: LiveNotification[] = [];
+  const controller = new AbortController();
+  let sdkStream: Promise<void> | undefined;
   try {
     await eventually(async () => (await f.extension.health()) === "ready");
     await f.extension.sources!.associateOperator({
@@ -332,6 +352,14 @@ test("maximum native payload survives real Redis/SSE; shared audience revocation
     a = listen(f.origin, f.alice.token);
     b = listen(f.origin, f.bob.token);
     await Promise.all([a.opened, b.opened]);
+    assert.equal((await client.discover()).events?.payloadBytes, limits.payloadBytes);
+    sdkStream = client.subscribe(
+      (event) => {
+        received.push(event);
+      },
+      { signal: controller.signal },
+    );
+    await eventually(() => received.some((event) => event.kind === "resync-required"));
     const empty = { type: "message", text: "" };
     const native = {
       ...empty,
@@ -357,6 +385,12 @@ test("maximum native payload survives real Redis/SSE; shared audience revocation
       a.events.find((event) => event.includes('"id":"maximum"'))!.split("\ndata: ")[1]!,
     );
     assert.equal(Buffer.from(delivered.payload, "base64url").byteLength, limits.payloadBytes);
+    await eventually(() =>
+      received.some((event) => event.kind === "provider" && event.id === "maximum"),
+    );
+    const sdkNative = received.find((event) => event.kind === "provider" && event.id === "maximum");
+    assert.ok(sdkNative?.kind === "provider");
+    assert.deepEqual(sdkNative.data, native);
     assert.equal((await send("oversized", { ...native, text: `${native.text}x` })).status, 413);
     assert.equal(
       b.events.some((event) => event.includes('"id":"maximum"')),
@@ -379,6 +413,9 @@ test("maximum native payload survives real Redis/SSE; shared audience revocation
       false,
     );
   } finally {
+    controller.abort();
+    await sdkStream;
+    client.close();
     await a?.close();
     await b?.close();
     await f.close();

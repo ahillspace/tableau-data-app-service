@@ -60,9 +60,27 @@ await click(
 );
 await wait("Signed in. Choose or connect a Slack account.");
 await click("Connect Slack");
-await fill("Slack token", "fixture-token");
-await click("Connect token");
+if (process.env.SDK_TEST_OAUTH !== "1") {
+  await fill("Slack token", "fixture-token");
+  await click("Connect token");
+}
 await wait("Slack connected.");
+await click("Reconnect selected account");
+if (process.env.SDK_TEST_OAUTH !== "1") {
+  await fill("Slack token", "fixture-token");
+  await click("Connect token");
+}
+await wait(process.env.SDK_TEST_OAUTH === "1" ? "Slack account reconnected." : "Slack connected.");
+if (process.env.SDK_TEST_OAUTH === "1") {
+  assert.ok(
+    (
+      await cli(
+        "eval",
+        "async () => (await (await fetch('/fixture/metrics')).json()).providerExchanges === 2 ? 'TWO_PKCE_EXCHANGES_CONFIRMED' : 'FAILED'",
+      )
+    ).includes("TWO_PKCE_EXCHANGES_CONFIRMED"),
+  );
+}
 await click("Send request");
 let snapshot = await wait("Native response complete (HTTP 200).");
 assert.ok(snapshot.includes("Fixture workspace"));
@@ -155,9 +173,12 @@ await writeFile(
     {
       passed: true,
       fixture: true,
+      runtime: process.version,
       checks: [
         "opaque UI sign-in proof/redemption",
-        "static connect control",
+        process.env.SDK_TEST_OAUTH === "1"
+          ? "provider OAuth connect/reconnect controls and actual PKCE token exchange"
+          : "static connect/reconnect controls",
         "native GET",
         "307 no-follow",
         "GET body carrier",

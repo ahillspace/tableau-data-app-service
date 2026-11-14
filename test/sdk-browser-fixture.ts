@@ -6,12 +6,14 @@ import { build } from "esbuild";
 import { z } from "zod";
 import type { IdentityAdapter } from "../src/access/adapters.js";
 import { closedEnrollmentGuard, SessionService } from "../src/access/sessions.js";
+import { AuthorizationService } from "../src/connections/authorizations.js";
 import { ConnectionService } from "../src/connections/service.js";
 import { createHttpApp } from "../src/http/app.js";
+import { registerAuthorizationRoutes } from "../src/http/authorization-routes.js";
 import { registerCoreRoutes } from "../src/http/core-routes.js";
 import { registerSessionRoutes } from "../src/http/session-routes.js";
-import { ProviderRegistry } from "../src/providers/registry.js";
-import { randomSecret } from "../src/security/secrets.js";
+import { type ProviderRegistration, ProviderRegistry } from "../src/providers/registry.js";
+import { randomSecret, verifier } from "../src/security/secrets.js";
 import { candidate, coreFixture, fixtureProvider } from "./core-fixture.js";
 
 // Explicit synthetic identity/provider fixture. It is not selected by production configuration.
@@ -165,7 +167,8 @@ const sessions = new SessionService(
   fixtureGuard,
   10000,
 );
-const provider = {
+const oauthEnabled = process.env.SDK_TEST_OAUTH === "1";
+const provider: ProviderRegistration = {
   ...fixtureProvider,
   id: "slack",
   endpoints: {
@@ -174,7 +177,37 @@ const provider = {
       allowHttp: true,
       privateCidrs: ["127.0.0.1/32"],
     },
+    ...(oauthEnabled
+      ? {
+          oauth: {
+            baseUrl: origin,
+            privateCidrs: ["127.0.0.1/32"],
+            tlsCa: await readFile(process.env.SDK_TEST_CERT!, "utf8"),
+          },
+        }
+      : {}),
   },
+  ...(oauthEnabled
+    ? {
+        oauth: {
+          metadata: {
+            issuer: origin,
+            authorization_endpoint: `${origin}/fixture/oauth/authorize`,
+            token_endpoint: `${origin}/fixture/oauth/token`,
+          },
+          clientId: "fixture-provider-client",
+          callbackUri: `${origin}/v1/authorizations/callback/slack`,
+          scope: "fixture-read",
+          pkce: true,
+          launchMayInvalidate: false,
+          exchangeMayInvalidate: false,
+          async parseTokenResponse(raw: unknown) {
+            z.strictObject({ access_token: z.literal("fixture-slack") }).parse(raw);
+            return candidate("fixture-slack");
+          },
+        },
+      }
+    : {}),
   staticSetup: {
     remote: false,
     mayInvalidate: false,
@@ -211,6 +244,60 @@ registerCoreRoutes(app, {
   jsonPreparationBytes: 65536,
 });
 registerSessionRoutes(app, sessions, origin);
+const authorizations = new AuthorizationService(
+  f.db,
+  f.access,
+  f.credentials,
+  providers,
+  f.secrets,
+  { connectTimeoutMs: 1000, headersTimeoutMs: 2000, stallTimeoutMs: 2000, maxSockets: 8 },
+  60000,
+  10000,
+);
+registerAuthorizationRoutes(app, authorizations, origin);
+const pendingCodes = new Map<string, string>();
+let providerExchanges = 0;
+app.get("/fixture/oauth/authorize", async (request, reply) => {
+  const query = z
+    .object({
+      response_type: z.literal("code"),
+      client_id: z.literal("fixture-provider-client"),
+      redirect_uri: z.literal(`${origin}/v1/authorizations/callback/slack`),
+      state: z.string(),
+      code_challenge: z.string(),
+      code_challenge_method: z.literal("S256"),
+    })
+    .parse(request.query);
+  const code = randomSecret();
+  pendingCodes.set(code, query.code_challenge);
+  const callback = new URL(query.redirect_uri);
+  callback.searchParams.set("state", query.state);
+  callback.searchParams.set("code", code);
+  return reply.redirect(callback.href);
+});
+await app.register(async (token) => {
+  token.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_request, body, done) => done(null, body),
+  );
+  token.post("/fixture/oauth/token", async (request, reply) => {
+    const form = new URLSearchParams(String(request.body));
+    const challenge = pendingCodes.get(form.get("code") ?? "");
+    pendingCodes.delete(form.get("code") ?? "");
+    if (
+      !challenge ||
+      challenge !==
+        Buffer.from(verifier(form.get("code_verifier") ?? ""), "hex").toString("base64url") ||
+      form.get("grant_type") !== "authorization_code" ||
+      form.get("client_id") !== "fixture-provider-client" ||
+      form.get("redirect_uri") !== `${origin}/v1/authorizations/callback/slack`
+    )
+      return reply.code(400).send({ error: "invalid_grant" });
+    providerExchanges++;
+    return { access_token: "fixture-slack" };
+  });
+});
 const configuration = { serviceOrigin: origin, appId: "one", deploymentId: "cloud" };
 const bundled = await build({
   entryPoints: [new URL("app.ts", directory).pathname],
@@ -328,6 +415,7 @@ app.get("/embedded", async (_request, reply) =>
 );
 app.get("/fixture/metrics", async () => ({
   requests,
+  providerExchanges,
   transactions: (await f.db.selectFrom("session_transactions").select("id").execute()).length,
 }));
 app.get("/fixture/media-index", async () =>
@@ -351,7 +439,7 @@ app.get("/fixture/popup/:id/:mode", async (request, reply) => {
 });
 await app.ready();
 route = (request, response) => app.routing(request, response);
-process.stdout.write(`${JSON.stringify({ origin, fixture: true })}\n`);
+process.stdout.write(`${JSON.stringify({ origin, fixture: true, runtime: process.version })}\n`);
 let closing = false;
 async function close() {
   if (closing) return;

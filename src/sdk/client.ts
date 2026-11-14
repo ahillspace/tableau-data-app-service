@@ -15,6 +15,7 @@ import {
   sessionTransactionSchema,
   staticConnectionInputSchema,
 } from "../public/schemas.js";
+import { EventsClient, type LiveNotification } from "./events.js";
 import { correlatedPopup, initiationProof, openPopup } from "./handoff.js";
 import { ClientHttp, jsonRequest, ProtocolError, ServiceError } from "./http.js";
 import { JobsClient } from "./jobs.js";
@@ -25,6 +26,9 @@ export class ServiceClient {
   readonly jobs: JobsClient;
   readonly #native: NativeClient;
   readonly #lifetime = new AbortController();
+  #identityLifetime = new AbortController();
+  #events: EventsClient | undefined;
+  #discovered = false;
   #session: SessionResponse | undefined;
   #identityChange = false;
   #identityRevision = 0;
@@ -46,6 +50,16 @@ export class ServiceClient {
     this.#lifetime.abort(new DOMException("Client closed", "AbortError"));
     this.#session = undefined;
     this.http.close();
+  }
+  #forgetIdentity(): void {
+    this.#identityRevision++;
+    this.http.clearBearer(true);
+    this.#session = undefined;
+    this.#native.setCapabilities([]);
+    this.#events = undefined;
+    this.#discovered = false;
+    this.#identityLifetime.abort(new DOMException("Identity changed", "AbortError"));
+    this.#identityLifetime = new AbortController();
   }
   session(): Omit<SessionResponse, "accessToken"> | undefined {
     if (!this.#session) return;
@@ -73,18 +87,14 @@ export class ServiceClient {
         error instanceof ServiceError &&
         error.status === 401
       ) {
-        this.http.clearBearer(true);
-        this.#session = undefined;
-        this.#native.setCapabilities([]);
+        this.#forgetIdentity();
       }
       throw error;
     }
     if (revision !== this.#identityRevision)
       throw new DOMException("Identity changed during restoration", "AbortError");
     if (this.#session && !sameIdentity(this.#session, session)) {
-      this.http.clearBearer(true);
-      this.#session = undefined;
-      this.#native.setCapabilities([]);
+      this.#forgetIdentity();
       throw new ServiceError(
         401,
         "identity-changed",
@@ -107,7 +117,6 @@ export class ServiceClient {
       Date.parse(session.expiresAt) > Date.parse(session.authenticationExpiresAt)
     )
       throw new ProtocolError("Invalid fixed authentication expiry");
-    if (this.#session && !sameIdentity(this.#session, session)) this.http.clearBearer(true);
     this.http.setBearer(session.accessToken);
     this.#session = session;
   }
@@ -116,11 +125,8 @@ export class ServiceClient {
   ): Promise<Omit<SessionResponse, "accessToken">> {
     if (this.#identityChange) throw new Error("An identity change is already in progress");
     const popup = openPopup();
-    this.#identityRevision++;
     this.#identityChange = true;
-    this.#session = undefined;
-    this.http.clearBearer(true);
-    this.#native.setCapabilities([]);
+    this.#forgetIdentity();
     const signal = options.signal
       ? AbortSignal.any([this.#lifetime.signal, options.signal])
       : this.#lifetime.signal;
@@ -164,9 +170,11 @@ export class ServiceClient {
     options: { signal?: AbortSignal } = {},
   ): Promise<ConnectionView> {
     const popup = openPopup();
-    const signal = options.signal
-      ? AbortSignal.any([this.#lifetime.signal, options.signal])
-      : this.#lifetime.signal;
+    const signal = AbortSignal.any([
+      this.#lifetime.signal,
+      this.#identityLifetime.signal,
+      ...(options.signal ? [options.signal] : []),
+    ]);
     try {
       const proof = await initiationProof();
       const transaction = await this.beginAuthorization(
@@ -191,6 +199,7 @@ export class ServiceClient {
     }
   }
   async discover(options: { signal?: AbortSignal } = {}) {
+    const revision = this.#identityRevision;
     const providers = await this.http.json(
       `${this.http.appPath}/providers`,
       providerCollectionSchema.parse,
@@ -201,8 +210,35 @@ export class ServiceClient {
       capabilityCollectionSchema.parse,
       options,
     );
+    if (revision !== this.#identityRevision)
+      throw new DOMException("Identity changed during discovery", "AbortError");
     this.#native.setCapabilities(capabilities.items);
-    return { providers: providers.items, capabilities: capabilities.items };
+    this.#events = providers.events
+      ? new EventsClient(this.http, providers.events.payloadBytes, async () => {
+          await this.restore();
+        })
+      : undefined;
+    this.#discovered = true;
+    return {
+      providers: providers.items,
+      capabilities: capabilities.items,
+      ...(providers.events ? { events: providers.events } : {}),
+    };
+  }
+  async subscribe(
+    receive: (event: LiveNotification) => void | Promise<void>,
+    options: Parameters<EventsClient["subscribe"]>[1] = {},
+  ): Promise<void> {
+    if (!this.#discovered)
+      throw new ProtocolError("Discover the service before subscribing to live events");
+    if (!this.#events)
+      throw new ServiceError(503, "events-disabled", "Live events are disabled", "");
+    const signal = AbortSignal.any([
+      this.#lifetime.signal,
+      this.#identityLifetime.signal,
+      ...(options.signal ? [options.signal] : []),
+    ]);
+    return this.#events.subscribe(receive, { ...options, signal });
   }
   async connections(options: { provider?: string; signal?: AbortSignal } = {}) {
     const query = options.provider

@@ -15,6 +15,8 @@ Set `SDK_TEST_KEY`, `SDK_TEST_CERT`, and `SDK_TEST_MEDIA` and run `npx tsx test/
 The fixture binds random loopback ports, creates isolated temporary Postgres state, and prints its HTTPS origin.
 Its synthetic enrollment guard accepts only this test process; the checker later closes it and verifies the production-style unavailable error.
 Its upstream enforces the entrusted fixture credential, records only safe request metadata, and exposes zero named Slack capabilities.
+Set `SDK_TEST_OAUTH=1` in both fixture and checker processes for the OAuth variant; the default exercises configured static setup.
+The OAuth variant uses the actual core authorization routes, a loopback HTTPS provider, one-use fixture codes and validated PKCE token exchanges for both Connect and Reconnect.
 Send SIGTERM to this owned fixture process after verification so it tears down its servers and database.
 
 Use a unique `CHROME_DEVTOOLS_AXI_SESSION` and task-local `CHROME_DEVTOOLS_AXI_USER_DATA_DIR` for every run.
