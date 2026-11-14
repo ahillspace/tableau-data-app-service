@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { sql } from "kysely";
 import { ConnectionService } from "../src/connections/service.js";
 import type { CoreServices } from "../src/core-ports.js";
 import { SourceMaintenance } from "../src/events/lifecycle.js";
@@ -100,6 +101,83 @@ test("service source creation uses M09 and its own claim; retirement fences a de
     assert.equal(creates, 1);
   } finally {
     release();
+    await f.close();
+  }
+});
+
+test("source claim rejects publication when its lease expires during an actual row-lock wait", async () => {
+  const f = await fixture(undefined);
+  let release!: () => void, locked!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const acquired = new Promise<void>((resolve) => {
+    locked = resolve;
+  });
+  let holder: Promise<void> | undefined;
+  try {
+    const id = await f.create();
+    const before = await f.sources.db
+      .updateTable("event_sources")
+      .set({
+        claim_token: "test-claim",
+        claim_incarnation: "test-worker",
+        operation: "renew",
+        phase: "claimed",
+        lease_until: sql`clock_timestamp() + interval '1 second'`,
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    holder = f.sources.db.transaction().execute(async (tx) => {
+      await tx.selectFrom("event_sources").select("id").where("id", "=", id).forUpdate().execute();
+      locked();
+      await gate;
+    });
+    await acquired;
+    let pid = 0;
+    const publication = f.sources.db.transaction().execute(async (tx) => {
+      pid = (await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(tx)).rows[0]!.pid;
+      await f.sources.lockClaim(tx, {
+        source: "event-source",
+        sourceId: id,
+        claim: { token: "test-claim", incarnation: "test-worker" },
+      });
+      await tx
+        .updateTable("event_sources")
+        .set({ revision: before.revision + 1 })
+        .where("id", "=", id)
+        .execute();
+    });
+    const deadline = Date.now() + 3000;
+    while (true) {
+      const wait = await sql<{
+        waiting: boolean;
+      }>`select exists(select 1 from pg_stat_activity where pid = ${pid} and wait_event_type = 'Lock') as waiting`.execute(
+        f.db,
+      );
+      if (wait.rows[0]!.waiting) break;
+      assert.ok(Date.now() < deadline, "Expected a real database row-lock wait");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(
+      (
+        await sql<{
+          live: boolean;
+        }>`select lease_until > clock_timestamp() as live from event_sources where id = ${id}`.execute(
+          f.db,
+        )
+      ).rows[0]!.live,
+      "Lease must still be live when the wait begins",
+    );
+    await sql`select pg_sleep(1.1)`.execute(f.db);
+    release();
+    await holder;
+    await assert.rejects(publication, { code: "stale-source-claim" });
+    assert.equal((await f.sources.get(id))!.revision, before.revision);
+  } finally {
+    release();
+    await holder;
     await f.close();
   }
 });

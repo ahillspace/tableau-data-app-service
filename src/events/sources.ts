@@ -379,14 +379,15 @@ export class Sources {
     tx: Transaction<EventsDatabase>,
     authority: Extract<OperationAuthority, { source: "event-source" }>,
   ): Promise<Selectable<EventSourcesTable>> {
-    const now = (await sql<{ now: Date }>`select clock_timestamp() as now`.execute(tx)).rows[0]!
-      .now;
     const source = await tx
       .selectFrom("event_sources")
       .selectAll()
       .where("id", "=", authority.sourceId)
       .forUpdate()
       .executeTakeFirst();
+    // A lease can expire while FOR UPDATE waits; transaction-start time is not authority.
+    const now = (await sql<{ now: Date }>`select clock_timestamp() as now`.execute(tx)).rows[0]!
+      .now;
     if (
       !source ||
       source.claim_token !== authority.claim.token ||
