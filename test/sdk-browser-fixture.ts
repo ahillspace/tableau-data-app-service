@@ -1,10 +1,11 @@
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
-import type { IdentityAdapter } from "../src/access/adapters.js";
+import { CloudIdentityAdapter, IdentityProtocol } from "../src/access/adapters.js";
 import { SessionService } from "../src/access/sessions.js";
 import { AuthorizationService } from "../src/connections/authorizations.js";
 import { ConnectionService } from "../src/connections/service.js";
@@ -122,33 +123,40 @@ await new Promise<void>((resolve) => https.listen(0, "127.0.0.1", resolve));
 const address = https.address();
 if (!address || typeof address === "string") throw new Error("No fixture HTTPS port");
 const origin = `https://127.0.0.1:${address.port}`;
-const adapter: IdentityAdapter = {
-  id: "fixture",
-  deploymentId: "cloud",
-  callbackUri: `${origin}/v1/session/callback/fixture`,
-  async begin() {
-    const state = {
-      state: randomSecret(),
-      verifier: randomSecret(),
-      nonce: randomSecret(),
-      clientId: "test",
-      deviceId: "test",
-    };
-    return {
-      authorizationUrl: `${origin}/v1/session/callback/fixture?state=${state.state}&code=fixture`,
-      protectedState: state,
-    };
+const identityClient = "fixture-identity-client";
+const identityCallback = `${origin}/v1/session/callback/tableau-cloud`;
+const adapter = new CloudIdentityAdapter(
+  "cloud",
+  identityCallback,
+  identityClient,
+  origin,
+  new IdentityProtocol(
+    { maxSockets: 4, connectTimeoutMs: 1000, headersTimeoutMs: 2000, stallTimeoutMs: 2000 },
+    new Map([
+      [
+        origin,
+        {
+          baseUrl: origin,
+          privateCidrs: ["127.0.0.1/32"],
+          tlsCa: await readFile(process.env.SDK_TEST_CERT!, "utf8"),
+        },
+      ],
+    ]),
+  ),
+  {
+    issuer: origin,
+    authorization_endpoint: `${origin}/fixture/identity/authorize`,
+    token_endpoint: `${origin}/fixture/identity/token`,
+    userinfo_endpoint: `${origin}/fixture/identity/userinfo`,
+    jwks_uri: `${origin}/fixture/identity/jwks`,
+    id_token_signing_alg_values_supported: ["ES256"],
   },
-  async complete() {
-    return {
-      deploymentId: "cloud",
-      siteId: "site",
-      subjectId: "alice",
-      adapterId: "fixture",
-      verifiedAt: new Date(),
-    };
-  },
-};
+);
+await f.db
+  .updateTable("deployments")
+  .set({ adapter_id: adapter.id })
+  .where("id", "=", "cloud")
+  .execute();
 const sessions = new SessionService(
   f.db,
   f.access,
@@ -244,6 +252,55 @@ const authorizations = new AuthorizationService(
   10000,
 );
 registerAuthorizationRoutes(app, authorizations, origin);
+// Only the upstream issuer is synthetic. Production owns state, PKCE, signed OIDC
+// validation, callback cookie correlation, proof redemption and restoration.
+const identitySigning = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const identityCodes = new Map<string, { challenge: string; nonce: string }>();
+let identityExchanges = 0,
+  identityUserInfoChecks = 0,
+  identitySiteChecks = 0;
+app.get("/fixture/identity/authorize", async (request, reply) => {
+  const query = z
+    .strictObject({
+      response_type: z.literal("code"),
+      client_id: z.literal(identityClient),
+      redirect_uri: z.literal(identityCallback),
+      scope: z.literal("openid email"),
+      state: z.string().min(1),
+      nonce: z.string().min(1),
+      code_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+      code_challenge_method: z.literal("S256"),
+    })
+    .parse(request.query);
+  const code = randomSecret();
+  identityCodes.set(code, { challenge: query.code_challenge, nonce: query.nonce });
+  const callback = new URL(query.redirect_uri);
+  callback.searchParams.set("state", query.state);
+  callback.searchParams.set("code", code);
+  return reply.redirect(callback.href);
+});
+app.get("/fixture/identity/jwks", async () => ({
+  keys: [
+    {
+      ...identitySigning.publicKey.export({ format: "jwk" }),
+      kid: "fixture",
+      use: "sig",
+      alg: "ES256",
+    },
+  ],
+}));
+app.get("/fixture/identity/userinfo", async (request, reply) => {
+  if (request.headers.authorization !== "Bearer fixture-identity-token")
+    return reply.code(401).send({ error: "invalid_token" });
+  identityUserInfoChecks++;
+  return { sub: "fixture-oidc-subject" };
+});
+app.get("/api/3.24/sessions/current", async (request, reply) => {
+  if (request.headers.authorization !== "Bearer fixture-identity-token")
+    return reply.code(401).send({ error: "invalid_token" });
+  identitySiteChecks++;
+  return { session: { site: { id: "site" }, user: { id: "alice" } } };
+});
 const pendingCodes = new Map<string, string>();
 let providerExchanges = 0;
 app.get("/fixture/oauth/authorize", async (request, reply) => {
@@ -270,6 +327,50 @@ await app.register(async (token) => {
     { parseAs: "string" },
     (_request, body, done) => done(null, body),
   );
+  token.post("/fixture/identity/token", async (request, reply) => {
+    const form = new URLSearchParams(String(request.body));
+    const code = form.get("code") ?? "";
+    const pending = identityCodes.get(code);
+    identityCodes.delete(code);
+    if (
+      !pending ||
+      pending.challenge !==
+        Buffer.from(verifier(form.get("code_verifier") ?? ""), "hex").toString("base64url") ||
+      form.get("grant_type") !== "authorization_code" ||
+      form.get("client_id") !== identityClient ||
+      form.get("redirect_uri") !== identityCallback
+    )
+      return reply.code(400).send({ error: "invalid_grant" });
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", kid: "fixture" })).toString(
+      "base64url",
+    );
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: origin,
+        sub: "fixture-oidc-subject",
+        aud: identityClient,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce: pending.nonce,
+        at_hash: createHash("sha256")
+          .update("fixture-identity-token")
+          .digest()
+          .subarray(0, 16)
+          .toString("base64url"),
+      }),
+    ).toString("base64url");
+    const input = `${header}.${payload}`;
+    const signature = sign("sha256", Buffer.from(input), {
+      key: identitySigning.privateKey,
+      dsaEncoding: "ieee-p1363",
+    }).toString("base64url");
+    identityExchanges++;
+    return {
+      access_token: "fixture-identity-token",
+      token_type: "Bearer",
+      id_token: `${input}.${signature}`,
+    };
+  });
   token.post("/fixture/oauth/token", async (request, reply) => {
     const form = new URLSearchParams(String(request.body));
     const challenge = pendingCodes.get(form.get("code") ?? "");
@@ -405,6 +506,9 @@ app.get("/embedded", async (_request, reply) =>
 app.get("/fixture/metrics", async () => ({
   requests,
   providerExchanges,
+  identityExchanges,
+  identityUserInfoChecks,
+  identitySiteChecks,
   transactions: (await f.db.selectFrom("session_transactions").select("id").execute()).length,
 }));
 app.get("/fixture/media-index", async () =>

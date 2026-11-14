@@ -51,6 +51,13 @@ async function wait(text: string) {
     if (Date.now() > deadline) throw new Error(`UI did not show ${text}`);
   }
 }
+async function identityChecks(expected: number) {
+  const result = await cli(
+    "eval",
+    `async () => { const m = await (await fetch('/fixture/metrics')).json(); return m.identityExchanges === ${expected} && m.identityUserInfoChecks === ${expected} && m.identitySiteChecks === ${expected} ? 'PRODUCTION_IDENTITY_PATH_CONFIRMED:${expected}' : JSON.stringify(m); }`,
+  );
+  assert.ok(result.includes(`PRODUCTION_IDENTITY_PATH_CONFIRMED:${expected}`), result);
+}
 await cli("open", `${origin}/embedded`);
 const start = await cli("snapshot");
 await click(
@@ -59,6 +66,7 @@ await click(
     : "Sign in with Tableau",
 );
 await wait("Signed in. Choose or connect a Slack account.");
+await identityChecks(1);
 await click("Connect Slack");
 if (process.env.SDK_TEST_OAUTH !== "1") {
   await fill("Slack token", "fixture-token");
@@ -157,12 +165,16 @@ assert.equal(
 );
 await cli("open", `${origin}/embedded`);
 await wait("Session restored.");
+await identityChecks(1);
 await click("Use another Tableau account");
 await wait("Signed in. Choose or connect a Slack account.");
+await identityChecks(2);
+await cli("screenshot", join(evidence, "functional-login.png"));
 await cli("stop");
 await cli("start");
 await cli("open", `${origin}/embedded`);
 await wait("Session restored.");
+await identityChecks(2);
 await writeFile(
   join(evidence, "result.json"),
   JSON.stringify(
@@ -170,8 +182,13 @@ await writeFile(
       passed: true,
       fixture: true,
       runtime: process.version,
+      identityPath:
+        "production CloudIdentityAdapter and SessionService with synthetic HTTPS OIDC issuer",
+      identityExchanges: 2,
       checks: [
         "opaque UI sign-in proof/redemption",
+        "production identity adapter PKCE, signed OIDC, UserInfo and stable site/user verification",
+        "restoration does not initiate another identity exchange",
         process.env.SDK_TEST_OAUTH === "1"
           ? "provider OAuth connect/reconnect controls and actual PKCE token exchange"
           : "static connect/reconnect controls",
