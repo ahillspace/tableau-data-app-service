@@ -170,3 +170,37 @@ export const sessionResponseSchema = z.strictObject({
   identity: z.strictObject({ deploymentId: opaqueId, siteId: opaqueId, subjectId: opaqueId }),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
+
+const liveMediaType = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[\x20-\x7e]+$/);
+const liveRevision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const liveEncodedBytes = z.string().regex(/^[A-Za-z0-9_-]*$/);
+export const publicLiveDataSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    version: z.literal(1),
+    kind: z.literal("provider"),
+    id: opaqueId,
+    provider: opaqueId,
+    connectionId: opaqueId.optional(),
+    type: opaqueId,
+    payloadEncoding: z.literal("base64url"),
+    payloadMediaType: liveMediaType,
+    payload: liveEncodedBytes,
+  }),
+  z.strictObject({
+    version: z.literal(1),
+    kind: z.literal("job-hint"),
+    id: opaqueId,
+    jobId: opaqueId,
+    revision: liveRevision,
+  }),
+  z.strictObject({
+    version: z.literal(1),
+    kind: z.literal("resync-required"),
+    reason: z.enum(["connected", "possible-loss"]),
+  }),
+]);
+export type PublicLiveData = z.infer<typeof publicLiveDataSchema>;
