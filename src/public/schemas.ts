@@ -148,7 +148,10 @@ export const capabilityDefinitionSchema = z.strictObject({
     .optional(),
 });
 export type CapabilityDefinition = z.infer<typeof capabilityDefinitionSchema>;
-export const providerCollectionSchema = z.strictObject({ items: z.array(providerViewSchema) });
+export const providerCollectionSchema = z.strictObject({
+  items: z.array(providerViewSchema),
+  events: z.strictObject({ payloadBytes: z.number().int().positive().safe() }).optional(),
+});
 export const connectionCollectionSchema = z.strictObject({ items: z.array(connectionViewSchema) });
 export const capabilityCollectionSchema = z.strictObject({
   items: z.array(capabilityDefinitionSchema),

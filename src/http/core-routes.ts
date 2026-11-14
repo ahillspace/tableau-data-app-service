@@ -21,6 +21,7 @@ export function registerCoreRoutes(
     providers: ProviderRegistry;
     corsOrigins: readonly string[];
     jsonPreparationBytes: number;
+    eventPayloadBytes?: number;
   },
 ): void {
   app.addHook("onRequest", async (request, reply) => {
@@ -56,6 +57,9 @@ export function registerCoreRoutes(
       .where("enabled", "=", true)
       .execute();
     return {
+      ...(services.eventPayloadBytes === undefined
+        ? {}
+        : { events: { payloadBytes: services.eventPayloadBytes } }),
       items: rows.map((row) => {
         const provider = services.providers.get(row.id);
         if (provider.revision !== row.config_revision)
