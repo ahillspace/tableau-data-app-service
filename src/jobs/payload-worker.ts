@@ -18,8 +18,12 @@ function json(value: unknown): string {
 }
 function validate(value: unknown, schema: object): unknown {
   const run = ajv.compile(schema);
-  if (!run(value)) throw new Error("Payload failed its declared schema");
-  return value;
+  try {
+    if (!run(value)) throw new Error("Payload failed its declared schema");
+    return value;
+  } finally {
+    ajv.removeSchema(schema);
+  }
 }
 function seal(value: unknown, schema: object, limit: number, binding: SecretBinding) {
   validate(value, schema);

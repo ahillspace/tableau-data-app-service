@@ -53,6 +53,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
   readonly control: JobsDB;
   readonly limits: JobLimits;
   readonly #declarations = new Map<string, JobDeclaration>();
+  readonly #schemas = new WeakMap<z.ZodType, object>();
   constructor(readonly options: JobsOptions) {
     this.db =
       options.core.db.withTables<
@@ -105,6 +106,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       // Reject transforms/opaque validation that cannot preserve retained comparison semantics.
       this.schema(declaration.inputSchema);
       this.schema(declaration.resultSchema);
+      if (declaration.external) this.schema(declaration.external.contextSchema);
       this.#declarations.set(key, declaration);
     }
   }
@@ -119,8 +121,50 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
     );
   }
   schema(schema: z.ZodType): object {
-    return z.toJSONSchema(schema, { io: "input" });
+    const cached = this.#schemas.get(schema);
+    if (cached) return cached;
+    const converted = z.toJSONSchema(schema, {
+      io: "input",
+      override: ({ zodSchema }) => {
+        // The exporter cannot encode these Zod semantics. Reject them rather than
+        // silently dropping author validation or comparing a different command.
+        const def = zodSchema._zod.def as {
+          type: string;
+          coerce?: boolean;
+          catchall?: unknown;
+          checks?: readonly { _zod: { def: { check: string } } }[];
+        };
+        if (
+          def.coerce ||
+          ["catch", "prefault"].includes(def.type) ||
+          (def.type === "object" && def.catchall === undefined) ||
+          def.checks?.some((check) => ["custom", "overwrite"].includes(check._zod.def.check))
+        )
+          throw new Error(
+            "Job schemas require JSON Schema validation/defaults with explicit strict or loose objects",
+          );
+      },
+    });
+    const inspect = (node: unknown, choice = false): void => {
+      if (!node || typeof node !== "object" || Array.isArray(node)) return;
+      const value = node as Record<string, unknown>;
+      if (choice && Object.hasOwn(value, "default"))
+        throw new Error("Job defaults inside schema alternatives are unsupported");
+      for (const key of ["properties", "$defs", "patternProperties"])
+        if (value[key] && typeof value[key] === "object")
+          for (const child of Object.values(value[key] as object)) inspect(child, choice);
+      for (const key of ["items", "additionalProperties", "contains", "propertyNames"])
+        inspect(value[key], choice);
+      for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"])
+        if (Array.isArray(value[key]))
+          for (const child of value[key])
+            inspect(child, choice || key === "anyOf" || key === "oneOf");
+    };
+    inspect(converted);
+    this.#schemas.set(schema, converted);
+    return converted;
   }
+
   hint(id: string): void {
     if (!this.options.onHint) return;
     // A lossy hint may coalesce committed transitions. Always publish a persisted
@@ -822,12 +866,16 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       return true;
     });
   }
-  async progress(row: JobRow, claim: ClaimRef, value: unknown): Promise<void> {
+  validatedProgress(row: JobRow, value: unknown): { value: unknown } {
     const schema = this.declaration(row)?.progressSchema;
     if (!schema) throw new ServiceError(422, "progress-unsupported", "Progress is not declared");
     const progress = schema.parse(value);
     if (Buffer.byteLength(JSON.stringify(progress)) > 16384)
       throw new ServiceError(422, "progress-too-large", "Progress exceeds its bound");
+    return { value: progress };
+  }
+  async progress(row: JobRow, claim: ClaimRef, value: unknown): Promise<void> {
+    const progress = this.validatedProgress(row, value);
     await this.control.transaction().execute(async (tx) => {
       const current = await tx
         .selectFrom("jobs")
@@ -839,7 +887,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
         throw new ServiceError(409, "stale-claim", "Progress claim expired");
       await tx
         .updateTable("jobs")
-        .set({ progress: { value: progress }, revision: current.revision + 1 })
+        .set({ progress, revision: current.revision + 1 })
         .where("id", "=", row.id)
         .execute();
     });
@@ -930,6 +978,11 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
             .where("id", "=", row.id)
             .returningAll()
             .executeTakeFirstOrThrow();
+          await tx
+            .deleteFrom("job_payloads")
+            .where("job_id", "=", row.id)
+            .where("kind", "=", "input")
+            .execute();
           if (current.requested)
             await this.finish(tx, attached, "cancelled", now, undefined, undefined, cleanupMs);
         } else if (outcome.kind === "pending") {
@@ -1038,6 +1091,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
     declaration: JobDeclaration,
     raw: Uint8Array,
     headers: Headers,
+    cleanupMs = 30000,
   ): Promise<"accepted" | "duplicate" | "late"> {
     const callback = declaration.external?.callback;
     if (!callback) absent();
@@ -1056,6 +1110,10 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       (hint.task_id && hint.task_id !== evidence.task.externalId)
     )
       absent();
+    const progress =
+      evidence.outcome.kind === "pending" && evidence.outcome.progress !== undefined
+        ? this.validatedProgress(hint, evidence.outcome.progress)
+        : undefined;
     let task: PreparedPayload | undefined;
     let result: PreparedPayload | undefined;
     try {
@@ -1115,6 +1173,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
             claim_kind: null,
             lease_until: null,
             revision: row.revision + 1,
+            ...(progress ? { progress } : {}),
             due_at:
               evidence.outcome.kind === "pending"
                 ? this.nextCheck(evidence.outcome.nextCheckAt, now, row.deadline)
@@ -1123,6 +1182,11 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
           .where("id", "=", row.id)
           .returningAll()
           .executeTakeFirstOrThrow();
+        await tx
+          .deleteFrom("job_payloads")
+          .where("job_id", "=", row.id)
+          .where("kind", "=", "input")
+          .execute();
         if (evidence.outcome.kind === "succeeded")
           await this.finish(tx, attached, "succeeded", now, undefined, result);
         if (evidence.outcome.kind === "failed")
@@ -1134,6 +1198,8 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
             safeError.parse(evidence.outcome.error),
             result,
           );
+        if (attached.requested && evidence.outcome.kind === "pending")
+          await this.finish(tx, attached, "cancelled", now, undefined, undefined, cleanupMs);
         return "accepted";
       });
     } catch (error) {
@@ -1298,7 +1364,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       if (!(error instanceof ServiceError) || ![403, 404, 422].includes(error.status)) throw error;
       await this.control
         .updateTable("jobs")
-        .set({ remote_status: "unavailable" })
+        .set({ remote_status: "unavailable", revision: sql<number>`revision+1` })
         .where("id", "=", hint.id)
         .where("remote_status", "=", "pending")
         .where("cleanup_token", "is", null)
@@ -1490,6 +1556,10 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       .orderBy("id")
       .limit(limit + 1)
       .execute();
+    if (!rows.length)
+      await this.control
+        .transaction()
+        .execute((tx) => this.options.core.access.lockAuthority(coreTx(tx), access));
     const items: JobView[] = [];
     for (const row of rows.slice(0, limit)) {
       try {
@@ -1504,11 +1574,18 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       ...(rows.length > limit && last
         ? {
             next: Buffer.from(
-              JSON.stringify({
-                at: last.submitted_at.toISOString(),
-                id: last.id,
-                filter: filterKey,
-              }),
+              JSON.stringify(
+                this.options.core.secrets.seal(
+                  Buffer.from(
+                    JSON.stringify({
+                      at: last.submitted_at.toISOString(),
+                      id: last.id,
+                      filter: filterKey,
+                    }),
+                  ),
+                  { kind: "job-cursor", id: access.ownerId, revision: "1" },
+                ),
+              ),
             ).toString("base64url"),
           }
         : {}),

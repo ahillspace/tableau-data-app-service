@@ -3,7 +3,8 @@
 Jobs is an optional provider entrypoint, separate from ordinary HTTP capabilities.
 Slack declares no capabilities and needs no Job declarations.
 A trusted provider supplies a `JobDeclaration` alongside the matching registry Job slot.
-Its schemas must be representable as JSON Schema; executable transforms are rejected, and author validation/default semantics must be expressible by that schema.
+Its schemas must be representable as JSON Schema; custom refinements, coercion, stripping, overwrites and executable transforms are rejected rather than silently changing validation semantics.
+Use explicit strict or loose objects and fixed JSON defaults outside schema alternatives.
 Keep executable declarations available while nonterminal Jobs need them.
 Retained metadata carries its own immutable comparison schema, so equal submission recovery still works after admission or executable retirement.
 

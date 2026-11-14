@@ -70,6 +70,11 @@ export const jobViewSchema = z.strictObject({
   }),
 });
 export type JobView = z.infer<typeof jobViewSchema>;
+export const jobCollectionSchema = z.strictObject({
+  items: z.array(jobViewSchema),
+  next: z.string().min(1).max(2048).optional(),
+});
+export type JobCollection = z.infer<typeof jobCollectionSchema>;
 export const siteInputSchema = z.strictObject({ deploymentId: opaqueId, siteId: opaqueId });
 export const siteViewSchema = siteInputSchema.extend({
   id: opaqueId,

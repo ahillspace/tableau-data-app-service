@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { bearer } from "../access/service.js";
-import type { ApiExtension, CoreServices } from "../core-ports.js";
+import type { AccessContext, ApiExtension, CoreServices } from "../core-ports.js";
 import { ServiceError } from "../http/errors.js";
 import { jobViewSchema, opaqueId } from "../public/schemas.js";
 import type { JobsService } from "./service.js";
@@ -9,15 +9,22 @@ import type { JobsService } from "./service.js";
 export function jobsApi(jobs: JobsService, options: { cleanupMs: number }): ApiExtension {
   return {
     async register(app: FastifyInstance, core: CoreServices) {
+      const contexts = new WeakMap<object, AccessContext>();
       const access = async (request: {
         headers: { authorization?: string | undefined };
         params: unknown;
       }) => {
+        const cached = contexts.get(request);
+        if (cached) return cached;
         const params = z.object({ app: opaqueId }).parse(request.params);
         return core.access.authenticate(bearer(request.headers.authorization), params.app);
       };
       // Encapsulated raw JSON parsing leaves near-cap parse/validation off the control event loop.
       await app.register(async (scope) => {
+        scope.addHook("onRequest", async (request) => {
+          if (request.routeOptions.url?.startsWith("/v1/apps/"))
+            contexts.set(request, await access(request));
+        });
         scope.removeContentTypeParser("application/json");
         const ingress = new WeakMap<object, Array<() => void>>();
         const releaseIngress = (request: object) => {
@@ -135,7 +142,9 @@ export function jobsApi(jobs: JobsService, options: { cleanupMs: number }): ApiE
               const headers = new Headers();
               for (const [key, value] of Object.entries(request.headers))
                 if (typeof value === "string") headers.set(key, value);
-              return { status: await jobs.callback(declaration, request.body, headers) };
+              return {
+                status: await jobs.callback(declaration, request.body, headers, options.cleanupMs),
+              };
             },
           );
         }

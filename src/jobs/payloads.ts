@@ -46,6 +46,9 @@ export class PayloadProcessor {
     this.#worker.on("exit", () => this.#fail());
   }
   readonly workingBytes: number;
+  get ready(): boolean {
+    return !this.#closed;
+  }
   reserve(bytes: number): () => void {
     if (!Number.isSafeInteger(bytes) || bytes < 0 || this.#used + bytes > this.workingBytes)
       throw new ServiceError(503, "payload-capacity-unavailable", "Job payload memory is busy");

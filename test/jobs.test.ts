@@ -321,7 +321,10 @@ test("freshness-only start blockage stays queued and same-account reauthorizatio
       .execute();
     await f.db
       .updateTable("connections")
-      .set({ last_connector_reauth_at: new Date(Date.now() - 2000) })
+      .set({
+        last_connector_reauth_at: new Date(Date.now() - 2000),
+        state: "reauthorization-required",
+      })
       .where("id", "=", f.connection.id)
       .execute();
     assert.equal(
@@ -333,7 +336,7 @@ test("freshness-only start blockage stays queued and same-account reauthorizatio
     assert.equal(blocked.blocked_reason, "reauthorization-required");
     await f.db
       .updateTable("connections")
-      .set({ last_connector_reauth_at: new Date() })
+      .set({ last_connector_reauth_at: new Date(), state: "active" })
       .where("id", "=", f.connection.id)
       .execute();
     await f.jobs.db
@@ -413,6 +416,216 @@ test("equal recovery uses retained limits and comparison capacity before allocat
     } finally {
       release();
     }
+  } finally {
+    await f.close();
+  }
+});
+
+test("current disclosure is rechecked after outside-lock decryption before an HTTP result is released", async () => {
+  const f = await jobsFixture();
+  const worker = new JobsWorker(f.jobs, workerOptions);
+  const app = await createHttpApp({
+    db: f.db,
+    core: f.core,
+    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+  });
+  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const job = await f.jobs.admit(f.alice.access, command("revocation-race"));
+    await worker.start();
+    await eventually(
+      () => f.jobs.get(f.alice.access, job.job.id),
+      (j) => j.state === "succeeded",
+    );
+    const open = f.payloads.open.bind(f.payloads);
+    f.payloads.open = async (...args) => {
+      const value = await open(...args);
+      await f.db
+        .updateTable("tableau_sites")
+        .set({ enabled: false })
+        .where("id", "=", "site-row")
+        .execute();
+      return value;
+    };
+    const result = await fetch(`${origin}/v1/apps/one/jobs/${job.job.id}/result`, {
+      headers: { authorization: `Bearer ${f.alice.token}` },
+    });
+    assert.equal(result.status, 403);
+    assert.equal((await result.text()).includes("hello"), false);
+  } finally {
+    await worker.close();
+    await app.close();
+    await f.close();
+  }
+});
+
+test("HTTP admission authenticates before waiting for a large body to finish", async () => {
+  const { request } = await import("node:http");
+  const f = await jobsFixture();
+  const app = await createHttpApp({
+    db: f.db,
+    core: f.core,
+    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+  });
+  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const req = request(
+        `${origin}/v1/apps/one/jobs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "transfer-encoding": "chunked" },
+        },
+        (response) => {
+          assert.equal(response.statusCode, 401);
+          response.resume();
+          req.destroy();
+          resolve();
+        },
+      );
+      req.setTimeout(1000, () => {
+        req.destroy();
+        reject(new Error("API waited for unauthenticated body completion"));
+      });
+      req.on("error", (error) => {
+        if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") reject(error);
+      });
+      req.write('{"input":"');
+    });
+    assert.equal((await f.jobs.db.selectFrom("jobs").select("id").execute()).length, 0);
+  } finally {
+    await app.close();
+    await f.close();
+  }
+});
+
+test("overlapping local wakeups cannot claim beyond actual available execution capacity", async () => {
+  let releaseHandler!: () => void;
+  const running = new Promise<void>((resolve) => (releaseHandler = resolve));
+  const f = await jobsFixture([
+    {
+      ...jobDeclaration,
+      handler: async (input) => {
+        await running;
+        return { kind: "complete", result: input };
+      },
+    },
+  ]);
+  const worker = new JobsWorker(f.jobs, workerOptions);
+  let releaseClaim!: () => void;
+  let signalClaim!: () => void;
+  const commitBoundary = new Promise<void>((resolve) => (signalClaim = resolve));
+  const waitBoundary = new Promise<void>((resolve) => (releaseClaim = resolve));
+  try {
+    await f.jobs.admit(f.alice.access, command("local-one"));
+    await f.jobs.admit(f.alice.access, command("local-two"));
+    const original = f.jobs.claim.bind(f.jobs);
+    let held = false;
+    f.jobs.claim = async (...args) => {
+      const row = await original(...args);
+      if (row && !held) {
+        held = true;
+        signalClaim();
+        await waitBoundary;
+      }
+      return row;
+    };
+    const first = worker.scan();
+    await commitBoundary;
+    const overlapping = worker.scan();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    releaseClaim();
+    await Promise.all([first, overlapping]);
+    assert.equal(worker.activeExecutions, 1);
+    assert.equal(
+      (await f.jobs.db.selectFrom("jobs").select("id").where("state", "=", "queued").execute())
+        .length,
+      1,
+    );
+  } finally {
+    releaseClaim?.();
+    releaseHandler();
+    await worker.close();
+    await f.close();
+  }
+});
+
+test("physical payload capacity is reserved before claim while cancellation controls remain available", async () => {
+  const f = await jobsFixture();
+  const worker = new JobsWorker(f.jobs, workerOptions);
+  let release = () => {};
+  try {
+    const first = await f.jobs.admit(f.alice.access, command("memory-cancel"));
+    const second = await f.jobs.admit(f.alice.access, command("memory-wait"));
+    release = f.payloads.reserve(f.payloads.workingBytes);
+    await worker.scan();
+    assert.equal((await f.jobs.row(second.job.id))!.attempts, 0);
+    assert.equal(worker.activeExecutions, 0);
+    await f.jobs.cancel(f.alice.access, first.job.id, 1000);
+    await worker.scan();
+    assert.equal((await f.jobs.get(f.alice.access, first.job.id)).state, "cancelled");
+    release();
+    await worker.scan();
+    await eventually(
+      () => f.jobs.get(f.alice.access, second.job.id),
+      (j) => j.state === "succeeded",
+    );
+  } finally {
+    release();
+    await worker.close();
+    await f.close();
+  }
+});
+
+test("Job registration rejects validation semantics that cannot survive retained comparison", async () => {
+  const { z } = await import("zod");
+  const f = await jobsFixture();
+  try {
+    for (const inputSchema of [
+      z.string().refine((value) => value !== "rejected"),
+      z.object({ value: z.string() }),
+      z.coerce.number(),
+      z.string().trim(),
+      z.union([z.strictObject({ value: z.string().default("x") }), z.number()]),
+    ])
+      assert.throws(
+        () =>
+          new JobsService({
+            ...f.jobs.options,
+            declarations: [{ ...jobDeclaration, inputSchema }],
+          }),
+      );
+  } finally {
+    await f.close();
+  }
+});
+
+test("canonical browse uses owner-filtered cross-app pages and continuations bound to owner and filters", async () => {
+  const { jobCollectionSchema } = await import("../src/public/schemas.js");
+  const f = await jobsFixture();
+  try {
+    const first = await f.jobs.admit(f.alice.access, command("page-one"));
+    const second = await f.jobs.admit({ ...f.alice.access, appId: "two" }, command("page-two"));
+    const page = jobCollectionSchema.parse(
+      await f.jobs.list({ ...f.alice.access, appId: "two" }, { limit: 1 }),
+    );
+    assert.equal(page.items.length, 1);
+    assert.ok(page.next);
+    const next = jobCollectionSchema.parse(
+      await f.jobs.list(f.alice.access, { limit: 1, next: page.next }),
+    );
+    assert.equal(next.items.length, 1);
+    assert.deepEqual(
+      new Set([...page.items, ...next.items].map((j) => j.id)),
+      new Set([first.job.id, second.job.id]),
+    );
+    await assert.rejects(f.jobs.list(f.bob.access, { next: page.next }), {
+      code: "invalid-continuation",
+    });
+    await assert.rejects(f.jobs.list(f.alice.access, { next: page.next, appId: "one" }), {
+      code: "invalid-continuation",
+    });
+    assert.deepEqual((await f.jobs.list(f.bob.access)).items, []);
   } finally {
     await f.close();
   }

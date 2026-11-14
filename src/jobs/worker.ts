@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ClaimRef } from "../core-ports.js";
+import { ServiceError } from "../http/errors.js";
 import { ExecutionLifetime } from "../runtime/lifetime.js";
 import type { JobRow } from "./database.js";
 import type { PreparedPayload } from "./payloads.js";
@@ -28,6 +29,8 @@ export class JobsWorker {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #tick: Promise<void> | undefined;
   #ready = true;
+  #scanning: Promise<void> | undefined;
+  #wakeAgain = false;
   constructor(
     readonly jobs: JobsService,
     readonly options: WorkerOptions,
@@ -43,7 +46,7 @@ export class JobsWorker {
       throw new Error("Invalid worker timing relationships");
   }
   get readiness(): boolean {
-    return this.#ready && !this.#draining;
+    return this.#ready && !this.#draining && this.jobs.options.payloads.ready;
   }
   get activeExecutions(): number {
     return this.#executing;
@@ -55,7 +58,11 @@ export class JobsWorker {
     this.wake();
   }
   wake(): void {
-    if (!this.#running || this.#draining || this.#tick) return;
+    if (!this.#running || this.#draining) return;
+    if (this.#tick) {
+      this.#wakeAgain = true;
+      return;
+    }
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
@@ -64,33 +71,50 @@ export class JobsWorker {
           this.#ready = false;
         })
         .finally(async () => {
-          this.#tick = undefined;
+          let delay = this.options.scanMs;
           if (this.#running && !this.#draining) {
-            let delay = this.options.scanMs;
             try {
               const due = await this.jobs.nextDue();
-              // Already due execution work must not turn saturated workers into a busy poll.
               if (due && due.getTime() > Date.now())
                 delay = Math.min(delay, Math.max(1, due.getTime() - Date.now()));
             } catch {
               this.#ready = false;
             }
-            this.#timer = setTimeout(() => {
-              this.#timer = undefined;
-              this.wake();
-            }, delay);
           }
+          this.#tick = undefined;
+          if (!this.#running || this.#draining) return;
+          if (this.#wakeAgain) {
+            this.#wakeAgain = false;
+            this.wake();
+            return;
+          }
+          this.#timer = setTimeout(() => {
+            this.#timer = undefined;
+            this.wake();
+          }, delay);
         });
     }, 0);
   }
-  async scan(): Promise<void> {
+  scan(): Promise<void> {
+    // Local scan serialization protects measured process capacity, while Postgres
+    // claims remain the shared authority across independent worker incarnations.
+    if (this.#scanning) return this.#scanning;
+    this.#scanning = this.runScan().finally(() => {
+      this.#scanning = undefined;
+    });
+    return this.#scanning;
+  }
+  private async runScan(): Promise<void> {
     if (!(await this.jobs.required())) {
       this.#running = false;
       return;
     }
     await this.jobs.controls(this.options.batchSize, this.options.cleanupMs);
     await this.jobs.retain(this.options.batchSize);
-    if (this.#draining) return;
+    if (this.#draining || !this.jobs.options.payloads.ready) {
+      this.#ready = false;
+      return;
+    }
     // Independent read-only I/O capacity gives external observations a fair turn.
     this.#preferCleanup = !this.#preferCleanup;
     const observations = await this.jobs.candidates(
@@ -101,10 +125,12 @@ export class JobsWorker {
     );
     for (const hint of observations) {
       if (this.#draining || this.#observing >= this.options.observationSlots) break;
-      const row = await this.jobs.claim(hint, "observe", this.incarnation, this.options.leaseMs);
-      if (row) {
+      const acquired = await this.claimReady(hint, "observe");
+      if (acquired) {
+        const { row, release } = acquired;
         this.#observing++;
         this.track(this.attempt(row), () => {
+          release();
           this.#observing--;
           this.wake();
         });
@@ -115,10 +141,12 @@ export class JobsWorker {
     );
     for (const hint of cleanups) {
       if (this.#draining || this.#observing >= this.options.observationSlots) break;
-      const row = await this.jobs.claimCleanup(hint, this.incarnation, this.options.leaseMs);
-      if (row) {
+      const acquired = await this.claimReady(hint, "remote-cancel");
+      if (acquired) {
+        const { row, release } = acquired;
         this.#observing++;
         this.track(this.remoteCancel(row), () => {
+          release();
           this.#observing--;
           this.wake();
         });
@@ -131,10 +159,12 @@ export class JobsWorker {
       );
       for (const hint of starts) {
         if (this.#draining || this.#executing >= this.options.executionSlots) break;
-        const row = await this.jobs.claim(hint, "execute", this.incarnation, this.options.leaseMs);
-        if (row) {
+        const acquired = await this.claimReady(hint, "execute");
+        if (acquired) {
+          const { row, release } = acquired;
           this.#executing++;
           this.track(this.attempt(row), () => {
+            release();
             this.#executing--;
             this.wake();
           });
@@ -142,6 +172,40 @@ export class JobsWorker {
       }
     }
     this.#ready = true;
+  }
+  private async claimReady(
+    hint: JobRow,
+    kind: "execute" | "observe" | "remote-cancel",
+  ): Promise<{ row: JobRow; release(): void } | null> {
+    const metadata = await this.jobs.control
+      .selectFrom("job_payloads")
+      .select("bytes")
+      .where("job_id", "=", hint.id)
+      .where("kind", "=", kind === "execute" ? "input" : "task")
+      .executeTakeFirst();
+    if (!metadata) return null;
+    let release: () => void;
+    try {
+      release = this.jobs.options.payloads.reserve(metadata.bytes * 8);
+    } catch (error) {
+      if (error instanceof ServiceError && error.code === "payload-capacity-unavailable")
+        return null;
+      throw error;
+    }
+    try {
+      const row =
+        kind === "remote-cancel"
+          ? await this.jobs.claimCleanup(hint, this.incarnation, this.options.leaseMs)
+          : await this.jobs.claim(hint, kind, this.incarnation, this.options.leaseMs);
+      if (!row) {
+        release();
+        return null;
+      }
+      return { row, release };
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
   track(task: Promise<void>, release: () => void): void {
     const tracked = task
@@ -193,7 +257,6 @@ export class JobsWorker {
       () => life.abort(new Error("Job deadline")),
       Math.max(1, row.deadline!.getTime() - Date.now()),
     );
-    let release: (() => void) | undefined;
     try {
       const prepared: { result?: PreparedPayload; task?: PreparedPayload } = {};
       const outcome = await life.run(async () => {
@@ -218,14 +281,6 @@ export class JobsWorker {
               }
             : {}),
         };
-        const kind = row.claim_kind === "execute" ? "input" : "task";
-        const metadata = await this.jobs.db
-          .selectFrom("job_payloads")
-          .select("bytes")
-          .where("job_id", "=", row.id)
-          .where("kind", "=", kind)
-          .executeTakeFirstOrThrow();
-        release = this.jobs.options.payloads.reserve(metadata.bytes * 6);
         let outcome: ExecutionOutcome | ObservationOutcome;
         try {
           life.signal.throwIfAborted();
@@ -273,7 +328,6 @@ export class JobsWorker {
     } finally {
       clearInterval(beat);
       clearTimeout(deadline);
-      release?.();
       this.#active.delete(row.id);
     }
   }
@@ -317,6 +371,7 @@ export class JobsWorker {
     if (this.#timer) clearTimeout(this.#timer);
     for (const active of this.#active.values()) active.abort(new Error("Worker shutting down"));
     await this.#tick;
+    await this.#scanning;
     await Promise.allSettled([...this.#tasks]);
     // Core's host grace supervises active lifetimes, which retain their slots until settled/exit.
   }

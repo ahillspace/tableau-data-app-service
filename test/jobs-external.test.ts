@@ -184,6 +184,10 @@ test("persisted external waits release execution capacity; observation lease rec
       () => f.jobs.get(f.alice.access, second.job.id),
       (j) => j.state === "succeeded",
     );
+    await eventually(
+      async () => observations,
+      (n) => n >= 1,
+    );
     await worker.close();
     await f.jobs.db
       .updateTable("jobs")
@@ -222,7 +226,7 @@ test("persisted external waits release execution capacity; observation lease rec
       "observation-authority-unavailable",
     );
     assert.equal(starts, 2);
-    assert.ok(observations >= 0);
+    assert.ok(observations >= 1);
   } finally {
     await worker.close();
     await f.close();
@@ -320,5 +324,69 @@ test("verified failed callback preserves an explicitly validated safe partial re
     assert.deepEqual(await f.jobs.result(f.alice.access, row.id), { value: "partial" });
   } finally {
     await f.close();
+  }
+});
+
+test("supported remote cancellation dispatches the recorded task once and reports provider evidence", async () => {
+  let calls = 0;
+  const received: string[] = [];
+  const upstream = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    received.push(Buffer.concat(chunks).toString());
+    calls++;
+    response.end("cancelled");
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const declaration: JobDeclaration = {
+    ...jobDeclaration,
+    handler: async () => ({ kind: "waiting", task }),
+    external: {
+      ...external,
+      cancel: async (original, context) => {
+        const response = await context.request({
+          endpoint: "api",
+          method: "POST",
+          path: "/cancel",
+          body: original.externalId,
+        });
+        assert.equal(await response.text(), "cancelled");
+        return "confirmed";
+      },
+    },
+  };
+  const f = await jobsFixture([declaration]);
+  const worker = new JobsWorker(f.jobs, workerOptions);
+  f.provider.endpoints = {
+    api: {
+      baseUrl: `http://127.0.0.1:${address.port}/`,
+      allowHttp: true,
+      privateCidrs: ["127.0.0.1/32"],
+    },
+  };
+  try {
+    const job = await f.jobs.admit(f.alice.access, command("cancel-confirmed"));
+    await worker.start();
+    await eventually(
+      () => f.jobs.get(f.alice.access, job.job.id),
+      (j) => j.state === "waiting-provider",
+    );
+    const cancelled = await f.jobs.cancel(f.alice.access, job.job.id, 1000);
+    assert.equal(cancelled.state, "cancelled");
+    await eventually(
+      () => f.jobs.get(f.alice.access, job.job.id),
+      (j) => j.cancellation.remote === "confirmed",
+    );
+    await worker.scan();
+    assert.equal(calls, 1);
+    assert.deepEqual(received, [task.externalId]);
+  } finally {
+    await worker.close();
+    await f.close();
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
   }
 });
