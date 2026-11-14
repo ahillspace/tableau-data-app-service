@@ -1,7 +1,7 @@
 # Specification work
 
 Read GOALS.md before changing a specification.
-This workspace is a design exercise; do not implement the application, install a platform, or publish/deploy anything.
+Local application implementation and task-scoped development dependency setup are authorized; do not publish, deploy, create remotes, or merge into the primary branch.
 Keep one shared service deployment with an operator-controlled administrative boundary.
 Describe the public product for Data App developers and viewers without restricting its audience to a profession or team.
 Exclude personal context, workstation paths and private workflow details from public specification artifacts.
