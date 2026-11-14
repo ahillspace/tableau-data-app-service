@@ -49,7 +49,9 @@ export class ExecutionLifetime {
       try {
         // Disposers run together so one blocked resource cannot hide the others.
         const results = await Promise.allSettled(
-          this.#resources.map((dispose) => dispose(this.signal.reason)),
+          this.#resources.map((dispose) =>
+            Promise.resolve().then(() => dispose(this.signal.reason)),
+          ),
         );
         if (results.some((result) => result.status === "rejected")) {
           this.#terminate();
