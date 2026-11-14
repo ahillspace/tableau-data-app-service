@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { test } from "node:test";
 import { gzipSync } from "node:zlib";
+import Fastify from "fastify";
+import { sendResponse } from "../src/http/wire.js";
 import { responseOrigin, TransportScope } from "../src/transport/native.js";
 
 test("native transport preserves encoded bytes, GET bodies and redirect status; cancellation disposes unread streams with no replay", async () => {
@@ -119,5 +122,123 @@ test("recipient policy blocks unconfigured private/metadata destinations and cal
     );
   } finally {
     await scope.dispose();
+  }
+});
+
+test("stalled upload producers are cancelled, and pre-send header errors release the shared socket budget", async () => {
+  let cancelled = false,
+    calls = 0;
+  const server = createServer((request, response) => {
+    calls++;
+    if (request.url === "/ok") response.end("ok");
+    else request.resume();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const endpoint = {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    allowHttp: true,
+    privateCidrs: ["127.0.0.1/32"],
+  };
+  const scope = new TransportScope(
+    { connectTimeoutMs: 1000, headersTimeoutMs: 3000, stallTimeoutMs: 100, maxSockets: 1 },
+    new AbortController().signal,
+  );
+  try {
+    await assert.rejects(
+      scope.request(
+        endpoint,
+        {
+          endpoint: "api",
+          method: "POST",
+          path: "/blocked",
+          headers: new Headers({ authorization: "caller" }),
+        },
+        new Headers({ authorization: "entrusted" }),
+      ),
+      { code: "protected-header" },
+    );
+    const good = await scope.request(
+      endpoint,
+      { endpoint: "api", method: "GET", path: "/ok" },
+      new Headers(),
+    );
+    assert.equal(await good.text(), "ok");
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const started = performance.now();
+    await assert.rejects(
+      scope.request(
+        endpoint,
+        { endpoint: "api", method: "POST", path: "/stall", body: stream },
+        new Headers(),
+      ),
+      { status: 504 },
+    );
+    assert.ok(performance.now() - started < 2500, "upload stall must precede header timeout");
+    assert.equal(cancelled, true);
+    assert.equal(calls, 2, "no failed or interrupted request is replayed");
+  } finally {
+    await scope.dispose();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a nonreading downstream is disconnected and its producer disposed while another request progresses", async () => {
+  const app = Fastify();
+  let cancelled!: () => void;
+  const disposed = new Promise<void>((resolve) => {
+    cancelled = resolve;
+  });
+  app.get("/stream", async (_request, reply) => {
+    await sendResponse(
+      reply,
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(65536));
+          },
+          cancel() {
+            cancelled();
+          },
+        }),
+      ),
+      "capability",
+      false,
+      150,
+    );
+    return reply;
+  });
+  app.get("/other", async () => "progress");
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const url = new URL(app.listeningOrigin);
+  const socket = connect(Number(url.port), "127.0.0.1");
+  socket.on("error", () => {});
+  socket.pause();
+  socket.write("GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    assert.equal(await (await fetch(`${url.origin}/other`)).text(), "progress");
+    await Promise.race([
+      disposed,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Stalled downstream retained its producer")),
+          5000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    socket.destroy();
+    await app.close();
   }
 });

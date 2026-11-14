@@ -28,15 +28,24 @@ export class Sources {
       provider: source.provider_registration_id,
       revision: String(source.revision),
     });
-    return JSON.parse(bytes.toString("utf8"));
+    try {
+      return JSON.parse(bytes.toString("utf8"));
+    } finally {
+      bytes.fill(0);
+    }
   }
   seal(id: string, registration: string, revision: number, context: Record<string, unknown>) {
-    return this.core.secrets.seal(Buffer.from(JSON.stringify(context)), {
-      kind: "event-source",
-      id,
-      provider: registration,
-      revision: String(revision),
-    });
+    const bytes = Buffer.from(JSON.stringify(context));
+    try {
+      return this.core.secrets.seal(bytes, {
+        kind: "event-source",
+        id,
+        provider: registration,
+        revision: String(revision),
+      });
+    } finally {
+      bytes.fill(0);
+    }
   }
   provider(registration: string): EventProvider {
     const provider = this.providers.get(registration);

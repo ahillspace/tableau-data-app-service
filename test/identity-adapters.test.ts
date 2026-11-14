@@ -219,3 +219,115 @@ test("Server uses its distinct reference endpoint/callback/client contract and r
       ),
   );
 });
+
+test("Server exchanges PKCE over verified TLS and rejects wrong origin, site, identity and callback state", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tableau-server-tls-"));
+  const keyPath = join(directory, "key.pem"),
+    certPath = join(directory, "cert.pem");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  const ca = await readFile(certPath, "utf8");
+  let mode = "valid",
+    origin = "",
+    verifier = "",
+    calls = 0;
+  const server = createServer(
+    { key: await readFile(keyPath), cert: ca },
+    async (request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/oauth2/v1/token") {
+        calls++;
+        const chunks = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const body = new URLSearchParams(Buffer.concat(chunks).toString());
+        assert.equal(body.get("code_verifier"), verifier);
+        assert.equal(body.get("redirect_uri"), "https://service.example/Callback");
+        response.end(
+          JSON.stringify({
+            access_token: "server-session",
+            origin_host: mode === "wrong-origin" ? "https://attacker.example" : origin,
+          }),
+        );
+      } else if (request.url === "/api/3.29/sessions/current") {
+        assert.equal(request.headers["x-tableau-auth"], "server-session");
+        response.end(
+          JSON.stringify({
+            session: {
+              site: { id: mode === "wrong-site" ? "other-site" : "site-id" },
+              user: mode === "missing-user" ? {} : { id: "server-user" },
+            },
+          }),
+        );
+      } else response.writeHead(404).end("{}");
+    },
+  );
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing TLS port");
+  origin = `https://127.0.0.1:${address.port}`;
+  const adapter = new ServerIdentityAdapter(
+    "server",
+    "https://service.example/Callback",
+    origin,
+    "content-url",
+    "site-id",
+    "3.29",
+    "registered-integration-service",
+    new IdentityProtocol(
+      { maxSockets: 2, connectTimeoutMs: 1000, headersTimeoutMs: 1000, stallTimeoutMs: 1000 },
+      new Map([[origin, { baseUrl: origin, privateCidrs: ["127.0.0.1/32"], tlsCa: ca }]]),
+    ),
+  );
+  try {
+    const start = await adapter.begin();
+    verifier = start.protectedState.verifier;
+    const callback = new URLSearchParams({
+      code: "one-use-code",
+      state: start.protectedState.state,
+    });
+    const result = await adapter.complete(
+      start.protectedState,
+      callback,
+      new AbortController().signal,
+    );
+    assert.equal(result.subjectId, "server-user");
+    assert.equal(result.siteId, "site-id");
+    for (mode of ["wrong-origin", "wrong-site", "missing-user"])
+      await assert.rejects(
+        adapter.complete(start.protectedState, callback, new AbortController().signal),
+        { code: "identity-verification-failed" },
+      );
+    const before = calls;
+    await assert.rejects(
+      adapter.complete(
+        start.protectedState,
+        new URLSearchParams({ code: "code", state: "wrong" }),
+        new AbortController().signal,
+      ),
+    );
+    assert.equal(calls, before, "invalid callback must not reach token exchange");
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});

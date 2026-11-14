@@ -6,7 +6,7 @@ import { ServiceError } from "../http/errors.js";
 import type { Endpoint } from "../providers/registry.js";
 import { randomSecret } from "../security/secrets.js";
 import { protocolJson } from "../transport/json.js";
-import { type TransportPolicy, TransportScope } from "../transport/native.js";
+import { SocketBudget, type TransportPolicy, TransportScope } from "../transport/native.js";
 
 export type AdapterState = {
   state: string;
@@ -52,9 +52,10 @@ export class IdentityProtocol {
   constructor(
     readonly policy: TransportPolicy,
     readonly endpoints: ReadonlyMap<string, Endpoint>,
+    readonly budget = new SocketBudget(policy.maxSockets),
   ) {}
   open(signal: AbortSignal) {
-    const transport = new TransportScope(this.policy, signal);
+    const transport = new TransportScope(this.policy, signal, this.budget);
     const fetcher = async (
       input: string | URL | Request,
       init?: {

@@ -126,6 +126,7 @@ export async function createApplication(
             [CLOUD_METADATA.issuer, { baseUrl: CLOUD_METADATA.issuer }],
             [config.podOrigin, { baseUrl: config.podOrigin }],
           ]),
+          connections.transportBudget,
         );
         adapters.set(
           config.id,
@@ -153,7 +154,11 @@ export async function createApplication(
             config.siteId,
             config.apiVersion,
             config.clientType,
-            new IdentityProtocol(policy, new Map([[config.origin, endpoint]])),
+            new IdentityProtocol(
+              policy,
+              new Map([[config.origin, endpoint]]),
+              connections.transportBudget,
+            ),
           ),
         );
       }
@@ -172,6 +177,7 @@ export async function createApplication(
       policy,
       settings.maintenance,
       new Set(settings.operatorCredentials.map((item) => item.actorId)),
+      connections.transportBudget,
     );
     const authorizations = new AuthorizationService(
       db,
@@ -183,6 +189,7 @@ export async function createApplication(
       settings.maintenance.operationMs,
       settings.maintenance.leaseMs,
       operators,
+      connections.transportBudget,
     );
     let jobs: JobsService | undefined;
     const events = createEventsExtension(

@@ -17,7 +17,8 @@
     "worker": "node dist/worker.js",
     "example": "tsx examples/slack/dev.ts",
     "typecheck:example": "tsc --noEmit -p examples/tsconfig.json",
-    "config:apply": "tsx src/config-command.ts"
+    "config:apply": "tsx src/config-command.ts",
+    "keys:reencrypt": "tsx src/security/reencrypt-command.ts"
   },
   "dependencies": {
     "ajv": "^8.20.0",

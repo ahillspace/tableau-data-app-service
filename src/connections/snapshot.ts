@@ -149,6 +149,7 @@ export async function prepareRequest(
         const snapshot = {
           authorityGeneration: row.authority_generation ?? 0,
           credentialGeneration: row.credential_generation ?? 0,
+          expiresAt: row.credential_expires_at,
           credentials: provider.credentialsSchema.parse(parsed.credentials),
           runtimeContext: provider.contextSchema.parse(parsed.runtimeContext),
         };

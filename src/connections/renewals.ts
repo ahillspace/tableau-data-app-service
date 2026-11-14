@@ -89,7 +89,11 @@ export class Renewals {
         await delay(this.options.contentionMs, undefined, { signal });
       }
     }
-    const protocol = providerProtocol(provider, this.connections.policy).open(signal);
+    const protocol = providerProtocol(
+      provider,
+      this.connections.policy,
+      this.connections.transportBudget,
+    ).open(signal);
     try {
       const row = await this.connections.db
         .selectFrom("connections")

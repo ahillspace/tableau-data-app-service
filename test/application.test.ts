@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createApplication } from "../src/application.js";
 import {
   applicationConfigSchema,
@@ -78,5 +84,97 @@ test("composed Slack application runs auth/proxy discovery with Jobs and Redis o
   } finally {
     await application?.close();
     await f.close();
+  }
+});
+
+async function freePort() {
+  const socket = createServer();
+  await new Promise<void>((resolve) => socket.listen(0, "127.0.0.1", resolve));
+  const address = socket.address();
+  if (!address || typeof address === "string") throw new Error("Missing test port");
+  await new Promise<void>((resolve) => socket.close(() => resolve()));
+  return address.port;
+}
+
+test("compiled API and supervised worker start independently, expose separate readiness and drain on SIGTERM", async () => {
+  execFileSync(
+    fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),
+    ["-p", "tsconfig.build.json"],
+    { cwd: new URL("..", import.meta.url), stdio: "pipe" },
+  );
+  const f = await testPostgres();
+  const directory = await mkdtemp(join(tmpdir(), "tableau-processes-"));
+  const port = await freePort(),
+    workerPort = await freePort();
+  const configFile = join(directory, "config.json");
+  await writeFile(
+    configFile,
+    await readFile(new URL("../service-config.example.json", import.meta.url)),
+  );
+  const env = {
+    ...process.env,
+    NODE_ENV: "test",
+    DATABASE_URL: f.config.DATABASE_URL,
+    SERVICE_ORIGIN: `http://127.0.0.1:${port}`,
+    PORT: String(port),
+    WORKER_HEALTH_PORT: String(workerPort),
+    HOST: "127.0.0.1",
+    ENCRYPTION_ACTIVE_KEY_ID: "test",
+    ENCRYPTION_KEYS: JSON.stringify({ test: "01".repeat(32) }),
+    SERVICE_CONFIG_FILE: configFile,
+  };
+  const children: ReturnType<typeof spawn>[] = [];
+  const exits: Promise<unknown>[] = [];
+  try {
+    execFileSync(process.execPath, ["dist/config-command.js"], {
+      cwd: new URL("..", import.meta.url),
+      env,
+      stdio: "pipe",
+    });
+    for (const role of ["api", "worker"]) {
+      const child = spawn(process.execPath, [`dist/${role}.js`], {
+        cwd: new URL("..", import.meta.url),
+        env,
+        stdio: "pipe",
+      });
+      children.push(child);
+      exits.push(once(child, "exit"));
+      let errors = "";
+      child.stderr!.on("data", (data) => {
+        errors += data.toString();
+      });
+      const origin = `http://127.0.0.1:${role === "api" ? port : workerPort}`;
+      const deadline = Date.now() + 10000;
+      let ready: Response | undefined;
+      while (Date.now() < deadline && child.exitCode === null) {
+        try {
+          const response = await fetch(`${origin}/health/ready`);
+          if (response.ok) {
+            ready = response;
+            break;
+          }
+          await response.body?.cancel();
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.ok(ready, `${role} did not become ready: ${errors}`);
+      const status = (await ready.json()) as { jobs?: string; sources?: string };
+      if (role === "worker") {
+        assert.equal(status.jobs, "disabled");
+        assert.equal(status.sources, "disabled");
+        assert.equal((await fetch(`${origin}/v1/session/transactions`)).status, 404);
+      }
+      assert.equal((await fetch(`${origin}/health/live`)).status, 200);
+    }
+    children[1]!.kill("SIGTERM");
+    assert.deepEqual(await exits[1], [0, null]);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/health/ready`)).status, 200);
+    children[0]!.kill("SIGTERM");
+    assert.deepEqual(await exits[0], [0, null]);
+  } finally {
+    for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
+    await Promise.all(exits);
+    await f.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

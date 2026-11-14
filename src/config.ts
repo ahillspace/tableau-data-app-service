@@ -13,6 +13,7 @@ const envSchema = z.object({
   CONTROL_DATABASE_URL: z.url().optional(),
   SERVICE_ORIGIN: z.url(),
   PORT: positive(3000),
+  WORKER_HEALTH_PORT: positive(3001),
   HOST: z.string().default("127.0.0.1"),
   DB_POOL_MAX: positive(5),
   DB_CONTROL_POOL_MAX: positive(2),

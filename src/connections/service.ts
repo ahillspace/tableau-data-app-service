@@ -13,6 +13,7 @@ import type {
 } from "../core-ports.js";
 import { type CoreTransaction, type Database, databaseTime } from "../db/database.js";
 import { absent, ServiceError } from "../http/errors.js";
+import { providerProtocol } from "../providers/protocol.js";
 import type { ProviderRegistry } from "../providers/registry.js";
 import type { ConnectionView } from "../public/schemas.js";
 import type { SecretBox } from "../security/encryption.js";
@@ -180,12 +181,51 @@ export class ConnectionService implements ConnectionPort {
           if (!endpoint)
             throw new ServiceError(422, "unsupported-endpoint", "Provider endpoint is unsupported");
           const snapshot = await checkout();
-          return transport.request(
-            endpoint,
-            request,
-            snapshot ? provider.attach(snapshot) : new Headers(),
-            snapshot?.runtimeContext,
-          );
+          let attached = snapshot ? provider.attach(snapshot) : new Headers();
+          if (endpoint.derived) {
+            if (!snapshot)
+              throw new ServiceError(
+                422,
+                "no-credentials",
+                "Derived credentials require a current base bundle",
+              );
+            const protocol = providerProtocol(provider, this.policy, this.transportBudget).open(
+              transport.signal,
+            );
+            try {
+              const derived = await endpoint.derived.derive(snapshot, {
+                signal: transport.signal,
+                request: (url, init) => protocol.fetch(url, init),
+              });
+              if (
+                derived.audience !== endpoint.derived.audience ||
+                !Number.isFinite(derived.expiresAt.getTime()) ||
+                derived.expiresAt <= new Date() ||
+                (snapshot.expiresAt && derived.expiresAt > snapshot.expiresAt)
+              )
+                throw new ServiceError(
+                  502,
+                  "invalid-derived-credential",
+                  "Derived credential recipient or expiry is invalid",
+                );
+              const current = await checkout();
+              if (
+                !current ||
+                current.authorityGeneration !== snapshot.authorityGeneration ||
+                current.credentialGeneration !== snapshot.credentialGeneration ||
+                derived.expiresAt <= new Date()
+              )
+                throw new ServiceError(
+                  409,
+                  "stale-mutation",
+                  "Base credential changed during derivation",
+                );
+              attached = derived.headers;
+            } finally {
+              await protocol.dispose();
+            }
+          }
+          return transport.request(endpoint, request, attached, snapshot?.runtimeContext);
         },
         withCredentials: async (run) => {
           const snapshot = await checkout();
@@ -247,6 +287,7 @@ export class ConnectionService implements ConnectionPort {
       return {
         authorityGeneration: selected.authority_generation,
         credentialGeneration: selected.credential_generation,
+        expiresAt: selected.credential_expires_at,
         credentials: provider.credentialsSchema.parse(parsed.credentials),
         runtimeContext: provider.contextSchema.parse(parsed.runtimeContext),
       };

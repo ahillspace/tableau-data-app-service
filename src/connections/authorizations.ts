@@ -12,7 +12,7 @@ import type { AuthorizationBegin, AuthorizationView } from "../public/schemas.js
 import type { SecretBox } from "../security/encryption.js";
 import { randomSecret, verifier, verifySecret } from "../security/secrets.js";
 import { protocolJson } from "../transport/json.js";
-import type { TransportPolicy } from "../transport/native.js";
+import { SocketBudget, type TransportPolicy } from "../transport/native.js";
 import type { CredentialAuthority, CredentialsService, MutationRef } from "./credentials.js";
 import type { OperatorConnections, SharedAudience } from "./operator.js";
 
@@ -29,6 +29,7 @@ export class AuthorizationService {
     readonly lifetimeMs: number,
     readonly leaseMs: number,
     readonly operators?: OperatorConnections,
+    readonly transportBudget = new SocketBudget(policy.maxSockets),
   ) {}
   private async load(id: string) {
     const attempt = await this.db
@@ -406,7 +407,7 @@ export class AuthorizationService {
           .execute();
       },
     );
-    const protocol = providerProtocol(provider, this.policy).open(signal);
+    const protocol = providerProtocol(provider, this.policy, this.transportBudget).open(signal);
     try {
       await this.credentials.dispatch(
         access,

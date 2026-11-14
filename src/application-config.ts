@@ -128,6 +128,11 @@ export async function readApplicationConfig(env: NodeJS.ProcessEnv): Promise<App
   const config = applicationConfigSchema.parse(
     JSON.parse(await readFile(env.SERVICE_CONFIG_FILE, "utf8")),
   );
+  const roleVerifiers = [...config.registryCredentials, ...config.operatorCredentials].map(
+    (item) => item.verifier,
+  );
+  if (new Set(roleVerifiers).size !== roleVerifiers.length)
+    throw new Error("Administrative credentials must be unique and separate by role");
   for (const items of [config.apps, config.deployments, config.slack ? [config.slack] : []]) {
     const ids = items.map((item) => item.id);
     if (new Set(ids).size !== ids.length) throw new Error("Duplicate configured identifier");

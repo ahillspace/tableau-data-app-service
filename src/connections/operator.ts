@@ -4,7 +4,7 @@ import { databaseTime } from "../db/database.js";
 import { ServiceError } from "../http/errors.js";
 import { providerProtocol } from "../providers/protocol.js";
 import type { ProviderRegistry } from "../providers/registry.js";
-import type { TransportPolicy } from "../transport/native.js";
+import { SocketBudget, type TransportPolicy } from "../transport/native.js";
 import type { CredentialActor, CredentialsService, Replacement } from "./credentials.js";
 
 export type SharedAudience = readonly { deploymentId: string; siteId: string; subjectId: string }[];
@@ -16,6 +16,7 @@ export class OperatorConnections {
     readonly policy: TransportPolicy,
     readonly options: { operationMs: number; leaseMs: number },
     readonly actorIds: ReadonlySet<string>,
+    readonly transportBudget = new SocketBudget(policy.maxSockets),
   ) {}
   actor(
     actorId: string,
@@ -163,7 +164,7 @@ export class OperatorConnections {
         )
       : undefined;
     const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(this.options.operationMs)]);
-    const protocol = providerProtocol(provider, this.policy).open(signal);
+    const protocol = providerProtocol(provider, this.policy, this.transportBudget).open(signal);
     try {
       const claim = ref
         ? await this.credentials.claim(actor, provider.id, ref, randomUUID(), this.options.leaseMs)

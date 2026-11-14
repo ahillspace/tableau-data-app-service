@@ -31,13 +31,14 @@ export async function migrate(db: Database): Promise<void> {
     throw new Error("Schema migration failed", { cause: error });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const db = createDatabase(loadConfig(process.env));
+  let db: Database | undefined;
   try {
+    db = createDatabase(loadConfig(process.env));
     await migrate(db);
   } catch {
     process.stderr.write("Schema migration failed\n");
     process.exitCode = 1;
   } finally {
-    await db.destroy();
+    await db?.destroy();
   }
 }

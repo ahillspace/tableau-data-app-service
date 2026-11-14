@@ -28,7 +28,8 @@ Both check popup origin, source window and transaction, handle close/abort/expir
 Only session initiation/redemption/restoration uses credentialed fetch; ordinary traffic omits cookies and uses the client's memory bearer.
 `session()` exposes identity and fixed expiries without the bearer.
 Restoration cannot silently change an established client's owner or deployment.
-First enrollment remains unavailable under the production closed guard, and there is no storage or login fallback.
+Functional login remains enabled under the user-accepted deferral recorded in the run guide.
+Initial cross-client silent-enrollment binding remains an explicit residual exposure; no browser storage or alternative login fallback is added.
 
 `discover`, `connections`, `connection`, `setupStatic`, `disconnect`, `beginAuthorization`, `authorization` and `cancelAuthorization` use canonical public schemas.
 Reconnect and disconnect require the connection's current expected authority generation.

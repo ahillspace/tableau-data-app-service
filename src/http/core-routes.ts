@@ -277,7 +277,13 @@ export function registerCoreRoutes(
             headers: control.headers,
             ...(body ? { body } : {}),
           });
-          await sendResponse(reply, response, "proxy", control.tunneledHead);
+          await sendResponse(
+            reply,
+            response,
+            "proxy",
+            control.tunneledHead,
+            services.connections.policy.stallTimeoutMs,
+          );
           return reply;
         } catch (error) {
           await scope.dispose(error);
@@ -352,7 +358,13 @@ export function registerCoreRoutes(
             throw new ServiceError(500, "invalid-output", "Capability output is invalid");
           response = result;
         }
-        await sendResponse(reply, response, "capability");
+        await sendResponse(
+          reply,
+          response,
+          "capability",
+          false,
+          services.connections.policy.stallTimeoutMs,
+        );
         return reply;
       } catch (error) {
         await scope.dispose(error);

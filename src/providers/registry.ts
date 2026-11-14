@@ -1,6 +1,6 @@
 import type { AuthorizationServer } from "oauth4webapi";
 import type { z } from "zod";
-import type { ProviderContext } from "../core-ports.js";
+import type { CredentialSnapshot, ProviderContext } from "../core-ports.js";
 import { ServiceError } from "../http/errors.js";
 import type { CapabilityRef } from "../public/schemas.js";
 
@@ -19,6 +19,19 @@ export type Endpoint = {
   tlsCa?: string;
   resolveBase?: (context: Readonly<Record<string, unknown>>) => string;
   blockedPaths?: readonly string[];
+  derived?: {
+    audience: string;
+    derive(
+      base: CredentialSnapshot,
+      context: {
+        signal: AbortSignal;
+        request(
+          url: string,
+          init: { method: string; headers?: Headers; body?: string },
+        ): Promise<Response>;
+      },
+    ): Promise<{ headers: Headers; audience: string; expiresAt: Date }>;
+  };
 };
 export type HttpCapability = {
   ref: CapabilityRef;

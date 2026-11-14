@@ -35,7 +35,11 @@ export type ConnectionUse = Readonly<{
   authorityGeneration: number;
 }>;
 export type CredentialSnapshot = Readonly<
-  BundleRevision & { credentials: unknown; runtimeContext: Readonly<Record<string, unknown>> }
+  BundleRevision & {
+    credentials: unknown;
+    runtimeContext: Readonly<Record<string, unknown>>;
+    expiresAt?: Date | null;
+  }
 >;
 export type NativeRequest = {
   endpoint: string;

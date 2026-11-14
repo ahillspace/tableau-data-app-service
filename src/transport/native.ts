@@ -116,6 +116,7 @@ export class TransportScope {
   readonly signal: AbortSignal;
   readonly #dispatchers = new Set<Agent>();
   readonly #bodies = new Set<Readable>();
+  readonly #uploads = new Set<Readable>();
   readonly #operations = new Set<Promise<unknown>>();
   readonly #releases = new Map<Agent, () => void>();
   #disposed = false;
@@ -139,13 +140,16 @@ export class TransportScope {
     const hostname = url.hostname.replace(/^\[|\]$/g, "");
     const addresses = isIP(hostname)
       ? [{ address: hostname, family: isIP(hostname) }]
-      : await lookup(hostname, { all: true });
+      : await lookup(hostname, { all: true }).catch(() => {
+          throw new ServiceError(502, "dns-failed", "Provider destination unavailable");
+        });
     if (!addresses.length || addresses.some(({ address }) => !allowedAddress(address, endpoint)))
       throw new ServiceError(403, "destination-denied", "Provider recipient is denied");
     const address = addresses[0];
     if (!address) throw new ServiceError(502, "dns-failed", "Provider destination unavailable");
     this.signal.throwIfAborted();
     const release = this.budget.acquire();
+    let body: Readable | string | Buffer | undefined;
     const connector = buildConnector({
       timeout: this.policy.connectTimeoutMs,
       rejectUnauthorized: true,
@@ -174,57 +178,91 @@ export class TransportScope {
             callback(new Error("Recipient changed at socket connection"), null);
             return;
           }
+          // Undici owns response/header timers. This separate progress check
+          // covers an upload producer or peer that stops making write progress.
+          if (native.body !== undefined) {
+            let written = socket.bytesWritten,
+              progress = performance.now();
+            const timer = setInterval(
+              () => {
+                const now = performance.now();
+                const pending =
+                  (body instanceof Readable && !body.readableEnded && !body.destroyed) ||
+                  socket.writableLength > 0;
+                if (!pending || socket.bytesWritten !== written) {
+                  progress = now;
+                  written = socket.bytesWritten;
+                }
+                if (pending && now - progress >= this.policy.stallTimeoutMs) {
+                  const error = Object.assign(new Error("Provider upload stalled"), {
+                    code: "UPLOAD_TIMEOUT",
+                  });
+                  socket.destroy(error);
+                  if (body instanceof Readable) body.destroy(error);
+                }
+              },
+              Math.max(1, Math.min(1000, Math.floor(this.policy.stallTimeoutMs / 4))),
+            );
+            timer.unref();
+            socket.once("close", () => clearInterval(timer));
+          }
           callback(null, socket);
         });
       },
     });
     this.#dispatchers.add(dispatcher);
     this.#releases.set(dispatcher, release);
-    const headers = new Headers();
-    for (const [name, value] of native.headers ?? []) {
-      if (!allowedNativeHeader(name) || entrusted.has(name))
-        throw new ServiceError(400, "protected-header", "Caller header is protected");
-      headers.append(name, value);
-    }
-    for (const [name, value] of entrusted) {
-      if (isReserved(name)) throw new Error("Provider attempted to set a control header");
-      headers.set(name, value);
-    }
-    let body: Readable | string | Buffer | undefined;
-    if (native.body instanceof ReadableStream)
-      body = Readable.fromWeb(native.body as import("node:stream/web").ReadableStream<Uint8Array>);
-    else if (native.body !== undefined)
-      body = typeof native.body === "string" ? native.body : Buffer.from(native.body);
-    if (body !== undefined && this.policy.uploadLimitBytes !== undefined) {
-      const limit = this.policy.uploadLimitBytes;
-      if (typeof body === "string" || Buffer.isBuffer(body)) {
-        if (Buffer.byteLength(body) > limit)
-          throw new ServiceError(413, "upload-limit", "Configured upload limit exceeded");
-      } else {
-        let size = 0;
-        const limiter = new Transform({
-          transform(chunk: Buffer, _encoding, done) {
-            size += chunk.length;
-            done(
-              size > limit
-                ? new ServiceError(413, "upload-limit", "Configured upload limit exceeded")
-                : null,
-              chunk,
-            );
-          },
-        });
-        const original = body;
-        const piping = pipeline(original, limiter, { signal: this.signal }).catch(
-          (error: unknown) => {
-            limiter.destroy(error instanceof Error ? error : new Error("Upload failed"));
-          },
-        );
-        this.#operations.add(piping);
-        void piping.finally(() => this.#operations.delete(piping));
-        body = limiter;
-      }
-    }
     try {
+      const headers = new Headers();
+      for (const [name, value] of native.headers ?? []) {
+        if (!allowedNativeHeader(name) || entrusted.has(name))
+          throw new ServiceError(400, "protected-header", "Caller header is protected");
+        headers.append(name, value);
+      }
+      for (const [name, value] of entrusted) {
+        if (isReserved(name)) throw new Error("Provider attempted to set a control header");
+        headers.set(name, value);
+      }
+      if (native.body instanceof ReadableStream)
+        body = Readable.fromWeb(
+          native.body as import("node:stream/web").ReadableStream<Uint8Array>,
+        );
+      else if (native.body !== undefined)
+        body = typeof native.body === "string" ? native.body : Buffer.from(native.body);
+      if (body instanceof Readable) {
+        const upload = body;
+        this.#uploads.add(upload);
+        upload.once("close", () => this.#uploads.delete(upload));
+      }
+      if (body !== undefined && this.policy.uploadLimitBytes !== undefined) {
+        const limit = this.policy.uploadLimitBytes;
+        if (typeof body === "string" || Buffer.isBuffer(body)) {
+          if (Buffer.byteLength(body) > limit)
+            throw new ServiceError(413, "upload-limit", "Configured upload limit exceeded");
+        } else {
+          let size = 0;
+          const limiter = new Transform({
+            transform(chunk: Buffer, _encoding, done) {
+              size += chunk.length;
+              done(
+                size > limit
+                  ? new ServiceError(413, "upload-limit", "Configured upload limit exceeded")
+                  : null,
+                chunk,
+              );
+            },
+          });
+          const original = body;
+          const piping = pipeline(original, limiter, { signal: this.signal }).catch(
+            (error: unknown) => {
+              limiter.destroy(error instanceof Error ? error : new Error("Upload failed"));
+            },
+          );
+          this.#operations.add(piping);
+          void piping.finally(() => this.#operations.delete(piping));
+          body = limiter;
+        }
+      }
       const result = await sendRequest(url, {
         method: native.method,
         dispatcher,
@@ -291,6 +329,7 @@ export class TransportScope {
       providerResponses.add(response);
       return response;
     } catch (error) {
+      if (body instanceof Readable) body.destroy();
       this.#dispatchers.delete(dispatcher);
       await dispatcher.destroy();
       this.#releases.get(dispatcher)?.();
@@ -314,11 +353,13 @@ export class TransportScope {
     this.#disposed = true;
     this.#abort.abort(reason);
     for (const body of this.#bodies) body.destroy();
+    for (const upload of this.#uploads) upload.destroy();
     await Promise.all([...this.#dispatchers].map((dispatcher) => dispatcher.destroy()));
     await Promise.allSettled(this.#operations);
     for (const release of this.#releases.values()) release();
     this.#releases.clear();
     this.#bodies.clear();
+    this.#uploads.clear();
     this.#dispatchers.clear();
   }
 }

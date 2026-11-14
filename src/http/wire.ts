@@ -84,6 +84,7 @@ export async function sendResponse(
   response: Response,
   route: "proxy" | "capability",
   tunneledHead = false,
+  stallTimeoutMs?: number,
 ): Promise<void> {
   const origin = responseOrigin(response);
   if (route === "proxy" && origin !== "provider")
@@ -158,6 +159,31 @@ export async function sendResponse(
   } else {
     reply.status(response.status);
     for (const [name, value] of pairs) reply.header(name, value);
+  }
+  if (stallTimeoutMs !== undefined && response.body) {
+    const socket = reply.raw.socket;
+    let written = socket?.bytesWritten ?? 0,
+      progress = performance.now();
+    const timer = setInterval(
+      () => {
+        const now = performance.now();
+        const current = socket?.bytesWritten ?? written;
+        const pending =
+          reply.raw.writableNeedDrain ||
+          (socket?.writableNeedDrain ?? false) ||
+          reply.raw.writableLength > 0;
+        if (!pending || current !== written) {
+          written = current;
+          progress = now;
+        }
+        if (pending && now - progress >= stallTimeoutMs)
+          reply.raw.destroy(new Error("Downstream write stalled"));
+      },
+      Math.max(1, Math.min(1000, Math.floor(stallTimeoutMs / 4))),
+    );
+    timer.unref();
+    reply.raw.once("close", () => clearInterval(timer));
+    reply.raw.once("finish", () => clearInterval(timer));
   }
   reply.send(
     response.body
