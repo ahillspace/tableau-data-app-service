@@ -159,9 +159,10 @@ Provider-wide sources retain their separate setup owner and do not follow browse
 
 ## Competing credential mutations
 
-Credentials owns one durable mutation reservation per existing connection, shared by setup/reauthorization, static import and renewal across all API/worker replicas.
+Credentials owns the single bundle writer and mutation arbitration across setup/reauthorization, static import and renewal on all API/worker replicas.
+Strictly local imports use the short publication transaction below; operations with provider interaction retain one durable mutation reservation per existing connection.
 Connections owns the user-facing setup transaction and calls this same arbitration boundary; a per-transaction callback claim alone never authorizes bundle replacement.
-At existing-connection setup/import begin, atomically check current owner/operator authority and the caller's expected authority generation, capture the server's exact `(authorityGeneration, credentialGeneration)` bundle revision, and reserve the connection for that logical operation.
+At existing-connection setup/import begin that requires provider interaction, atomically check current owner/operator authority and the caller's expected authority generation, capture the server's exact `(authorityGeneration, credentialGeneration)` bundle revision, and reserve the connection for that logical operation.
 A second setup/import receives 409 `credential-mutation-in-progress` before any provider launch/exchange; a renewal contender waits only within its operation deadline, releasing database connections between waits, then rereads or reports unavailable.
 A setup racing an already reserved renewal gets the same conflict and may be explicitly begun again after the operation settles; no hidden setup queue, automatic consent retry or revision rebasing exists.
 The reservation is a correctness boundary, not a usage quota or a database lock held during consent.
@@ -171,7 +172,7 @@ Prefer connection-owned fields for an existing connection; setup keeps browser/p
 A new-connection setup uses the same representation attached to the setup transaction until first publication; it does not need an existing-connection exclusion lock.
 Setup reservations expire no later than the setup transaction; renewal uses its bounded operation lifetime.
 A passive browser wait retains this bounded logical reservation without holding a database connection or occupying a worker execution slot.
-Each active launch/exchange/import-validation/discovery step uses a random processor token, process incarnation and lease, with the reservation/attempt expiry also checked using fresh database wall time after locks.
+Each active launch/exchange/remote-import-validation/discovery step uses a random processor token, process incarnation and lease, with the reservation/attempt expiry also checked using fresh database wall time after locks.
 An explicit transition to waiting for a browser callback releases that processor claim while retaining the same reservation; another API can continue the verified protocol transaction with a fresh claimant.
 Lease expiry is not such a handoff and cannot authorize replay or resumption of an uncertain external step.
 
@@ -180,10 +181,16 @@ Possible invalidation is cumulative for the reservation: later read-only discove
 The provider declaration must identify the earliest potentially invalidating step, including authorization launch if applicable; unknown invalidation behavior is treated as possibly invalidating.
 Once such a step is dispatched, deny new checkout of the expected bundle until an eligible complete bundle is published or documented evidence proves it remains usable.
 Earlier released snapshots cannot be recalled; ordinary read-only discovery and local encryption remain outside database locks and do not create a second mutation owner.
-For a local-only static import there is no external-dispatch uncertainty, but validation/publication still uses the same reservation and exact revision fence.
+For a strictly local import, authorize, check the caller's expected authority generation for replacement and capture the server-owned expected bundle pair, then validate and encrypt the complete candidate outside locks without a persistent reservation, processor claim, lease or recovery phase.
+The existing Credentials writer then uses one short ordered transaction to recheck current initiating session/owner or operator authority, provider/connection authority, fixed expiries, the exact expected authority/credential generations and absence of a competing reservation or uncertainty barrier under the connection lock.
+Publish the complete credentials/context/metadata bundle, next credential generation and applicable deliberate-reauth/account-continuity changes atomically, returning the committed safe state.
+A changed pair returns an explicit stale-mutation conflict; a competing reservation returns `credential-mutation-in-progress`, without rebasing or replaying the candidate.
+A crash before commit leaves the old bundle unchanged; a crash after commit leaves the complete new bundle with no abandoned local processor to recover, and a lost response never causes automatic reimport.
+First local import creates its connection and complete bundle atomically under current authority without an existing-connection reservation.
+Only entirely local preparation qualifies; provider validation/discovery uses the durable arbitration path even when its documented remote step cannot invalidate credentials.
 If static validation or setup can mutate remote credentials, it follows the same dispatch rule as OAuth/renewal.
 
-Only the current mutation owner and live processor may atomically publish credentials, required context, safe metadata and setup/renewal completion.
+For the durable reservation path, only the current mutation owner and live processor may atomically publish credentials, required context, safe metadata and setup/renewal completion.
 The final predicate includes mutation ID, expected bundle pair, operation/attempt state and expiry, processor token/incarnation/live lease, current provider/connection authority and required discovery success.
 Setup/import additionally requires its initiating live session/owner or operator authority; renewal uses the applicable ConnectionUse and operation claim, preserving the already-started job exception to ordinary session/connector freshness expiry.
 Compare the current stored pair to the immutable expected pair before assigning the next credential generation; never substitute the newest revision into an older attempt.
@@ -212,7 +219,7 @@ No generic business receipt, global lock or additional queue is introduced.
 Begin from the current owner/operator authority, provider registration, declared inputs and explicit optional replacement intent plus expected authority generation.
 Input cannot choose an owner, client secret, arbitrary token/callback endpoint or shared identity.
 Use the shared handoff and maintained protocol implementation, preserving initiating session/owner, app attribution, expiry, protected state/verifier, grant request and replacement generation.
-For an existing connection, setup/import stores the mutation reference captured by [Credentials arbitration](#competing-credential-mutations); the exact expected pair and processor authority remain owned once there, never supplied by browser JSON or rebased.
+For an existing connection requiring provider interaction, setup/import stores the mutation reference captured by [Credentials arbitration](#competing-credential-mutations); the exact expected pair and processor authority remain owned once there, never supplied by browser JSON or rebased.
 Ordinary access renewal keeps the same session and valid attempt; true session revocation/expiry or attempt expiry ends it, and a new login cannot revive a terminal attempt.
 The verified callback consumes protocol correlation and claims the shared mutation processor in the same transition, without a second setup lease.
 One conditional callback claim changes `pending` to `exchanging` before exchange; only its live claimant can publish `succeeded`, also requiring the current mutation reservation and matching expected bundle for an existing connection.
@@ -245,7 +252,7 @@ A known endpoint that retrieves this service's actual entrusted authenticator re
 
 ## Refresh coordination and interruption
 
-Credentials coordinates renewal through the same [per-connection mutation reservation](#competing-credential-mutations) as existing-connection setup/import across all API/worker replicas.
+Credentials coordinates renewal through the same [per-connection mutation reservation](#competing-credential-mutations) as provider-interacting existing-connection setup/import across all API/worker replicas; strictly local import competes only at atomic publication.
 No Redis lock or in-process mutex supplies authority.
 Renewal uses that mutation's processor token, incarnation, expected pair, expiry, lease and `claimed` or `may-have-dispatched` phase rather than another renewal record.
 Claim under ordered connection/mutation locks only when the shared owner is free, after rereading the current bundle; another setup or renewal may already have replaced it.

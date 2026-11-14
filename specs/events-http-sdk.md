@@ -10,6 +10,7 @@ Enable events explicitly per deployment; disabled mode constructs no Redis clien
 A provider declares source identity, signature/challenge/replay verification, native payload interpretation and manual, Data App or service setup ownership.
 Preserve bounded exact raw bytes/headers where verification requires them; reject unsupported verification rather than accept unsigned payloads by default.
 Payload app/owner/source locators are untrusted until mapped through verified source evidence and current stored associations.
+At ingress, evaluate the declared provider event-validity rules with current time independently of maintenance state, including applicable signature/replay deadlines and source validity only where provider semantics make it a condition of accepting that event.
 Personal events follow owner equality in verified deployment/site scope; shared sources use explicit current verified-site/user audiences.
 App IDs can filter attribution but never authorize another owner or broaden an audience.
 
@@ -95,8 +96,12 @@ Expired/obsolete queued events are discarded, with safe loss counters.
 
 ### Current delivery and backpressure
 
-On receipt, check source active state/revision and current personal/shared routing before enqueue to each local stream.
-Immediately before beginning each logical SSE event, recheck current session, fixed authentication expiry, enabled verified site and personal/shared audience plus source revision or job disclosure.
+On receipt, check current source routing eligibility/revision and personal/shared routing before enqueue to each local stream.
+Routing eligibility requires verified setup and a non-retired association; `configured` alone is insufficient, and attention-required routing is allowed only while its verified association and provider event-validity rules remain valid.
+At enqueue and logical delivery, re-evaluate applicable time-based validity independently of stored maintenance/health state, using the provider rule for the event and the service envelope age bound.
+A renewal deadline or subscription expiry is not a universal event cutoff: a signed delayed event may remain valid if the provider permits it, while a deadline that actually invalidates that event denies it even if maintenance still records active.
+Providers without such a deadline acquire none, and expiry of the service envelope always discards the queued event.
+Immediately before beginning each logical SSE event, recheck current session, fixed authentication expiry, enabled verified site and personal/shared audience plus source routing eligibility/revision and applicable event-validity times, or job disclosure.
 Use current authoritative Postgres reads, batching immediately deliverable recipients without waiting for slow clients.
 Enqueue and logical delivery may share that read only with no intervening wait/async boundary; queued delivery needs a fresh check.
 A cache invalidated only by lossy Redis messages cannot authorize stale delivery.
@@ -167,18 +172,23 @@ No file-wide conversion or server body accumulation is needed to select the carr
 ## Native response carrier
 
 M05 disables automatic upstream redirect following.
-M08 uses a 200 HTTP carrier for every provider status from 300 through 399 and for every response to a tunneled HEAD request; other supported final responses retain their native service-wire status.
+M08 uses the same 200 HTTP carrier for every supported Response status from 300 through 399 on A18/A39 and for every response to an A18 tunneled HEAD request; other supported final responses retain their native service-wire status.
+A18 admits only provider-origin carriers; A39 also admits service-origin carriers for handler-constructed Responses or transformed provider output.
+Only unchanged M05 transport pass-through retains provider-origin; M08 derives provenance from trusted transport identity and the chosen route, never from response contents or handler/upstream headers.
 This also carries a bodyless 304 without confusing it with an instruction to follow a redirect.
 The reserved `X-Integration-Response-Metadata` control contains base64url UTF-8 JSON `{version: 1, status, headers}`, where `headers` is the filtered native name/value pair list.
-M08 alone sets this control and `X-Integration-Origin: provider`, and explicitly exposes both through CORS.
+M08 alone sets this control and `X-Integration-Origin: provider` or the permitted A39 `service` origin, and explicitly exposes both through CORS.
 The metadata contains only the supported final status and safe native headers after secrecy/transport filtering and private-response policy; no body, credential or arbitrary destination authority is embedded.
 M10 validates its version, shape, bounds and status against the originating request, then constructs a Response with that status, filtered headers and the carrier body stream.
-The metadata cannot supply reserved control fields; M10 adds `X-Integration-Origin: provider` from the validated physical carrier and consumes the metadata control rather than exposing it as a native provider field.
+The metadata cannot supply reserved control fields; M10 adds the route-validated physical origin and consumes the metadata control rather than exposing it as a native response field.
 Supported final statuses are 200-599, with null bodies for HEAD and bodyless statuses; informational responses are not final SDK Responses and protocol upgrades are unsupported.
-A metadata carrier is valid only with physical status 200 and origin provider, and its status must be 300-399 unless the original request used the HEAD carrier.
+A metadata carrier is valid only with physical status 200 and an origin permitted for the originating route: provider for A18, provider or service for A39.
+Its status must be 300-399 unless the original A18 request used the HEAD carrier; ordinary service errors and handler-streamed 200 Responses are direct responses, not metadata carriers.
+Both origins share null-body/status validation, bounded metadata, physical encoding, filtering, backpressure and failure handling; malformed handler Responses fail safely before commitment and late stream failures terminate without appended JSON or replay.
 Invalid metadata is a protocol failure, cancels/releases the carrier body and rejects without replay.
 
-For a body-bearing carrier, send the same raw encoded representation as the ordinary proxy, with the actual Content-Encoding and valid Content-Length on the physical carrier when known.
+For a body-bearing carrier, send the actual selected representation with Content-Encoding and valid Content-Length on the physical carrier when known, preserving unchanged provider bytes as in the ordinary proxy.
+Constructed/transformed output must update or remove stale representation headers to match its actual bytes before the shared carrier/framing checks.
 The browser performs its normal content decoding once; M10 passes the resulting stream directly to the Response constructor and never decodes it again based on the metadata's Content-Encoding.
 Native Content-Encoding/Content-Length in the reconstructed headers describe the transferred representation, as they can on an ordinary Fetch response, rather than promising the size of browser-exposed decoded bytes.
 Do not put original encoding only in metadata while sending encoded bytes without a physical Content-Encoding; that would expose compressed bytes as ordinary native content.
@@ -189,7 +199,7 @@ Metadata is bounded before commitment, while body forwarding remains incremental
 
 The synthetic Response has an empty `url`, `type: "default"`, `redirected: false` and empty `statusText`; applications inspect native status/headers/body rather than infer a provider fetch history from those properties.
 The SDK uses browser `redirect: "error"` for the service request so an unexpected front-door redirect fails without following a bearer-bearing request or returning an opaque success.
-Provider redirects are observable HTTP responses under this carrier contract, not SDK rejections or automatic retries.
+Provider redirects and A39 handler-built redirects are observable HTTP responses under this carrier contract, not SDK rejections or automatic retries.
 Safe Location disclosure is independent of authorization to follow it; future controlled server following uses the distinct M05 extension contract.
 
 
@@ -206,9 +216,10 @@ Response accounting includes raw upstream parser limits, filtered metadata, enco
 Header compression does not enlarge the supported decoded header list.
 Bound encoded input before decoding and allocations, and reject oversize upstream metadata before downstream commitment while closing its resources.
 
-Reserve every `X-Integration-*` control case-insensitively, reject duplicates/malformed versions and strip provider spoofing before generating adapter controls.
-Control fields never reach the provider; neither caller headers nor provider metadata can alter service identity/method/origin rules.
+Reserve every `X-Integration-*` control case-insensitively, reject duplicates/malformed versions and strip provider/handler spoofing before generating adapter controls.
+Control fields never reach the provider; caller headers, handler headers and provider metadata cannot alter service identity/method/origin rules.
 Known invalid SDK input fails before dispatch; service handlers use 400 for malformed controls, 431 for request-header excess and 502 for invalid/oversize upstream headers.
+Invalid/oversize handler-constructed output fails with the safe service 500 contract before commitment; dispose its body, and never reinterpret it as provider-origin failure or replay the handler.
 Never truncate or silently drop useful native headers to fit a profile.
 Early parser/ingress rejection may yield unmarked HTTP or connection failure rather than service JSON, and does not prove no provider effect.
 Verify the full path in both directions.
@@ -224,6 +235,8 @@ A missing HTTP entrypoint fails explicitly; neither a slow call nor a large resp
 The developer explicitly chooses `submitJob` only for a registered durable entrypoint and its retained outcome contract.
 Page-local cleanup is separate from server signout, which is not a product surface.
 The SDK returns native Responses/streams without default whole-body parsing or endpoint wrappers.
+A39 service origin does not imply a JSON error: `invoke` returns supported handler Responses at headers, including 3xx carriers, streamed 200 and HTTP error statuses, without parsing/rejecting the body merely because of origin.
+Only actual service-generated errors use the service error schema; neither provenance nor an HTTP failure implies safe replay.
 Whole-body `json()`, `text()` or `blob()` is an explicit app choice, not a large-media workaround supplied by the service.
 
 Generate a new bounded opaque key only for a new logical job; retain the exact command/key for explicit lost-admission recovery.
@@ -238,7 +251,8 @@ Data Apps own returned data and deliberate cross-provider behavior; no external 
 
 Events persists source ID, provider registration, setup owner, verified account routing, optional connection/authority generation, source revision, state and any provider expiry/renew-after time.
 Store personal owner/site or explicit operator setup authority, independently of app attribution and browser streams.
-States are `configured`, `active`, `attention-required` and `retired`; verified setup/routing is required before active delivery.
+States are `configured`, `active`, `attention-required` and `retired`; verified setup/routing is required before delivery.
+Provider declarations distinguish renewal/health deadlines from deadlines that invalidate ingress or delivery of a particular event, including the treatment of signed delayed events; do not infer one meaning from the other.
 Manual/Data App-owned setup has no automatic lifecycle hooks unless the provider specifically requires them.
 Native setup calls alone cannot publish service audience associations.
 
@@ -250,6 +264,8 @@ No blind duplicate recreation, universal subscription engine or separate schedul
 
 Retirement atomically disables local routing and advances source revision before any best-effort remote cleanup; stale callbacks/hook results cannot restore it.
 Disconnect/account replacement retires only its bound sources; provider-wide sources follow their own owner.
-Source expiry/attention cannot report healthy delivery, and current source revision is checked again at logical browser delivery.
+An overdue renewal or expired subscription cannot report healthy ongoing source operation, even before maintenance updates its stored state.
+That health report alone does not invalidate an otherwise valid signed delayed event; current source revision/routing and the provider-specific event-validity rules are checked at ingress, enqueue and logical delivery as applicable.
+A retired/replaced association still denies delivery, and source time checks never authorize automatic create/renew replay.
 No revoked secret is retained for later cleanup.
 Future stronger delivery or isolation needs a justified extension; these contracts promise bounded lossy live distribution only.

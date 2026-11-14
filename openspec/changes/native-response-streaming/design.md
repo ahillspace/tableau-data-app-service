@@ -17,6 +17,9 @@ Use the shared automatic request carrier for supplied GET/HEAD bodies and physic
 The [response carrier](../../../specs/events-http-sdk.md#native-response-carrier) owns null-body framing, physical compression, single browser decode and synthetic Response properties.
 The [header profile](../../../specs/events-http-sdk.md#header-budgets-and-control-integrity) owns derived encoded/physical bounds, known-input SDK checks and authoritative runtime enforcement.
 Browser manual redirect opacity is handled by that explicit contract, not guessed direct inspection.
+M08 assigns service origin to A39 handler-built/transformed Responses and preserves provider origin only for unchanged M05 pass-through; A18 carriers remain provider-only.
+A39 uses the same carrier for supported 3xx, including null-body 304, while streamed 200 stays direct; reserved controls cannot be supplied by handlers/providers and unexpected front-door redirects still fail.
+Use the shared V05/V14 behavioral evidence for origin, framing, spoofing and failure cases rather than duplicate tests for each reference.
 
 There is no arbitrary total response-size cap.
 Measure actual encoded upstream body bytes for diagnostics and justified provider-specific constraints, with partial 206 bytes and zero for HEAD/bodyless responses.

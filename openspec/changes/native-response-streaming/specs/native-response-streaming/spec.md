@@ -41,6 +41,16 @@ The service SHALL preserve encoded bytes and matching safe metadata under the sh
 - **WHEN** a provider returns 3xx or responds to a tunneled HEAD
 - **THEN** the explicit physical 200 carrier exposes native status/safe headers with incremental or null body, no automatic follow and no second browser decoding pass.
 
+#### Scenario: Ordinary handler response provenance
+
+- **WHEN** an A39 handler constructs a 302, bodyless 304 or streamed 200, or transforms provider output
+- **THEN** M08 assigns service origin, uses the shared physical 200 carrier for 3xx with incremental/null bodies and sends streamed 200 directly, with the SDK resolving Response at headers rather than treating service origin as a JSON-error instruction.
+- **WHEN** A39 returns an unchanged M05 provider 302
+- **THEN** trusted transport provenance remains provider-origin through the same carrier.
+- **THEN** A18 continues rejecting service-origin carriers, handler/upstream controls cannot spoof origin/metadata, unexpected front-door redirects fail, and both origins share encoding/budget/null-body/precommit/late-failure rules.
+
+Reuse the V05/V14 journey for these assertions, with no duplicate scenario-count requirement.
+
 #### Scenario: Oversized header control
 
 - **WHEN** known input or actual parser/ingress metadata exceeds the one supported profile

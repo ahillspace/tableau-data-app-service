@@ -101,7 +101,8 @@ type SitePatch = { enabled: boolean };
 Use the single [JobSubmission/JobView](../specs/contracts.md#managed-capabilities-and-jobs) schema, without duplicate public aliases.
 Credential generation, secret references, callback verifier material and private routing/task context are not exported merely because they exist internally.
 Static input is never echoed; setup response is a safe ConnectionView.
-For existing-connection AuthorizationBegin/StaticConnectionInput, the server checks expected authority generation and atomically captures current credential generation into its mutation reservation before accepting provider work.
+For existing-connection AuthorizationBegin/StaticConnectionInput requiring provider work, the server checks expected authority generation and atomically captures current credential generation into its mutation reservation before accepting provider work.
+Strictly local StaticConnectionInput instead checks the caller's expected authority generation and captures the server-owned expected pair, prepares/encrypts outside locks and uses one short writer transaction checking current authority/fixed expiry, unchanged pair and no competing reservation or uncertainty barrier before atomic publication; stale/conflicting candidates are not rebased or replayed.
 The client does not choose or receive the internal mutation ID or expected credential revision.
 Competing setup/import, including a reserved renewal, returns 409 `credential-mutation-in-progress`; the caller may explicitly begin again after settlement, never resume or rebase the rejected attempt.
 ConnectionView readyEndpoints excludes affected endpoints while potentially invalidating work or unresolved uncertainty blocks checkout; `renewal-uncertain` covers interrupted setup/import as well as renewal.
@@ -137,6 +138,9 @@ The SDK never wraps a native body in JSON/base64; neither input form creates a s
 A19 advertises HTTP/Job support; unsupported HTTP mode/version fails with 422 before invocation, and unknown registrations/resources remain absent/non-visible.
 A20 likewise rejects a definition without a Job entrypoint; neither endpoint falls back to the other.
 The response is declared JSON with 200 or a native Response using the existing carrier/status/header/error contract, not JobView or an execution envelope.
+M08 assigns service origin to constructed/transformed output and preserves provider origin only for unchanged M05 pass-through.
+A39 supports both origins in the shared 3xx carrier, including bodyless 304; A18 remains provider-only, ordinary streamed 200 stays direct, and unexpected front-door redirects or spoofed controls gain no authority.
+Null-body/framing checks, bounded metadata, precommit errors and late stream failure/disposal remain shared.
 `invoke` returns Response at headers, leaving body parsing to the app; client abort/body failure/unknown remote outcome follow ordinary request semantics.
 No capability-specific permissions, persisted command comparison, retries or retained-result endpoint exists on this path.
 A18/A39 share the [read-only authorization projection](../specs/persistence-operations.md#ordinary-request-snapshots); later helper operations recheck current authority without changing the original connection.

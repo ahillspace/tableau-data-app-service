@@ -13,7 +13,7 @@ Use the owning contracts and [V05](../../../verification.md#v05---native-http-fi
 ## 2. Preserve native wire behavior
 
 - [ ] 2.1 Integrate generic GET/HEAD-body POST selection, FormData boundary behavior and native upstream method/body without endpoint opt-in.
-- [ ] 2.2 Implement inspectable no-follow 3xx/tunneled-HEAD response carriers, correct physical encoding/null-body framing and one browser decoding pass.
+- [ ] 2.2 Implement the shared inspectable no-follow 3xx/tunneled-HEAD carrier with adapter-owned provenance: A18 provider-only, A39 also service-origin for constructed/transformed Responses; preserve correct physical encoding/null-body framing and one browser decoding pass.
 - [ ] 2.3 Use one shared codec/header profile with derived JSON/base64url/physical budgets, reserved control protection and honest early parser/ingress errors.
 - [ ] 2.4 Verify native status/errors/pagination/ranges/validators, intentionally returned new credentials and narrow known entrusted-secret retrieval handling.
 
@@ -22,4 +22,5 @@ Use the owning contracts and [V05](../../../verification.md#v05---native-http-fi
 - [ ] 3.1 Run generated large/long native responses, uploads and provider HTTP streams with fast/slow/concurrent readers; record memory/time-to-first-byte/cleanup and absence of Job/body persistence without giant committed fixtures.
 - [ ] 3.2 Test socket-time DNS/TLS/recipient enforcement including explicit private providers and denied metadata/control redirection.
 - [ ] 3.3 Run actual Cloud/Server media/download/range and carrier journeys through selected ingress with realistic headers, compression, late failures and disconnects.
+- [ ] 3.3a Reuse V05/V14 evidence for handler-built 302/bodyless 304, direct streamed 200, unchanged provider 302, control spoofing and front-door redirects, including precommit/late failure cleanup without replay.
 - [ ] 3.4 Record relevant build/type/lint/browser/provider evidence and unresolved support limits; archive only after implementation and review, never from document convergence alone.

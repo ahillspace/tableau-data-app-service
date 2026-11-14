@@ -107,7 +107,8 @@ Native file/multipart/stream bodies use the same backpressure, framing, upload l
 JSON arguments are function input rather than a persisted Job command, and A18 remains available directly without a reusable handler.
 A capability returns either declared validated JSON or a native HTTP Response, including an incremental body, according to its static response contract.
 JSON returns 200 with its declared media type; native Responses use the same status/header/no-follow carrier and late-failure rules as A18.
-M08 marks handler-constructed JSON as service-origin and genuine native pass-through as provider-origin using transport metadata, never a spoofable handler/upstream control header.
+M08 marks handler-constructed JSON/Responses and transformed provider output as service-origin; only an unchanged M05 transport Response preserves provider-origin through trusted transport metadata.
+The same carrier supports service-origin Responses on A39 only; A18 carrier provenance remains provider-only, and neither handler nor upstream headers can set adapter controls.
 There is no JobView, submission key, saved result, progress record, retention clock, callback binding or durable cancellation API on this path.
 Job JSON caps and execution/retention limits do not govern ordinary inputs/outputs; measured parser/CPU/byte budgets still apply before allocation, with actual limitations exposed honestly.
 Entrusted-secret custody remains identical for all paths, and useful native data or intentionally returned provider-created credentials are not artificially removed from capabilities.
@@ -157,7 +158,8 @@ References to enabled Job admission mean those configured entrypoints, not a new
 Core session/handoff/mutation recovery remains necessary without either optional subsystem.
 Bound scan rows/time, use stable due-time/submission/ID ordering and pagination, and release database connections between batches.
 Use an earliest-due timer plus a configured maximum scan interval, startup/reconnect catch-up and local capacity-release wakeups.
-Optional lossy postcommit Redis job-ID hints can shorten latency but never replace scans; producer death after commit cannot strand work.
+Workers do not subscribe to Redis queue-start or scheduler wakeups; Postgres scans/timers plus startup/reconnect/capacity-release wakeups discover committed work even if its producer dies.
+Optional postcommit Redis job-ID hints notify browsers only and do not drive scheduling; choose the bounded scan interval from implementation measurements, with no fixed interval selected here.
 There is no NOTIFY transport or durable outbox.
 
 Candidates are unlocked ID/scope hints, not privately prefetched running jobs.
@@ -223,13 +225,14 @@ Running work receives cooperative abort; a legitimate eligible success can win i
 Waiting-provider cancellation stops local tracking as terminal `cancelled`; it does not await a provider cancel response or claim remote rollback.
 At/after the absolute execution deadline, nonterminal work settles failed/timeout; timeout does not set the explicit-user-request flag.
 The first eligible terminal transition wins, with immutable completion time/result/retention; late callbacks cannot revive it.
-A remote task ID returned while cancellation raced submission is retained under the original live claim before local cancellation is applied.
+Where a provider remote-cancel hook is supported, a remote task ID returned while cancellation raced submission is retained under the original live claim before local cancellation is applied.
 If cancellation/timeout terminalization already won, late task identity may be recorded only before the separately fixed cleanup deadline, using the retained original invocation token/incarnation and validated original provider/account binding.
 This conditional metadata write accepts an absent task identity or the identical existing identity, never replaces an attached task, extends a deadline, accepts a result or revives execution.
 Wrong/superseded invocation tokens and callbacks without the retained verified task/prebound correlation are rejected.
 Unverified or wrong-account IDs are rejected.
 
 Optional provider remote cancellation is a separate bounded cleanup attempt on the terminal job for a known original task, selected for explicit cancellation or timeout only where the integration supports it.
+Without that hook, no remote-cleanup claim, issued protocol or late-task-ID cleanup exception runs; local terminal cancellation still reports remote cancellation as unsupported.
 It has its own token/incarnation/lease and cleanup deadline, can survive execution deadline expiry, and can perform only cancellation of that recorded task.
 Before sending, take current authority/connection/job locks, require matching original account generation and permitted current credential use, and atomically set an irreversible `issuedAt` marker with the cleanup claim.
 No outbound call occurs before that marker; no uncertain issued cancellation is retried after crash/lease loss.
@@ -242,8 +245,10 @@ No revocation-triggered active-job cancellation, compensation engine or general 
 
 ### Managed attempt cleanup
 
-Transport owns common request/socket/body disposal; Jobs adds the worker attempt scope for execution, observation and cleanup.
-Events reuses the bounded worker scope for source hooks while retaining ownership of source state; it does not create a Job or saved result for each hook.
+M05 Transport owns common request/socket/body disposal; M09 runtime owns the small worker execution-lifetime helper for abort, bounded disposal and confirmed host termination.
+Jobs uses that helper for execution and supported observation/cleanup hooks while owning its own domain claims and transitions.
+Events uses the same helper for configured source hooks while retaining source claims/state; the helper is available without business Jobs, Job rows or saved results.
+Build it in the first slice that needs background execution, without a generic task framework or new service.
 Transport registers operations and response-body handles until consumed or closed.
 Return, throw, external waiting, claim loss, callback fencing, cancellation and deadline all enter bounded finally disposal.
 Abort outstanding transports and cancel/release unread bodies rather than draining them; no Response, stream, credential scope or background Promise may escape into a later attempt.

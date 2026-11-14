@@ -54,9 +54,15 @@ sequenceDiagram
   participant P as Provider
   participant DB as Postgres
   App->>API: Current owner and explicit setup/replacement
-  API->>DB: Single-use attempt and exact bundle mutation reservation
-  API->>P: Shared protocol and required discovery
-  API->>DB: Atomic credential/context publication
+  alt Strictly local import
+    API->>DB: Read current authority and expected bundle pair
+    API->>API: Validate and encrypt outside locks
+    API->>DB: One short authority/pair/no-reservation publication transaction
+  else Provider interaction
+    API->>DB: Single-use attempt and exact bundle mutation reservation
+    API->>P: Shared protocol and required discovery
+    API->>DB: Atomic credential/context publication
+  end
   API-->>App: Safe readiness
   API->>DB: Reserve same mutation boundary and mark may-have-dispatched
   API->>P: Bounded renewal/discovery
@@ -65,11 +71,11 @@ sequenceDiagram
 
 | Step | From -> to | Data carried | Authority / durable effect | Failure or unresolved detail |
 | --- | --- | --- | --- | --- |
-| 1 | Data App -> API | Declared input and expected-authority intent. | Current owner/operator; existing connection captures exact bundle pair and reserves shared mutation boundary. | Competing setup/import/renewal returns conflict before provider work; no app-use binding. |
-| 2 | Browser/API -> provider | Bound handoff or protected static import. | Supported protocol, original owner/session and finite attempt. | No fabricated OAuth for static secrets or copied-locator launch. |
-| 3 | Provider -> API | Correlated code/response. | Fresh live exchange processor under the same logical reservation and expected pair. | True session/attempt expiry ends it with scoped recovery; normal access renewal preserves binding. |
-| 4 | API -> provider | Exchange/validation and required context discovery. | Commit possible dispatch/invalidation before external work; approved recipient outside locks. | Earlier invalidation evidence persists through discovery/browser waits and blocks old-bundle checkout. |
-| 5 | API -> Postgres | Validated encrypted bundle and account evidence. | Live reservation/processor and exact expected pair; same-account reauth preserves authority generation and advances credential/reauth data. | No stale revision rebasing; unknown/new identity advances authority and cannot inherit old jobs. |
+| 1 | Data App -> API | Declared input and expected-authority intent. | Current owner/operator and exact bundle pair; reserve before provider interaction, while strictly local preparation takes no persistent claim. | Competing setup/import/renewal returns conflict before provider work; no app-use binding. |
+| 2 | Browser/API -> provider | Bound handoff or protected static input. | Provider protocol uses its finite attempt; strictly local input validates/encrypts outside locks. | No fabricated OAuth for static secrets or copied-locator launch. |
+| 3 | Provider -> API | Correlated code/response for provider-interacting setup only. | Fresh live exchange processor under the same logical reservation and expected pair. | True session/attempt expiry ends it with scoped recovery; normal access renewal preserves binding. |
+| 4 | API -> provider | Provider-interacting exchange/validation and required context discovery. | Commit possible dispatch/invalidation before external work; strictly local preparation skips this step. | Earlier invalidation evidence persists through discovery/browser waits and blocks old-bundle checkout. |
+| 5 | API -> Postgres | Validated encrypted bundle and account evidence. | Current authority/exact pair; local import also checks no competing reservation in this one transaction, while provider work requires its live reservation/processor. Same-account reauth preserves authority generation and advances credential/reauth data. | No stale revision rebasing; unknown/new identity advances authority and cannot inherit old jobs. |
 | 6 | API -> Data App | Safe status, account label and endpoint readiness. | Current owner/shared disclosure only. | No entrusted secret/context export; native new credentials are separate permitted data. |
 | 7 | API or worker -> Postgres | Need current usable bundle. | Renewal reserves the same per-connection boundary after rereading current bundle. | Release pool connection between bounded waits; setup/import may own the reservation or already have published. |
 | 8 | API or worker -> provider | Renewal after committed may-have-dispatched. | Live authority/claim and coherent snapshot. | Lease expiry is not proof that rotation did not happen. |
@@ -180,9 +186,9 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | 1 | Declared setup owner -> provider | Manual/app/service source setup. | Protected source association and only necessary claimed hooks. | Browser closure does not retire provider-wide source; uncertain mutation needs recovery/attention. |
 | 2 | Provider -> API | Bounded raw bytes/headers/challenge. | Supported signature/replay verification. | Payload IDs are locators, never audience authority. |
-| 3 | API -> Postgres | Verified source and revision. | Current configured personal/shared routing. | Retired/replaced association cannot be revived by payload or stale cache. |
+| 3 | API -> Postgres | Verified source and revision. | Current verified personal/shared routing and applicable provider event-validity times, independently of maintenance health. | Retired/replaced or actually invalid events deny; renewal-only expiry does not discard valid signed delayed events. |
 | 4 | API -> Redis -> every API | Versioned source/age envelope and encoded native payload. | One logical payload cap with computed overhead; one receive path even locally. | Offline/ambiguous publish is not retained/retried; unavailable forwarding fails honestly. |
-| 5 | API -> local Data App | Authorized logical SSE event. | One current read may cover immediate enqueue/release; queued delivery requires fresh source/session/site/owner/shared checks. | Independent queues/drop/stall handling; no recall of released bytes or mandatory dedupe. |
+| 5 | API -> local Data App | Authorized logical SSE event. | One current read may cover immediate enqueue/release; queued delivery requires fresh source/session/site/owner/shared and applicable provider-validity/age checks. | Independent queues/drop/stall handling; no recall of released bytes or mandatory dedupe. |
 | 6 | Data App -> API | Current authority on reconnect. | Re-subscribe for future events and resync-required; no archive. | Clear obsolete queues, bound age/skew, true denial stops recovery. |
 | 7 | Data App -> API -> provider | Explicit current-state fetch or retained Jobs read. | Ordinary current authority. | Some missed events cannot be reconstructed; no automatic business orchestration. |
 
@@ -248,5 +254,5 @@ sequenceDiagram
 | 3 | API -> Postgres | Session/site/registration/selection/audience and matching bundle. | Coherent read-only snapshot; zero writes for usable credentials, bound original account. | Revoke-before-snapshot denies; ordinary overlap may finish; refresh uses shared mutation only if needed. |
 | 4 | API -> provider | Request-scoped authenticated helper/native request. | Reuse first immediate snapshot; later provider operations require fresh current authority for the same connection. | No started-Job session-expiry exception, default-account substitution or automatic replay. |
 | 5 | Provider -> API | Native status/body or data for the declared JSON result. | Shared custody, native errors and bounded intermediate-body handling. | No mandatory result schema for native streams or artificial data-free capability rule. |
-| 6 | API -> Data App | Declared JSON or streamed HTTP Response. | Request scope owns body until consumed/closed; no saved-result disclosure transaction. | Late failure terminates body; no JobView/progress/result URL or implicit durable success. |
+| 6 | API -> Data App | Declared JSON or streamed HTTP Response. | M08 owns provenance: constructed/transformed output is service-origin, unchanged transport pass-through provider-origin; A39 permits either in the shared 3xx carrier. Request scope owns body until consumed/closed; no saved-result disclosure transaction. | Late failure terminates body; no JobView/progress/result URL or implicit durable success. |
 | 7 | Data App/API -> local transports | Abort, disconnect, failure or shutdown. | Dispose request resources; normal API drain/liveness, no Job lease or recovery scan. | Provider effects may be unknown; explicit durable execution would have needed A20 from the outset. |

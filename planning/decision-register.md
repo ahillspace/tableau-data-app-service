@@ -36,7 +36,8 @@ This is remaining engineering evidence, not a new approval UI or a request to re
 
 **Policy summary:** The Owned Postgres Jobs table serves explicitly selected durable work; ordinary capabilities use HTTP on the API with no saved input/result or separate permissions, while initial Job handlers share the worker and may interrupt siblings without replay.
 
-[Execution](../specs/providers-execution.md#scheduling-and-claims) owns bounded scans, earliest-due timers and optional lossy hints that cannot strand committed work.
+[Execution](../specs/providers-execution.md#scheduling-and-claims) owns bounded Postgres scans, earliest-due timers and startup/reconnect/capacity-release wakeups that cannot strand committed work; no Redis scheduler subscription is included.
+Optional Redis Job hints serve browser notifications only.
 [Cleanup](../specs/providers-execution.md#managed-attempt-cleanup) owns reserved control capacity, hung-Promise detection, external watchdog and confirmed termination before capacity reuse.
 Core expiry/mutation maintenance still needs an owner without Jobs; optional Job scans/source hooks run only when applicable.
 The [API-only maintenance placement recommendation](../architecture.md#worker-deployment-recommendation) is not an adopted topology change.
@@ -100,7 +101,8 @@ No invented periodic connector default applies, and refresh never resets deliber
 Unknown/new identity replacement cannot inherit old jobs; provider permissions remain authoritative without a service feature-policy mirror.
 Native provider-created credentials may be returned deliberately, with only the narrow known entrusted-secret retrieval exception.
 [Credential mutation arbitration](../specs/access-connections.md#competing-credential-mutations) serializes existing-connection setup/import/renewal using an exact captured bundle pair.
-One shared mutation representation owns setup/import/renewal processor/revision/dispatch state; setup retains browser correlation, without a parallel renewal state machine.
+One shared mutation representation owns processor/revision/dispatch state for provider-interacting setup/import/renewal; setup retains browser correlation, without a parallel renewal state machine.
+Strictly local import prepares/encrypts outside locks and publishes through the same writer in one short current-authority/exact-generation/no-competing-reservation transaction, with no persistent processor lifecycle or automatic replay.
 Possibly invalidating interruption cannot leave the affected old bundle falsely usable, while stale publication/recovery cannot overwrite or poison a newer independent bundle.
 
 ## Evidence gates that do not need new product policy

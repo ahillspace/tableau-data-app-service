@@ -14,14 +14,18 @@ flowchart TD
   B02 --> B04[B04 Shared provider lifecycle]
   B03 --> B05[B05 Native streaming journey]
   B04 --> B05
-  B05 --> B08[B08 Early extension and media proof]
+  B05 --> B08[B08.1/B08.4 Provider and capability proof]
   B08 --> B06[B06 Jobs and recovery]
+  B05 --> MEDIA[B08.2 Media proof]
   B05 --> B07[B07 Optional Redis events]
   B08 --> B09[B09 Host verification]
+  MEDIA --> B09
   B06 --> B09
   B07 --> B09
 ```
 
+The B08-to-B06 edge requires only B08.1/B08.4 provider reuse and ordinary capability evidence, not B08.2 media proof.
+Media proof remains required for media support and full-product completion.
 Actual ingress and host checks begin with B05/B08, then B09 completes operational proof for the implemented features.
 B01 can investigate supported identity alongside the fixture foundation; no guessed production endpoint or synthetic production login is permitted.
 
@@ -87,7 +91,8 @@ B01 can investigate supported identity alongside the fixture foundation; no gues
 **Holds:** E03 evidence for the declared provider protocol/continuity semantics.
 
 - [ ] B04.1 Implement static declarations, shared OAuth/static/operator/derived setup and one guarded maintained transport for token/discovery/renewal/proxy calls.
-- [ ] B04.2 Implement one shared setup/import/renewal mutation representation, with setup correlation referencing its exact pair/processor/dispatch authority, combined reserve/dispatch where prepared and publication returning coherent state; preserve separate generations and explicit connector-reauth time with no invented periodic default.
+- [ ] B04.2 Implement the shared Credentials writer: strictly local imports prepare/encrypt outside locks and publish through one current-authority/exact-generation/no-competing-reservation transaction; provider-interacting setup/import/renewal retains the sole durable mutation owner, dispatch uncertainty and revision-scoped recovery.
+- [ ] B04.2a Verify atomic local publication, stale/conflict rejection and lost-response behavior without automatic replay; preserve separate generations and explicit connector-reauth time with no invented periodic default.
 - [ ] B04.3 Implement live mutation/processor/revision dispatch and publication predicates, cumulative possible invalidation and revision-scoped recovery for interrupted setup/import/renewal; prove pre-dispatch preservation and safe independent replacement without network locks.
 - [ ] B04.4 Exercise known/non-expiring/unknown/static/derived credentials, omission/rotation semantics, same-account reauth and unknown/new replacement, shared audiences, disconnect and protected custom checkout.
 
@@ -108,7 +113,7 @@ B01 can investigate supported identity alongside the fixture foundation; no gues
 **Completion evidence:** V05 through service/SDK/published Cloud and Server paths, with current support limits recorded honestly.
 **Risk:** primitive carrier/gzip/header probes are not this application's integration proof.
 
-## B08 - Early provider extension and media proof
+## B08 - Provider and capability proof with independent media proof
 
 **Owners:** M04/M05/M10 with architecture review.
 **Depends on:** B05; no jobs/events prerequisite for native extension evidence.
@@ -126,31 +131,32 @@ B01 can investigate supported identity alongside the fixture foundation; no gues
 ## B06 - Durable jobs and worker recovery
 
 **Owners:** M06 with M01/M03/M04/M09.
-**Depends on:** B02/B04 and early native evidence B08.
+**Depends on:** B02/B04 and B08.1/B08.4 native provider reuse and ordinary capability evidence; B08.2 media proof is independent of core Jobs.
 **Holds:** runtime race/host/resource proof, not queue-library or sibling-interruption policy selection.
 
 - [ ] B06.1 Implement separate indexed metadata/encrypted payloads, semantic opaque-key admission and current disclosure recovery before new connection/resource selection.
-- [ ] B06.2 Implement bounded authoritative scans, earliest-due timers/catch-up, fair observations and reserved control resources; hints must be optional and lossy.
+- [ ] B06.2 Implement bounded authoritative Postgres scans, earliest-due timers, startup/reconnect/capacity-release wakeups and reserved control resources; add fair observations only for supported observation hooks, with no Redis scheduler subscription or fixed scan interval chosen here.
 - [ ] B06.3 Implement live claim/incarnation/lease/generation predicates, first-start deadline and no automatic interrupted-handler replay, including claim-before-invocation.
-- [ ] B06.4 Implement prebound callbacks, external task attachment/read-only observation, original outcome publication after disconnect and send-before-ID unknown outcome.
-- [ ] B06.5 Implement cancellation/deadline/terminal races and separate bounded remote-cancel issued status without uncertain replay or retained revoked credentials.
-- [ ] B06.6 Implement bounded attempt disposal and independent host termination for hung Promise/CPU loop, confirming exit before capacity reuse and exposing sibling interruption.
-- [ ] B06.7 Run two APIs/two workers against real Postgres with process faults, lost hints/responses, near-cap JSON/results and auth/callback latency measurement.
+- [ ] B06.4 Deliver required external-task support using a complete tracking/recovery path for the selected integration: persist task identity, release execution capacity, preserve eligible original outcomes after disconnect and report send-before-ID uncertainty without resubmission; callback prebinding or documented lookup/redelivery applies only to supported callbacks; read-only observation applies only to supported observation hooks, and the chosen integration must not leave both tracking paths unsupported.
+- [ ] B06.5 Implement local cancellation/deadline/terminal races for all Jobs; implement separate bounded remote-cancel issued status and late-task-ID cleanup only for supported remote-cancel hooks, without uncertain replay or retained revoked credentials.
+- [ ] B06.6 Use M09's small worker execution-lifetime helper with M05 transport disposal, adding it here only if B07 has not already needed it; confirm host exit before capacity reuse for hung Promise/CPU loop and expose sibling interruption.
+- [ ] B06.7 Run two APIs/two workers against real Postgres with process faults, absent notifications/lost responses, near-cap JSON/results and authentication plus supported callback/observation latency measurement.
 
-**Completion evidence:** V06/V07/V08/V12/V13 prove durable admission, external observation recovery, honest interruption and retained reads.
+**Completion evidence:** Core Jobs proves durable admission, worker execution, first-start deadline, no interrupted replay, local cancellation and retained reads through V06/V07/V08/V12/V13.
+Full-product completion also requires B06.4 external-task tracking/recovery; callback/observation/remote-cancel cases apply only to declared supported hooks, and media evidence remains independently required under B08.2.
 **Risk:** a timeout Promise or terminal DB row does not stop live code, and no runtime proof is supplied by this design.
 
 ## B07 - Optional Redis notifications and sources
 
 **Owners:** M07 with M01/M04/M06/M08-M10.
 **Depends on:** authority/wire foundations B05; no durable-Job prerequisite for native events.
-Service-managed hooks reuse bounded worker resource/claim primitives only if configured, without requiring the business Job facility or creating Job rows.
+Configured service-managed hooks use M09's small worker execution-lifetime helper and M05 disposal while M07 owns source claims/state; create that helper in whichever of B06/B07 first needs it, without business Job implementation or Job rows.
 **Holds:** actual Redis security/buffer/reconnect and provider verification evidence.
 
 - [ ] B07.1 Implement disabled mode with no Redis client/dependency, and enabled mode with one subscriber receive path per API plus bounded publisher access.
 - [ ] B07.2 Preserve useful native payloads under one logical cap with computed envelope/base64url/SSE budgets and trusted age/skew; batch immediate enqueue/delivery authorization, rechecking after any queue/wait rather than imposing hint-only data.
 - [ ] B07.3 Implement independent slow-client queues, bounded decode work, no offline publish queue or ambiguous auto-retry, resubscribe/resync and core/event readiness separation.
-- [ ] B07.4 Implement source verification/setup ownership and only the enabled provider's required lifecycle hooks, with dispatch uncertainty and revision fencing.
+- [ ] B07.4 Implement source verification/setup ownership and only the enabled provider's required lifecycle hooks, with dispatch uncertainty and revision fencing; distinguish renewal/health from provider-specific event validity at ingress/enqueue/delivery independently of delayed maintenance.
 - [ ] B07.5 Run distributed subscriber/publisher/broker failures, audience races, encoded boundaries, age/skew and callback independence tests; no database event relay or replay path remains.
 
 **Completion evidence:** V09/V10 with healthy/slow/offline clients, useful native payloads and no Job dependency; when Jobs are enabled, their callbacks remain correct during broker outage.
@@ -164,7 +170,7 @@ Service-managed hooks reuse bounded worker resource/claim primitives only if con
 
 - [ ] B09.1 Verify core expiry/mutation maintenance with Jobs/events absent, conditional scans/hooks and separate readiness; verify worker control/termination only for background execution and normal API drain/liveness for ordinary capabilities.
 - [ ] B09.2 Validate whole-deployment memory/socket/database/broker budgets with near-cap JSON, streams, callbacks and source/claim recovery; choose tuning from measurements.
-- [ ] B09.3 Measure path-level database interactions, confirming joined safe reads, returned write state and no per-chunk/event-body/ordinary-operation writes; rehearse install/upgrade/failure, HTTP draining and active Job version compatibility, incompatible all-writer downtime and interrupted one-envelope offline rekey with automatic restart disabled.
+- [ ] B09.3 Reuse the owning behavioral scenario evidence and its path-level interaction measurements, retaining zero-write usable ordinary requests and no per-chunk/event-body persistence without exact SQL/helper/table-shape assertions; rehearse install/upgrade/failure, HTTP draining and active Job version compatibility, incompatible all-writer downtime and interrupted one-envelope offline rekey with automatic restart disabled.
 - [ ] B09.4 Run relevant lint/type/build/security/browser checks on actual code and document supported platform/provider/host behavior plus remaining limits.
 
 **Completion evidence:** V11/V12 and all gates for released journeys, with actual environment/fault logs and no secrets.

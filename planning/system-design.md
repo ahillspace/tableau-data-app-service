@@ -80,7 +80,8 @@ erDiagram
 
 This is a logical sketch, not migration DDL or a requirement for separate tables for every label.
 Remote cancellation may be bounded fields on Jobs; encrypted payloads remain separate from indexed metadata.
-The bounded credential mutation reservation may be connection fields; it arbitrates setup/import/renewal with one exact expected bundle pair, processor and dispatch phase rather than a separate renewal attempt or work queue.
+The bounded credential mutation reservation may be connection fields; it arbitrates setup/import/renewal involving providers with one exact expected bundle pair, processor and dispatch phase rather than a separate renewal attempt or work queue.
+Strictly local imports prepare/encrypt outside locks, then the same writer atomically checks current authority, exact generations and no competing reservation/uncertainty barrier before publishing; they have no persistent processor lifecycle.
 Shared audience parents are lockable even when membership is absent.
 No relationship creates a personal app-use grant; app is attribution/default configuration and submission namespace only.
 [State ownership](../specs/persistence-operations.md#state-ownership) supplies the required fields/constraints.

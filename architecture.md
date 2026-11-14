@@ -30,7 +30,8 @@ flowchart LR
 The API owns identity/session transport, native proxy, ordinary capability invocation, connection setup, explicit Job admission/inspection/cancel requests, verified callbacks and local SSE.
 The worker owns core session/handoff/mutation maintenance and, when applicable, trusted in-process Job handlers, external observations and Job retention or configured source hooks.
 Ordinary capabilities do not require worker dispatch, Job tables or live event transport.
-Jobs remains the only queue; bounded Postgres scans recover committed work even when every optional hint is lost.
+Jobs remains the only queue; bounded Postgres scans/timers and startup/reconnect/capacity-release wakeups recover committed work without a Redis scheduler subscription.
+Optional Redis Job hints notify browsers only.
 Redis never owns a session, credential, lock, job claim or result.
 Disabling events creates no Redis client; a broker outage affects event readiness rather than core API readiness or durable callback processing.
 
@@ -40,13 +41,13 @@ Disabling events creates no Redis client; a broker outage affects event readines
 | --- | --- | --- | --- |
 | Access | Verify identity/session; authorize current owner/site/shared audience and private disclosure. | Postgres owners, sessions and registry; absent/disabled authority denies. | Deployment-specific Cloud/Server adapters behind one verified identity contract. |
 | Connections | Select, begin/complete setup through Credentials arbitration, reauthorize/replace/disconnect. | Stable personal/operator ownership, authority generation and setup reference to the exact reserved bundle; stale attachment cannot revive authority. | Shared setup adapters and actual provider context hooks. |
-| Credentials | Scoped checkout and shared setup/import/renewal mutation arbitration/publication. | Encrypted coherent bundle, credential generation, one bounded per-connection reservation and revision-scoped uncertainty. | Documented safe recovery, proven independent explicit replacement or derived credential strategy. |
+| Credentials | Scoped checkout and shared setup/import/renewal mutation arbitration/publication. | Encrypted coherent bundle and generation; strictly local publication uses one short transaction, while provider-interacting mutations retain a bounded reservation and revision-scoped uncertainty. | Documented safe recovery, proven independent explicit replacement or derived credential strategy. |
 | Provider registry | Validate static definitions/configuration; resolve endpoints, own ordinary capability handlers and interpret external protocols. | Enabled registration/version compatibility; hooks return values, never mutate domain tables. | New declarative provider or narrow reusable protocol adapter. |
 | Transport | Shared request/body resource scope, native streaming, guarded recipient and credential injection. | Live buffers/sockets only; interruption can leave remote effects. | Justified native transport support or guarded explicit redirect following. |
 | Jobs | Admit, claim, settle, observe, cancel and disclose retained work. | Jobs metadata/payloads, immutable identity and terminal outcome; no interrupted submission replay. | Trusted versioned capability; optional child isolation if measured necessary. |
 | Events | Verify source, publish transient envelope, reauthorize local delivery. | Durable source associations and bounded transient queues; loss has no replay. | Provider-specific verifier/lifecycle hooks. |
 | HTTP / SDK | Shared wire codecs, handoff, native Response and explicit optional jobs/events. | Request/page-local state; no bearer from an unverified null origin or automatic business retry. | Framework-independent client use and proven browser transport adaptations. |
-| Persistence / operations | Owner-specific Kysely adapters, scoped transactions, encryption, migration and lifecycle. | Postgres authority, protected keys and deployment budgets; failed conditional writes are explicit. | Owned schema additions and measured capacity changes. |
+| Persistence / operations | Owner-specific Kysely adapters, scoped transactions, encryption, migration and the shared worker lifetime helper with Transport disposal. | Postgres authority, protected keys and deployment budgets; failed conditional writes are explicit. | Owned schema additions and measured capacity changes. |
 
 These are code responsibilities, not separate services or mandatory packages.
 The composition root passes narrow ports and statically registers trusted modules.
@@ -102,7 +103,8 @@ This recommendation does not block the accepted specification edits or authorize
 ## Live events and native streams
 
 Every API subscribes to deployment-scoped Redis channels before it reports event readiness and uses one receive path, including for locally published events.
-Published audiences are hints; current source revision, session and personal/shared audience are checked before enqueue and logical delivery.
+Published audiences are hints; current source routing/revision, applicable provider event-validity times, session and personal/shared audience are checked before enqueue and logical delivery.
+Renewal/source health is distinct from validity of a signed delayed event; maintenance delay cannot extend an actual validity deadline, and subscription expiry is not a universal discard rule.
 One logical payload cap, derived encoding budgets, age limits and independent queue limits prevent valid ingress from exceeding a smaller forwarding allowance.
 Reconnect clears obsolete buffers and signals possible loss; no archive, durable delivery, second event transport or automatic ambiguous publish retry is added.
 [Events and wire contracts](specs/events-http-sdk.md) own these details.

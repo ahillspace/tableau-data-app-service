@@ -49,7 +49,7 @@
       "name": "Worker process",
       "owner": "Operations / background owners",
       "responsibility": "Core session/handoff/mutation maintenance, plus enabled or outstanding Jobs and configured source hooks. Ordinary capabilities stay on the API.",
-      "interfaces": "Bounded due scans and conditional transitions; Job claims/slots only for durable work, shared helper and optional source hooks.",
+      "interfaces": "Bounded Postgres scans/timers and conditional transitions; no Redis scheduler subscription. M09/M05 supplies bounded lifetime/disposal independently to Job and source owners.",
       "invariant": "Persist task identity before resumable observation. Live tokens, incarnations, leases and generations fence every outcome.",
       "failure": "Reserve control capacity. Cleanup deadline and external watchdog require confirmed process exit before reuse; interrupted siblings can have unknown outcomes without replay.",
       "extension": "Per-handler child isolation only if measured disruption warrants it.",
@@ -382,7 +382,7 @@
       "detail": "One coherent read-only request snapshot, zero logical writes and no per-call policy shared-lock commit. Core maintenance remains owned even when Jobs and source hooks are absent."
     }
   ],
-  "streamingSummary": "Node byte streams preserve encoded provider bodies and compression headers with backpressure. Generic GET/HEAD-body POST and inspectable no-follow redirect carriers preserve native semantics. Physical buffers, headers, sockets and aggregate memory are measured and bounded; no arbitrary response-size cap. Job input/result caps are separate. Downloads and ordinary capability responses do not become Jobs because of size or streaming.",
+  "streamingSummary": "Node byte streams preserve encoded provider bodies and compression headers with backpressure. Generic GET/HEAD-body POST and inspectable no-follow redirect carriers preserve native semantics. A39 handler-built or transformed Responses carry service origin; unchanged transport pass-through retains provider origin, and A18 remains provider-only. Physical buffers, headers, sockets and aggregate memory are measured and bounded; no arbitrary response-size cap. Job input/result caps are separate. Downloads and ordinary capability responses do not become Jobs because of size or streaming.",
   "systemDecision": "D02",
   "flowPresentation": {
     "F01": {
@@ -458,8 +458,8 @@
     },
     "F02": {
       "titles": [
-        "Reserve owner-bound setup",
-        "Launch the shared protocol",
+        "Bind owner and expected bundle",
+        "Prepare locally or launch protocol",
         "Claim the correlated callback",
         "Exchange and discover context",
         "Publish one consistent credential bundle",
@@ -714,7 +714,7 @@
       "titles": [
         "Configure the provider source",
         "Verify exact ingress bytes",
-        "Resolve the current audience",
+        "Check routing and event validity",
         "Publish and receive on every API",
         "Deliver current-authority browser SSE",
         "Reauthorize the reconnect",

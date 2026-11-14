@@ -29,6 +29,22 @@ Use actual published Cloud and Server Data Apps for platform claims, with the su
 Test only relevant implemented features for each slice, then the complete supported journey before full-product completion.
 Never enable a synthetic identity adapter in production configuration.
 
+Each scenario records an observable failure oracle and one evidence owner; repeated V/B/OpenSpec obligations cite that result instead of requiring duplicate tests.
+Use one parameterized real-Postgres mutation fault harness for setup, local/remote import and renewal where each scenario applies, with thin protocol/browser checks for distinct handoffs.
+Keep focused codec/schema tests, real concurrency/process faults and actual platform journeys; do not assert exact SQL text, helper names or table/claim counts as correctness oracles.
+Interaction/lock-duration traces diagnose consolidation targets, while measured zero logical writes on usable ordinary requests and no Job/input/result/receipt persistence on ordinary calls remain regression obligations.
+No test-count, coverage-percentage or mutation-score gate is introduced.
+
+| Scenario evidence owner | Observable oracle | Reused obligations |
+| --- | --- | --- |
+| Credentials/Connections mutation harness | At most one competing remote mutation; stale publication/recovery cannot change a newer bundle; local import commits all fields or none without replay. | V03/V04, relevant V08 races, B02/B04. |
+| Access/Persistence ordinary request journey | Wrong owner/revoked authority denies, bundle/context never mix, usable requests produce zero logical writes. | V02/V08/V14, B02/B08/B09. |
+| Transport/HTTP/SDK journey | Native method/status/body/provenance survives, first bytes precede EOF, abort closes resources and business sends are not repeated. | V05/V14, B05/B08 and streaming OpenSpec. |
+| Jobs/Persistence recovery journey | One admission, immutable terminal outcome, no uncertain resubmission and current-authority retained reads. | V06/V07/V08/V12/V13, B06/B09; supported hooks only. |
+| Events/Providers delivery journey | Current authorized recipients receive valid live data; invalid/retired/aged events deny despite delayed maintenance, while provider-valid delayed events survive renewal-only expiry. | V09/V10, B07/B09. |
+
+These are reusable scenario families, not a required number of tests or a new release gate.
+
 ## V01 - Platform identity, handoff and sessions
 
 Owner: Access/HTTP/SDK, E01 and B01/B03.
@@ -64,7 +80,9 @@ Owner: Connections/Credentials/Providers/Persistence, B04/B08.
 - [ ] Connect two accounts under one registration with different approved instances; atomic bundles never combine one credential with another context/destination.
 - [ ] Fail required discovery on new setup, replacement and post-rotation renewal; affected endpoints remain unready and possibly invalidated old tokens are not reported usable.
 - [ ] Race callback/import/discovery publication against cancellation, session expiry, replacement and disconnect; stale claims/generations cannot install secrets or revive routing.
-- [ ] On two API replicas and a worker, begin two setups/imports against one authority generation and race setup against renewal; only one shared mutation reservation reaches provider work, conflicts are explicit, unrelated connections progress, and no database connection/lock is held during consent, discovery or bounded contender waits.
+- [ ] On two API replicas and a worker, race provider-interacting setups/imports and renewal against one captured revision; at most one contender sends the external mutation, conflicts are explicit, unrelated connections progress, and no database connection/lock is held during consent, discovery or bounded contender waits.
+- [ ] Prepare two strictly local imports, then race publication against each other, renewal reservation, same-account reauth, disconnect and session expiry; reject stale/competing/unauthorized candidates without rebasing, mixed credentials/context or automatic replay.
+- [ ] Crash local import before/after commit and lose its response; the complete old or new bundle remains, with no abandoned local processor blocking later authorized use and no automatic reimport.
 - [ ] Delay old setup discovery across verified same-account publication and attempt late commit: immutable captured credential generation plus mutation owner must reject it even when authority generation is unchanged; deliberate identical-byte revalidation still advances credential generation.
 - [ ] Crash/cancel/expire setup before dispatch, after possibly invalidating exchange/launch and after exchange before required discovery; prove pre-dispatch old-bundle preservation, cumulative invalidation across browser/discovery phases, and unusable uncertainty only for the still-matching expected bundle.
 - [ ] Resolve uncertainty with documented safe recovery or a proven independent explicit replacement, then deliver old publication and old recovery scans; neither may overwrite, clear or poison the new bundle/reservation. Without independence evidence, reject automatic renewal and unsafe replacement even after time passes or a new login.
@@ -78,7 +96,7 @@ Owner: Connections/Credentials/Providers/Persistence, B04/B08.
 
 Owner: Credentials/Persistence, B04.
 
-- [ ] Verify one mutation representation owns setup/import/renewal revision/processor/dispatch authority, combined prepared reserve/dispatch preserves the pre-I/O invalidation marker, and publication returns coherent state without redundant fetch.
+- [ ] Reuse the V03 mutation harness across setup/import/renewal: two remote contenders cannot both mutate the provider, and stale completion/recovery cannot overwrite or poison a newer bundle; local import publishes all fields or none; attach interaction traces for prepared reserve/dispatch and returned-state reuse as diagnostics, without asserting internal representation or exact SQL shape.
 - [ ] Concurrent API/worker requests for the same revision produce one coordinated renewal; unrelated connections progress independently, with bounded waits and no held pool connection during backoff.
 - [ ] Kill before and after may-have-dispatched commit, lose rotating-token response, expire a live attempt and deliver late success; only an expired undispatched claim can be replaced without ambiguity recovery.
 - [ ] Return successful rotation then fail required-context discovery/validation/publication; preserve unusable uncertainty and reject late token/context revival.
@@ -114,7 +132,7 @@ Owner: Jobs/Persistence, B06.
 - [ ] Race equal semantic commands with reordered JSON properties and bounded non-UUID keys across APIs; one durable input/metadata row results, changed input/version/selection conflicts and another owner cannot recover it.
 - [ ] Lose admission response, change automatic defaults, disconnect the connection or retire executable code while retaining comparison schema; equal current-authority recovery returns the original job before new selection/allocation.
 - [ ] Enforce 100000000-byte input/result boundaries and lower trusted limits with exact serialized accounting; reject caller overrides and invalid config without a smaller hidden parser/default allowance.
-- [ ] Kill the producer immediately after commit and drop every optional Redis hint; bounded scans/startup/reconnect/capacity-release scheduling still discover committed queued/due work.
+- [ ] Kill the producer immediately after commit with all notifications absent; bounded Postgres scans/timers and startup/reconnect/capacity-release wakeups still discover committed queued/due work without a Redis scheduler subscriber.
 - [ ] Run multiple workers with due-time ordering, bounded scans and no private started-job prefetch; confirm one live claim and bounded observation fairness.
 - [ ] Kill at running commit before invocation, after remote effect and before result commit, and during uncertain persistence; expired initial claims report interruption and never replay automatically.
 - [ ] Exercise author-opted finite retries only after settled/disposed failure, retaining original identity/deadline and never resubmitting an attached task.
@@ -123,17 +141,20 @@ Owner: Jobs/Persistence, B06.
 ## V07 - External waits, cancellation and deadline races
 
 Owner: Jobs/Providers, B06.
+Local cancellation, deadline, original-outcome and no-replay guarantees apply to all Jobs.
+Full-product completion requires an external-task integration with a complete supported callback and/or observation recovery path; test each optional protocol below only when its declared hook is supported.
+Remote-cancel claims/issued markers and late-task-ID cleanup apply only to integrations supporting remote cancellation; without it, prove honest unsupported status and local cancellation without remote work.
 
-- [ ] Persist a provider task ID, release attempt resources, restart workers and recover read-only observation without initial invocation; lose an observer lease and repeat only observation.
-- [ ] Deliver authenticated early callback using prebound correlation before handler return; attach/settle once and reject late superseded handler/observer writes.
-- [ ] Test no-prebinding providers with documented lookup/redelivery, and reject supported-tracking claims for callback-only providers lacking recovery; send-before-ID persistence remains explicit unknown outcome.
+- [ ] Persist a provider task ID, release attempt resources and restart workers; recover the declared tracking path without initial invocation; for a supported observer, lose its lease and repeat only read-only observation.
+- [ ] For supported callbacks with prebinding, deliver an authenticated early callback before handler return; attach/settle once and reject late superseded handler/observer writes.
+- [ ] For supported callbacks without prebinding, test documented lookup/redelivery and reject supported-tracking claims for callback-only providers lacking recovery; all external-task submissions preserve explicit send-before-ID unknown outcome.
 - [ ] Expire ordinary browser/connector freshness during started work and verify original account/current authority continuation, while new submission/start fails freshness and never switches accounts.
 - [ ] Disconnect during started work: later checkout fails, but eligible original outcome/callback without new credentials commits and saved results remain readable under current disclosure.
 - [ ] Queue initial work past 24 hours without starting: no queue-age expiry; first start sets the configured deadline once, with external waits/retries included and no reset by progress/refresh/config changes.
 - [ ] Race queued cancellation/start and running cancellation/success/callback/deadline; first eligible terminal state/time/result remains immutable and timeout does not set user-requested cancellation.
-- [ ] Return a task ID while cancellation races submission; retain verified original identity only before the fixed cleanup deadline under the original invocation binding, rejecting wrong tokens, changed task IDs and late results without reviving execution.
+- [ ] For supported remote cancellation, return a task ID while cancellation races submission; retain verified original identity only before the fixed cleanup deadline under the original invocation binding, rejecting wrong tokens, changed task IDs and late results without reviving execution.
 - [ ] Delay maintenance and test before/equal/after deadline for claims, checkout, heartbeat/progress, attachment and outcome, including a lock wait crossing expiry; late non-timeout advancement is rejected.
-- [ ] Exercise post-terminal remote cleanup with its separate deadline/claim and original account: issued marker commits before send, crash after marker never repeats uncertain cancel, expired undispatched claim can be safely fenced/reclaimed.
+- [ ] For supported remote cancellation, exercise post-terminal cleanup with its separate deadline/claim and original account: issued marker commits before send, crash after marker never repeats uncertain cancel, expired undispatched claim can be safely fenced/reclaimed.
 - [ ] Verify remote unsupported/unavailable/unconfirmed/confirmed evidence, revoked credential denial, bounded cleanup expiry and immutable terminal completion/retention.
 - [ ] Disconnect Redis throughout callback acceptance, cancellation and external observation; durable Jobs transitions remain independent.
 
@@ -141,13 +162,13 @@ Owner: Jobs/Providers, B06.
 
 Owner: Persistence with Access/Connections/Jobs, B02/B06.
 
-- [ ] Race transactional background checkout/start/final-result-disclosure locks against exclusive site/provider/session/connection changes, including ordinary non-key updates; FOR KEY SHARE must not accidentally replace required FOR SHARE.
+- [ ] Race transactional background checkout/start/final-result-disclosure against site/provider/session/connection changes, including non-key updates; a prior committed revocation denies, and overlapping operations obey their specified authorization boundary.
 - [ ] Insert/delete absent shared audience membership while transactional readers hold its parent; no missing-child race grants or preserves unauthorized access.
 - [ ] Exercise peer-ID ordering, lock timeout/deadlock rollback, explicit zero-row stale results and pool release between retries, with unrelated connection progress.
 - [ ] Begin a transaction before lease/deadline expiry and block its required lock until afterward; fresh database wall time rejects advancement rather than transaction-start time granting grace.
 - [ ] Reuse obsolete claim token, wrong incarnation, expired lease, wrong authority/credential generation and superseded source revision; each conditional mutation fails explicitly.
-- [ ] On usable A18, instrument one coherent authorization/bundle read with zero logical writes or policy shared-lock commit; race site/session/provider/audience/connection revocation committed before versus after its statement snapshot, verifying denial versus permitted overlap without remote atomicity.
-- [ ] Exercise no-credential and automatic/ambiguous selection, unknown config revisions, slow preparation crossing fixed expiry and a later A39 helper call after revocation; no stale permission cache, duplicate module fetch or account substitution is allowed.
+- [ ] On usable A18, trace zero logical writes and coherent authority/bundle use; race site/session/provider/audience/connection revocation committed before versus after its statement snapshot, verifying denial versus permitted overlap and no mixed bundle/context, without remote atomicity or SQL-string assertions.
+- [ ] Exercise no-credential and automatic/ambiguous selection, unknown config revisions, slow preparation crossing fixed expiry and a later A39 helper call after revocation; no stale permission cache or account substitution is allowed; record redundant fetches as interaction diagnostics.
 - [ ] Separately prove background checkout commit and final saved-result disclosure retain their stronger conditional boundaries.
 - [ ] Instrument lock duration and demonstrate no provider I/O, large canonicalization/encryption, payload decoding or stream drain under authority locks.
 - [ ] Authorize payload reference, revoke while preparing plaintext, then attempt release; current recheck denies new logical disclosure, while already-released bytes are acknowledged as irreversible.
@@ -164,6 +185,7 @@ Owner: Events/HTTP/operations, B07.
 - [ ] Delay broker/socket/worker queues, skew clocks within/beyond configured tolerance and inject future timestamps; check age on receipt and logical delivery and discard expired/obsolete data.
 - [ ] Batch immediately deliverable recipients with one current authorization read and no async gap, then queue a slow recipient and require a fresh delivery check; no event-body writes or stale authority reuse.
 - [ ] Revoke session/site/shared membership or retire source between enqueue and delivery; current authoritative checks deny despite lost invalidation messages or misleading channel/audience hints.
+- [ ] Reuse V10's provider-specific validity fixtures for queued events crossing deadlines while maintenance is paused: reject actual event-validity expiry but preserve a valid signed delayed event across renewal-only/subscription expiry, subject to current authority, revision and envelope age.
 - [ ] Saturate publisher, subscriber decode/work, broker client and individual/aggregate SSE byte budgets independently; no unbounded per-recipient Promise, offline queue or slow-reader coupling remains.
 - [ ] Reconnect clears old queues, resubscribes only for future events and signals resync; true denial stops reconnect, ordinary valid-session renewal can reconnect without business replay.
 - [ ] Verify deployment channel isolation, TLS certificate checks, separate publish/subscribe privileges/ACLs and absence of private payload/entrusted-secret logs.
@@ -175,7 +197,10 @@ Owner: Events/Providers, B07.
 - [ ] Exercise declared manual, Data App and service setup only where supported, preserving provider-wide sources after browser closure and keeping native setup distinct from service routing.
 - [ ] Race create/renew/retire hooks against source revision, audience edit, connection generation change and claim/lease loss; stale results never restore retired routing.
 - [ ] Kill before/after mutating hook may-have-dispatched and lose the response; uncertain outcomes become attention-required unless documented provider recovery proves safe continuation.
-- [ ] Bound hook execution/disposal and prove source recovery does not monopolize reserved job control or retain revoked credentials for cleanup.
+- [ ] Pause maintenance with unchanged source revision and stored active state; test before/equal/after each provider-defined ingress/delivery validity boundary, proving time checks deny invalid events without waiting for a state update.
+- [ ] Separately cross advisory renewal time or subscription expiry where the provider permits signed delayed events: report degraded source health while accepting otherwise valid ingress/queued delivery within envelope age; a provider with no expiry acquires no fabricated cutoff.
+- [ ] Verify signature/replay-invalid, retired/replaced and envelope-aged events still deny in those fixtures; overdue maintenance never triggers blind create/renew replay.
+- [ ] Bound hook execution/disposal using M09/M05 with Jobs disabled, and prove source recovery does not retain revoked credentials or monopolize reserved control capacity when Jobs are enabled.
 
 ## V11 - Encryption and offline maintenance
 
@@ -221,11 +246,12 @@ Owner: Providers/Transport/HTTP/SDK with Access/Credentials/Persistence, B05/B08
 
 - [ ] Discover HTTP-only, Job-only and dual-entrypoint fixtures; invoke A39 versus explicitly submit A20, rejecting unsupported modes without fallback or a new capability grant.
 - [ ] Run declared JSON and raw/multipart streamed-input handlers without JSON/base64 file conversion, plus direct JSON and incremental native-response handlers, preserving useful native data/errors/headers and intentional provider-created credentials under the same entrusted-secret custody boundary.
+- [ ] Reuse V05's carrier/browser journey for A39 handler-built 302 and bodyless 304, direct streamed 200 and transformed output with service origin, plus unchanged provider 302 with provider origin; A18 rejects service-origin metadata, spoofed controls cannot set provenance, front-door redirects reject, and precommit/late failures dispose without replay; service-origin HTTP output resolves at headers without forced JSON/error parsing or rejection.
 - [ ] Invoke with Jobs/Redis disabled and observe provider sends plus HTTP results independently; no input/result/Job/receipt rows, submission-key hashing, progress or hidden polling is created.
 - [ ] Revoke authority or expire the session/connector interval between two helper operations; the later operation denies while an already-authorized operation may finish without being given Job continuation authority.
 - [ ] Abort before headers, disconnect during streaming, fail after remote success and restart the API; dispose resources, report only observable failure/unknown effects and never replay or promote work to a Job.
 - [ ] Exercise HTTP output body ownership and unread intermediate bodies; normal API drain/liveness and measured handler CPU/cleanup protect physical resources without Job leases/watchdogs, with trusted-handler collateral disruption recorded honestly.
-- [ ] Measure login/restore/discovery/refresh/Job/event/maintenance database interactions using the owning consolidation targets; return state from required writes, batch safe metadata, avoid unrelated/unauthorized body loads and retain necessary publication/disclosure fences.
+- [ ] Reuse the owning login/restore/discovery/refresh/Job/event/maintenance scenario traces as the database-economy index; diagnose redundant work without creating another comprehensive suite or exact SQL/helper/table-shape assertions, and retain the measured zero-write/no-Job-storage obligations above.
 
 No measured SQL count, latency gain, query plan or runtime correctness is claimed until these checks run.
 

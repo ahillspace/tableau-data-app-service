@@ -71,8 +71,10 @@ M09 implements owner-specific adapters and transaction primitives rather than a 
 **Input:** internal current ConnectionUse, operation deadline/signal and live claim when applicable.
 **Output:** scoped immutable credential/context snapshot or explicit renewal/reauthentication failure.
 **Interfaces:** `withCredentials`, `reserveMutation`, `claimMutationStep`, `markMayHaveDispatched`, `publishBundle`, `recoverMutation` under [credential mutation arbitration](../specs/access-connections.md#competing-credential-mutations) and [renewal](../specs/access-connections.md#refresh-coordination-and-interruption).
-**State:** encrypted bundles and one bounded mutation representation across setup/import/renewal with expected pair, processor claim and invalidation evidence; no separate renewal attempt authority.
-**Invariant:** only the current reservation and live processor can publish against its exact captured pair; credentials/context publish together, stale recovery cannot poison newer material, and refresh never resets explicit connector reauth.
+**State:** encrypted bundles and one bounded mutation representation for setup/import/renewal with provider interaction; strictly local imports have no persistent processor claim, lease or recovery phase.
+Strictly local candidates prepare outside locks, then the same writer checks current authority, exact expected generations and no competing reservation/uncertainty barrier in one atomic publication transaction; stale candidates conflict without replay.
+**Invariant:** publication checks current authority and exact captured generations; provider-interacting work additionally requires its current reservation/live processor, while local import requires no competing reservation or uncertainty barrier.
+Credentials/context publish together, stale recovery cannot poison newer material, and refresh never resets explicit connector reauth.
 **Failure/recovery:** pre-dispatch abandonment preserves the bundle; possible invalidation retains a revision-scoped unusable barrier until provider-supported recovery or proven independent explicit replacement, without locks across network/browser waits.
 **Extension:** maintained protocol primitives and narrow supported derived/signing/rotation hooks.
 **Holds:** D06 real race/lease tests and D08 provider semantics, not a new topology choice.
@@ -107,9 +109,9 @@ M09 implements owner-specific adapters and transaction primitives rather than a 
 **Input:** explicit durable choice/current submitter, semantic command/key, original connection generation or verified callback evidence.
 **Output:** committed JobView/result or explicit conflict/stale/interrupted outcome.
 **Interfaces:** `admit`, `claimStart`, `attachExternalTask`, `observe`, `applyVerifiedCallback`, `listOwnVisible`, `getResult`, `requestCancel`, `recoverDue` under [Jobs](../specs/providers-execution.md#durable-admission-and-execution).
-**State:** indexed metadata plus separate encrypted payloads, prebound correlation and bounded remote-cancel issued status.
-**Invariant:** no lost hint strands work; no initial-claim replay; current credential revocation differs from eligible original result publication.
-**Failure/recovery:** expired initial claims interrupt, persisted external waits resume observation, and first eligible terminal commit wins.
+**State:** indexed metadata plus separate encrypted payloads; prebound correlation and bounded remote-cancel issued status only for supported hooks.
+**Invariant:** Postgres scheduling discovers work without Redis wakeups; no initial-claim replay; current credential revocation differs from eligible original result publication.
+**Failure/recovery:** expired initial claims interrupt, persisted external waits resume their supported tracking path, and first eligible terminal commit wins.
 **Extension:** static capability/version; per-attempt children only if measured worker-wide disruption requires isolation.
 **Holds:** D02/D07 real multi-replica races, host termination and mixed-load proof; accepted sibling interruption is not awaiting product approval.
 
@@ -122,6 +124,7 @@ M09 implements owner-specific adapters and transaction primitives rather than a 
 **State:** durable source/audience/claim metadata plus transient bounded broker/API queues, never event payload rows.
 **Invariant:** disabled means no Redis client; outage affects events only; every API receives through its subscriber and rechecks authority before logical delivery.
 **Failure/recovery:** loss/reconnect clears obsolete buffers and signals resync; ambiguous source mutation needs safe recovery or attention.
+Source health/renewal deadlines are distinct from provider-specific event validity, checked at ingress/enqueue/delivery independently of delayed maintenance; subscription expiry alone does not discard a valid signed delayed event.
 **Extension:** only provider-needed verification/lifecycle hooks; no mandatory dedupe or replay platform.
 **Holds:** E02/E04 broker loss/age/encoding/backpressure/ACL and source-uncertainty tests.
 
@@ -132,14 +135,16 @@ M09 implements owner-specific adapters and transaction primitives rather than a 
 **Output:** [wire contracts](../specs/events-http-sdk.md#proposed-http-surface) and [API map](api-design.md).
 **Interfaces:** thin validated adapters to the owning module; shared login/provider handoff implementation.
 **State:** request IDs, bounded parsing/buffers and local transports; no independent domain database.
-**Invariant:** CORS/null origins never create identity; headers/bytes remain consistent and no error instructs automatic replay.
+**Invariant:** CORS/null origins never create identity; adapter-owned provenance marks constructed/transformed output service-origin and unchanged transport pass-through provider-origin.
+The shared carrier permits service-origin Responses only on A39; headers/bytes remain consistent and no error instructs automatic replay.
 **Failure/recovery:** distinguish service/provider/unmarked HTTP, precommit rejection and late body failure.
 **Extension:** shared routes expose new registrations without per-endpoint controllers or approval screens.
 **Holds:** D01 restoration binding and D04 actual package/header/media behavior.
 
 ### M09 - Persistence and operations
 
-**Owns:** owner-specific Kysely adapters, scoped ordered locks, encryption, resource/pool budgets, migration/readiness/rekey and host lifecycle integration.
+**Owns:** owner-specific Kysely adapters, scoped ordered locks, encryption, resource/pool budgets, migration/readiness/rekey and host lifecycle integration, including the small shared worker execution-lifetime helper.
+M05 supplies transport/body disposal; Jobs and Events own their respective domain claims/transitions and can use the helper independently, without a generic task framework.
 **Input:** typed owned operations with expected claims/generations and protected configuration.
 **Output:** committed or explicit stale/failure result; distinct core/event readiness and liveness.
 **Interfaces:** coherent request/read projections, named mutation/disclosure transactions, bounded core maintenance, `migrate`, `readiness`, `reencrypt` under [operations](../specs/persistence-operations.md).

@@ -80,7 +80,8 @@ Native body/query/paging conventions remain provider-owned and do not acquire ca
 [HTTP/SDK](events-http-sdk.md#native-request-carrier) owns automatic POST carriers for supplied GET/HEAD bodies and inspectable no-follow response carriers.
 
 The SDK resolves `Response` at headers for supported native and service HTTP responses, including HTTP errors.
-The adapter alone sets `X-Integration-Origin: provider` or `service`, strips upstream spoofing and exposes permitted useful headers.
+The adapter alone sets `X-Integration-Origin: provider` or `service`, strips upstream/handler spoofing and exposes permitted useful headers.
+Origin denotes provenance, not JSON shape or success: A39 service-origin Responses resolve normally at headers, including handler-built HTTP errors and streams, without automatic body parsing, rejection or business replay.
 Unmarked front-door HTTP is unclassified; local validation, network/CORS, pre-response abort or invalid carrier failures reject.
 A later body read can fail after the response promise resolves, without appended service JSON or replay.
 Synthetic carrier Responses have empty `url`/`statusText`, `type: "default"` and `redirected: false`; browser Headers may normalize/combine values.
@@ -241,9 +242,13 @@ type ObservationOutcome =
 ```
 
 An HTTP handler receives `(input, CapabilityContext)`, with input as declared JSON or filtered native headers plus an owned body stream, and returns declared JSON or a Response; a Job handler receives `(input, JobContext)` and returns ExecutionOutcome.
+M08 owns response provenance: constructed/transformed handler output is service-origin, while only unchanged M05 transport pass-through preserves provider-origin.
+The shared response carrier permits supported service-origin Responses on A39, including 3xx and bodyless 304, without admitting service-origin carriers on A18 or trusting handler/upstream control headers.
+Direct streamed 200 output, precommit failure and late body failure retain the same resource/error rules.
 Only JobContext exposes job ID, progress, absolute execution deadline and optional callback binding.
 The common helpers bind the original registration/connection; request fields cannot select a different identity.
-M08 and M05 own the ordinary HTTP resource lifetime through body completion, while M06 adds durable attempt fences only for Jobs.
+M08 and M05 own the ordinary HTTP resource lifetime through body completion; M09 owns the shared bounded worker lifetime helper and M05 its transport disposal.
+M06 and M07 retain their own Job/source claims and transitions, so source hooks can use the helper without business Jobs.
 Jobs prebinds an opaque callback correlation to original job/provider/account before invoking a handler when the provider supports echoing it.
 The callback URL is a configured service route; correlation is a locator and still requires source/per-task verification.
 Any verifier secret is protected by Jobs and the provider adapter, never exposed in JobView or treated as an outbound credential.
@@ -258,7 +263,9 @@ Credential generation advances on each successful bundle publication, including 
 Neither credential renewal nor job continuation resets that timestamp.
 A caller reacquires the complete snapshot rather than combining cached context with newer credentials.
 
-`Credentials.reserveMutation` takes an already authorized setup/import/renewal intent and creates one server-owned CredentialMutationRef.
+Strictly local imports prepare and encrypt outside locks, then the existing Credentials writer publishes in one short transaction checking current authority, fixed expiries, the server-captured expected bundle pair and absence of a competing reservation or uncertainty barrier.
+They create no persistent processor lifecycle; stale/competing candidates conflict without rebasing or replay, and first local import atomically creates its connection/bundle.
+`Credentials.reserveMutation` takes an already authorized setup/import/renewal intent requiring provider interaction and creates one server-owned CredentialMutationRef.
 For an existing connection it locks that connection and captures its exact bundle pair; first setup instead binds the single setup transaction with no prior bundle, and atomic publication creates the new connection once.
 A conflicting setup/import fails before provider work; renewal waits only within its existing deadline, with no held pool connection or hidden mutation queue.
 `claimMutationStep`, `markMayHaveDispatched` and `publishBundle` require that reference and the applicable live processor ClaimRef; neither client JSON nor a provider hook may supply or rebase the expected pair.
@@ -313,7 +320,7 @@ A resource error or Retry-After hint is not authorization for automatic business
 | `Connections.authorizeUse` | Personal owner equality or explicit current operator audience; declared mode and immutable provider association. | Current ConnectionUse or non-visible/required-connection failure. |
 | `Access/Connections/Credentials.prepareRequest` | One M09 read projection applies their owned predicates coherently for session/site/config/selection/audience/bundle usability; omit secrets for no-credential mode. | Request-scoped authority and encrypted bundle for one immediate ordinary operation, zero writes or policy shared locks when usable. |
 | `Credentials.checkout` | Consume that snapshot once for the immediate request operation, or freshly check background authority/generations/live claim/deadline. | Scoped immutable snapshot or bounded mutation/renewal/reauthentication failure; no cross-request permission cache. |
-| `Credentials.reserveMutation/publishBundle/recoverMutation` | One current per-connection setup/import/renewal owner and immutable expected bundle pair; publication requires a live processor, recovery fences the recorded interrupted claim and affects only that pair. | Atomic bundle publication, safe release, uncertainty barrier or explicit conflict/stale result. |
+| Credentials bundle writer and `reserveMutation/publishBundle/recoverMutation` | Local import checks current authority, expected pair and no competing reservation in one publication transaction without a durable processor; provider-interacting mutations require the sole reservation/live processor, with revision-scoped recovery. | Atomic bundle publication, safe release, uncertainty barrier or explicit conflict/stale result; no rebasing/replay. |
 | `Provider.resolveEndpoint` | Interpret only validated configuration/context. | Destination descriptor; Transport checks socket recipient and TLS before credentials leave. |
 | `Jobs.admit/claim/settle` | Atomic uniqueness and [live predicates](persistence-operations.md#transactions-concurrency-and-failure). | Committed transition or explicit conflict/stale result. |
 | `Events.verify/publish/deliver` | Verified source, coherent byte/age bounds and current local audience. | Best-effort live delivery/drop, independent of durable Jobs. |
