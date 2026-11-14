@@ -1,286 +1,324 @@
-# Shared domain contracts
+# Shared contracts
 
-Status: proposed contract vocabulary and TypeScript shapes, not implementation code.
-The architecture owner owns this file and resolves changes affecting more than one module.
-Names describe domain values; branded IDs, runtime schemas and serialization helpers will be selected during implementation.
-All IDs are opaque strings with bounded wire lengths.
-Times on the wire are UTC RFC 3339 strings, and expiry comparisons use the server clock with a configured safety margin.
+Status: integrated technical contracts for the accepted architecture, checked for owner consistency and viewer presentation.
+Implementation proof remains pending; historical independent reviews apply to their earlier snapshots.
+This document owns shared types and cross-component handoffs; component specifications own their state transitions and enforcement.
+Illustrative TypeScript describes interfaces, not implemented code or a published wire compatibility promise.
+Use one maintained runtime-schema/type source at implementation time, bounded opaque IDs and database time for persisted expiry.
 
-## Authority and configuration
+## Caller, app, and connection authority
 
 ```ts
-type ExecutionIdentity = "none" | "service" | "delegated";
-type CapabilityRef = { id: string; version: number };
-
-type VerifiedAccess = {
-  appId: string;
-  bindingId: string;
-  holderKey?: string;
-  expiresAt: string;
-  authorityRevision: string;
-  recoveryGeneration: string;
-};
-
-type AppRegistration = {
-  appId: string;
-  revision: number;
-  enabled: boolean;
-  allowedOrigins: readonly string[];
-  capabilities: readonly {
-    capability: CapabilityRef;
-    providerRegistrationId?: string;
-    serviceConnectionId?: string;
-  }[];
-  eventSubscriptions: readonly EventSubscription[];
-};
-
+type VerifiedIdentity = Readonly<{
+  deploymentId: string;
+  siteId: string;
+  subjectId: string;
+  verifiedAt: string;
+  adapterId: string;
+}>;
+type AccessContext = Readonly<{
+  ownerId: string;
+  deploymentId: string;
+  siteId: string;
+  sessionId: string;
+  appId: string; // Configuration, defaults, attribution and submission namespace.
+}>;
 type ConnectionOwner =
-  | { kind: "service" }
-  | { kind: "delegated"; appId: string; holderKey: string };
-
-type ConnectionUse = {
+  | { kind: "personal"; ownerId: string }
+  | { kind: "operator" };
+type ClaimRef = Readonly<{
+  token: string;
+  incarnation: string;
+}>;
+type OperationAuthority =
+  | { source: "request"; access: AccessContext }
+  | { source: "job"; jobId: string; claim: ClaimRef }
+  | { source: "event-source"; sourceId: string; claim: ClaimRef }
+  | { source: "remote-cancel"; jobId: string; claim: ClaimRef };
+type ConnectionUse = Readonly<{
+  authority: OperationAuthority;
   connectionId: string;
-  authorizationEpoch: number;
   providerRegistrationId: string;
-  owner: ConnectionOwner;
-  recoveryGeneration: string;
-};
+  authorityGeneration: number;
+}>;
 ```
 
-Only the trusted boundary produces `VerifiedAccess`; the public wire schema does not accept it as request data.
-`bindingId` identifies one verified request/session authority for audit, while `holderKey` identifies the continuity boundary for delegated ownership.
-The access adapter validates authority revision, expiry and revocation on each request and supports revalidation before dispatch.
-It also verifies equality with the active recovery generation held outside the database restore boundary.
-Only operator recovery changes that generation; normal token renewal or connection refresh does not.
-App policy is loaded from current operator configuration, never from token claims alone.
-The app registration does not contain a browser secret.
-A service connection belongs to the internal administrative boundary and may be explicitly selected by several app configurations.
-Each use is authorized against the requesting app's exact binding and attributed to that app; knowledge of the shared connection ID grants nothing.
-Delegated connections remain owned by one app and holder association.
+Access creates verified identity and request context; no public JSON can construct them or a worker claim.
+Owners are unique by verified deployment/site/stable subject, with no email linking or browser metadata ownership.
+A configured app selects supported defaults and attribution, not a personal grant or feature-permission boundary.
+Personal resource access follows current owner equality across configured apps; operator connections require their explicit verified-site/user audience.
+App IDs and opaque/null origins do not authenticate a package.
+[Access](access-connections.md#app-and-connection-policy) owns current site/session/shared-audience checks.
+A worker uses the persisted submitter/scope and live claim rather than the expired submitting bearer.
+Event maintenance uses its stored setup authority; post-terminal remote cancellation uses only its separately bounded cleanup authority.
+Neither internal authority can select a new owner, account or arbitrary connection.
 
-## Capability definition
+## Native proxy
 
 ```ts
-type RetryPolicy =
-  | { kind: "never" }
-  | { kind: "safe-read"; maxAttempts: number }
-  | { kind: "provider-key"; maxAttempts: number; validForSeconds: number };
+type ProxyRequest = {
+  providerRegistrationId: string;
+  endpoint: string;
+  connectionId?: string;
+  method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+  path: string;
+  query?: URLSearchParams;
+  headers?: Headers | readonly (readonly [string, string])[];
+  body?: string | Uint8Array | Blob | FormData;
+};
+interface ProxyClient {
+  request(request: ProxyRequest, options?: { signal?: AbortSignal }): Promise<Response>;
+}
+```
 
+An endpoint names a configured destination family, resolved with validated connection context where necessary.
+Connection selection follows declared no-credential, operator-shared or personal mode and never silently falls back to another identity.
+Ambiguous personal selection requires an explicit visible connection; an ID alone confers no access.
+File/Blob bodies contain browser-authorized bytes, not server-readable local paths.
+Native body/query/paging conventions remain provider-owned and do not acquire capability schemas.
+[Transport](providers-execution.md#native-forwarding-and-transport) owns recipient/header protection, byte streaming, resource cleanup and no automatic business replay.
+[HTTP/SDK](events-http-sdk.md#native-request-carrier) owns automatic POST carriers for supplied GET/HEAD bodies and inspectable no-follow response carriers.
+
+The SDK resolves `Response` at headers for supported native and service HTTP responses, including HTTP errors.
+The adapter alone sets `X-Integration-Origin: provider` or `service`, strips upstream spoofing and exposes permitted useful headers.
+Unmarked front-door HTTP is unclassified; local validation, network/CORS, pre-response abort or invalid carrier failures reject.
+A later body read can fail after the response promise resolves, without appended service JSON or replay.
+Synthetic carrier Responses have empty `url`/`statusText`, `type: "default"` and `redirected: false`; browser Headers may normalize/combine values.
+Neither synthetic nor ordinary responses promise a direct provider URL or raw header fidelity.
+Entrusted authenticators never appear in public checkout, logs or outputs; intentionally returned provider-created credentials remain native data under provider permissions.
+
+## Managed capabilities and jobs
+
+Naming a capability does not imply managed execution.
+A definition declares HTTP and/or Job entrypoints, sharing the provider registration's connection mode and authorization.
+No capability-specific grant or policy object is introduced.
+
+```ts
+type CapabilityRef = { id: string; version: number };
 type CapabilityDefinition = {
   ref: CapabilityRef;
-  providerId?: string;
-  title: string;
-  inputSchema: JsonSchema;
-  outputSchema: JsonSchema;
-  identity: ExecutionIdentity;
-  requiredPermissions: readonly string[];
-  permissionCheck: "before-dispatch" | "provider-enforced";
-  effect: "read" | "write";
-  retry: RetryPolicy;
-  limits: {
-    deadlineMs: number;
-    maxRequestBytes: number;
-    maxResponseBytes: number;
-    maxProviderRequests: number;
-  };
-  pagination?: { maxPageSize: number; cursorTtlSeconds: number };
-  eventTypes: readonly string[];
-};
-
-type Page<T> = { items: readonly T[]; nextCursor?: string };
-
-type CommandWindow = {
-  token: string;
-  admitsUntil: string;
-  deduplicatesUntil: string;
-  outputRetentionMs: number;
-  recoveryGeneration: string;
-};
-
-type DiscoveryResult = {
-  capabilities: readonly CapabilityDefinition[];
-  availability: Readonly<Record<string, "ready" | "holder-required" | "connection-required">>;
-  commandWindow: CommandWindow;
-};
-```
-
-`JsonSchema` means a self-contained JSON Schema document in the implementation's selected supported dialect, with no network references or executable validation hooks.
-The same source of truth provides runtime validation and exported TypeScript types; parallel hand-maintained schemas are not allowed.
-Selecting the schema library and supported dialect is an implementation decision, not a missing authority rule.
-Schemas bound every collection and untrusted string used by the capability.
-Discovery returns these public definitions, availability keyed by capability ID/version, and a command window, never provider endpoints, credential material, or external subject identifiers.
-Unavailable delegated authorization is reported as `connection-required`; missing holder proof is `holder-required`.
-A discovered capability is still reauthorized at invocation time.
-
-Provider permission labels are adapter-defined and are not interpreted as universal OAuth scopes by the core.
-With `before-dispatch`, the adapter must establish that the connection satisfies them from granted scopes or another documented provider authorization signal; absent evidence blocks execution.
-With `provider-enforced`, the provider's authenticated operation is the authoritative permission check when reliable preflight evidence is unavailable, as with some API keys.
-Known missing permission still blocks execution, and the adapter maps provider denial to a safe permission error without weakening the app or connection authority check.
-Registration documents this distinction rather than assuming that every provider exposes introspectable scopes.
-Identity, schema, effect, pagination semantics and required authority are immutable for a published capability version.
-Breaking changes publish a new integer version, which an operator enables explicitly.
-
-## Commands and results
-
-```ts
-type InvokeCommand = {
-  capability: CapabilityRef;
-  commandWindow: string;
-  requestKey: string;
-  input: unknown;
-  connectionId?: string;
-  page?: { size: number; cursor?: string };
-};
-
-type EffectEvidence = "none" | "applied" | "partial" | "unknown";
-
-type ServiceError = {
-  code: string;
-  message: string;
-  effect: EffectEvidence;
-  recovery:
-    | { kind: "none" }
-    | { kind: "retry"; afterMs?: number }
-    | { kind: "connect"; providerRegistrationId: string }
-    | { kind: "reauthorize"; connectionId: string }
-    | { kind: "inspect"; invocationId: string }
-    | { kind: "resync" };
-};
-
-type InvocationReceipt = {
-  invocationId: string;
-  capability: CapabilityRef;
-  state: "admitted" | "running" | "completed" | "failed" | "uncertain";
-  effect: EffectEvidence;
-  admittedAt: string;
-  deduplicatesUntil: string;
-  resultAvailableUntil?: string;
-};
-
-type InvocationResult<O> =
-  | { kind: "completed"; receipt: InvocationReceipt; output: O }
-  | { kind: "failed"; receipt?: InvocationReceipt; error: ServiceError }
-  | { kind: "pending"; receipt: InvocationReceipt; retryAfterMs: number }
-  | { kind: "uncertain"; receipt: InvocationReceipt; error: ServiceError };
-
-type CommandLookup = { commandWindow: string; requestKey: string };
-type CommandLookupResult<O> = InvocationResult<O>
-  | { kind: "not-recorded"; admitsUntil: string; deduplicatesUntil: string }
-  | { kind: "history-expired" };
-```
-
-`requestKey` is caller-generated high-entropy command identity, not authority or a provider idempotency key.
-`commandWindow` is the exact server-issued token retained before submission, not an access credential.
-Its authenticated claims bind app, holder-or-binding owner, recovery generation and the three advertised timing fields.
-New admission requires a matching current context and server time before `admitsUntil`.
-Accepted command records remain available for duplicate suppression at least through `deduplicatesUntil`.
-Output expiry is terminal-persistence time plus `outputRetentionMs`, capped at `deduplicatesUntil`; the actual expiry appears in the receipt.
-The window is immutable for one command and cannot be silently replaced during response recovery.
-Expired or old-generation windows cannot create a new invocation, even if the database no longer contains its request key.
-The execution owner derives and stores any provider idempotency key from the durable invocation identity.
-Equal command identity with a different canonical command digest is a conflict, never a second operation.
-Recovery advice is actionable service policy; a raw provider HTTP status or exception cannot grant permission to retry a write.
-`pending` means an already admitted inline request is still supervised, not that a job was queued.
-`uncertain` means the service cannot establish the complete external effect.
-A known partial effect is a failed result with `effect: partial`, unless the overall outcome itself remains uncertain.
-Failure with `effect: applied` includes a provider success followed by output-validation failure.
-None of these states is automatically converted into a fresh write.
-Every admitted result or inspection includes the receipt metadata; `resultAvailableUntil` is present once a retained terminal output exists.
-Lookup is distinct from invocation: `not-recorded` means no currently visible committed receipt, not proof that an original request cannot still arrive or finish admission.
-After the advertised history interval or a recovery-generation change, lookup returns `history-expired` without interpreting absence as permission to resubmit.
-Current access is still required for lookup, and cross-owner resources remain non-visible.
-
-## Owner interfaces
-
-```ts
-interface AccessBoundary {
-  verify(evidence: unknown): Promise<VerifiedAccess>;
-  revalidate(access: VerifiedAccess): Promise<void>;
-}
-
-interface CapabilityService {
-  discover(access: VerifiedAccess): Promise<DiscoveryResult>;
-  invoke(access: VerifiedAccess, command: InvokeCommand,
-         signal: AbortSignal): Promise<InvocationResult<unknown>>;
-  inspect(access: VerifiedAccess, invocationId: string): Promise<InvocationResult<unknown>>;
-  lookup(access: VerifiedAccess, command: CommandLookup): Promise<CommandLookupResult<unknown>>;
-}
-
-interface ConnectionService {
-  begin(access: VerifiedAccess, request: AuthorizationRequest): Promise<AuthorizationView>;
-  launch(access: VerifiedAccess, id: string): Promise<AuthorizationLaunch>;
-  inspectAuthorization(access: VerifiedAccess, id: string): Promise<AuthorizationView>;
-  disconnect(access: VerifiedAccess, connectionId: string): Promise<DisconnectResult>;
-}
-
-interface CapabilityContext {
-  invocationId: string;
-  signal: AbortSignal;
-  deadline: string;
-  page?: { size: number; continuation?: ProviderContinuation };
-  request(request: ProviderRequest): Promise<ProviderResponse>;
-}
-
-type ProviderContinuation = unknown;
-type HandlerResult<O> = { value: O; continuation?: ProviderContinuation };
-type CapabilityHandler<I, O> =
-  (input: I, context: CapabilityContext) => Promise<HandlerResult<O>>;
-```
-
-`AuthorizationRequest`, `AuthorizationView`, `AuthorizationLaunch` and `DisconnectResult` are defined in [access-connections.md](access-connections.md).
-`ProviderRequest` and `ProviderResponse` are defined in [providers-execution.md](providers-execution.md).
-These signatures deliberately exclude a raw database, arbitrary network client, secret getter, HTTP request, or mutable global session.
-The registration layer binds the capability handler to its approved provider registration and connection before giving it a `CapabilityContext`.
-Trusted provider authorization hooks receive credential material only in their narrower privileged lifecycle context.
-
-`ProviderContinuation` is provider-owned bounded JSON data that never appears in the public result directly.
-For paginated reads, the handler returns `value: { items: [...] }` and an optional private continuation; the execution owner produces `Page<T>.nextCursor` before public output validation.
-On the next page, execution validates and unwraps that cursor into `CapabilityContext.page.continuation`.
-The handler never creates an encrypted cursor or receives holder, connection-epoch or recovery-generation details.
-Non-paginated handlers return no continuation, and the registry permits pagination only for read capabilities.
-
-## Event registration
-
-```ts
-type EventRef = { providerId: string; type: string; version: number };
-type EventDefinition = {
-  ref: EventRef;
-  dataSchema: JsonSchema;
-  resyncCapability: CapabilityRef;
-};
-
-type EventSubscription = {
-  id: string;
-  revision: number;
-  event: EventRef;
   providerRegistrationId: string;
-  sourceAssociationId: string;
+  http?: {
+    input: { kind: "json"; schema: unknown } | { kind: "http" };
+    response: { kind: "json"; schema: unknown } | { kind: "http" };
+  };
+  job?: {
+    inputSchema: unknown;
+    resultSchema: unknown;
+    inputLimitBytes?: number;
+    resultLimitBytes?: number;
+    executionLimitSeconds?: number;
+  };
+};
+type CapabilityInvocation = {
+  capability: CapabilityRef;
   connectionId?: string;
-  audience: "app" | "connection-owner";
+} & (
+  | { input: unknown; body?: never; headers?: never }
+  | { body?: ProxyRequest["body"]; headers?: ProxyRequest["headers"]; input?: never }
+);
+interface CapabilityClient {
+  invoke(invocation: CapabilityInvocation,
+    options?: { signal?: AbortSignal }): Promise<Response>;
+}
+type JobSubmission = {
+  submissionId: string;
+  capability: CapabilityRef;
+  connectionId?: string;
+  input: unknown;
+};
+type JobView = {
+  id: string;
+  appId: string;
+  capability: CapabilityRef;
+  state: "queued" | "running" | "waiting-provider" |
+         "succeeded" | "failed" | "cancelled";
+  submittedAt: string;
+  startedAt?: string;
+  executionDeadline?: string;
+  completedAt?: string;
+  blockedReason?: "reauthorization-required" | "observation-authority-unavailable";
+  progress?: unknown;
+  result: { availability: "not-ready" | "available" | "expired" | "none"; expiresAt?: string };
+  recordExpiresAt?: string;
+  error?: { code: string; message: string; details?: unknown };
+  cancellation: {
+    requested: boolean;
+    remote: "not-requested" | "pending" | "confirmed" | "unconfirmed" | "unsupported" | "unavailable";
+  };
 };
 ```
 
-The provider module registers versioned event schemas and an authoritative read capability for resync.
-The operator owns subscriptions within each app registration and provisions the verified provider-source associations they reference.
-The registry/configuration validator checks event version, source/connection compatibility, audience rules and an explicitly enabled compatible resync read.
-`connection-owner` requires a delegated connection owned by the same app; app audiences cannot include delegated connection data.
-An app audience is an explicit operator policy for a service connection or an authenticated registration-level source.
-Public event data is validated against `EventDefinition.dataSchema` before persistence.
+At least one entrypoint must be registered; A19 exposes declared HTTP input/response kinds, supported modes and Job limits only where applicable.
+The SDK validates the declared JSON-argument versus native-body choice and uses the existing connection/header controls; it never JSON/base64-wraps native file bytes.
+JSON schemas may be reused by both entrypoints, but only a Job requires serialized input/result persistence.
+A39 and `invoke` return an ordinary HTTP Response, using the declared JSON or native response contract, without persistence or Job admission deduplication.
+The SDK does not parse the body by default; unsupported mode/version fails before handler invocation.
+This is the sole public JobView for generated HTTP and SDK types.
+`waiting-provider` has a persisted external identity and occupies no execution slot once attempt resources are disposed.
+`failed` can include partial or unknown external effects; `cancelled` describes local execution/tracking and never proves rollback.
+Progress/error details use bounded safe capability schemas, excluding entrusted secrets, private task context and raw exceptions.
+Result availability is `not-ready` while nonterminal, `available` for a retained terminal body, `expired` after its expiry while metadata remains, or `none` for a terminal outcome without a body.
+Failed/cancelled work can have an explicitly validated safe partial result.
+Bodies are fetched separately; reads and callbacks never extend result or metadata expiry.
+`requested` records explicit user cancellation and starts false; timeout does not set it.
+Remote `pending` means optional cleanup is scheduled or executing, `confirmed` requires provider evidence, `unconfirmed` includes ambiguous dispatch, `unsupported` lacks a hook and `unavailable` lacks current authority or cleanup opportunity.
+`not-requested` means no remote cleanup was selected; local cancellation alone never implies remote confirmation.
+Jobs owns terminal races and cleanup status in [execution](providers-execution.md#interruption-external-tasks-and-cancellation).
 
-## Stable failure categories
+[GOALS](../GOALS.md#jobs-events-and-operations) owns the 100 MB input/result, 24-hour first-start and seven/thirty-day retention policies.
+Count UTF-8 serialized validated JSON for each job input/result, including embedded file bytes but only the serialization of an external reference.
+Encryption/framing overhead does not shrink those application allowances.
+Resolve effective limits at admission from the server caps and optional lower trusted-operation limits; no request field overrides them.
+A Job-enabled capability version fixes validation/defaults, provider binding and explicit Job retry semantics, and remains available while active Jobs need its executable contract.
+Ordinary HTTP versions only need in-flight draining; they impose no retained executable or comparison-schema lifetime.
+No general effect taxonomy, shared pagination envelope or multi-connection capability API is required.
 
-| Category | Meaning | Typical recovery |
+### Submission identity and comparison
+
+Use a bounded opaque submission key, validated by one shared wire schema; no UUIDv4-only restriction applies.
+The unique key is `(appId, ownerId, submissionId)` while metadata remains.
+The semantic command is capability ID/version, schema-validated/defaulted JSON input and caller connection selection, including an explicit automatic-selection marker.
+Use one maintained canonical JSON implementation and standard digest primitive with a recorded comparison format version; reject unsupported JSON values rather than invent a serializer.
+Prepare validation, canonicalization, byte accounting and encryption outside authority locks and avoid repeated large copies.
+Store the command digest and version with metadata, and store the resolved connection/account generation separately and immutably.
+An equal currently authorized resubmission recovers the existing job before new connection selection, enabled-version checks or new-admission resource allocation.
+Changed content conflicts; recovery never retargets an automatic choice after defaults change.
+Preserve the comparison schema/defaults until retained metadata expires even if the executable handler is retired.
+Other owners cannot recover the row, and a different app namespace does not match the submission; the same owner may still read that job through current authorized resource APIs across configured apps.
+After metadata deletion the same key may admit new work; this is local admission deduplication, not provider idempotency or permission to replay interrupted execution.
+
+## Shared server interfaces
+
+```ts
+type BundleRevision = Readonly<{
+  authorityGeneration: number;
+  credentialGeneration: number;
+}>;
+type CredentialMutationRef = Readonly<{
+  id: string;
+  kind: "setup" | "import" | "renewal";
+  expiresAt: string;
+  target:
+    | { connectionId: string; expectedBundle: BundleRevision }
+    | { setupTransactionId: string; expectedBundle: null };
+}>;
+type CredentialSnapshot = Readonly<BundleRevision & {
+  runtimeContext: Readonly<Record<string, unknown>>;
+  credentials: Readonly<unknown>;
+}>;
+interface CredentialAccess {
+  withCredentials<T>(use: ConnectionUse,
+    options: { deadline: string; signal: AbortSignal },
+    run: (snapshot: CredentialSnapshot) => Promise<T>): Promise<T>;
+}
+type CallbackBinding = Readonly<{
+  correlation: string;
+  callbackUrl: string;
+}>;
+interface ProviderContext {
+  signal: AbortSignal;
+  request(request: ProxyRequest): Promise<Response>;
+  withCredentials<T>(run: (snapshot: CredentialSnapshot) => Promise<T>): Promise<T>;
+}
+interface CapabilityContext extends ProviderContext {
+  // Ordinary request authority and resource lifetime; no Job state.
+}
+interface JobContext extends ProviderContext {
+  jobId: string;
+  deadline: string;
+  callbackBinding?: CallbackBinding; // Persisted by Jobs before initial invocation.
+  reportProgress(progress: unknown): Promise<void>;
+}
+type ExternalTask = { externalId: string; context: unknown };
+type ExecutionOutcome =
+  | { kind: "complete"; result: unknown }
+  | { kind: "waiting"; task: ExternalTask; nextCheckAt?: string };
+type ObservationOutcome =
+  | { kind: "pending"; nextCheckAt?: string; progress?: unknown }
+  | { kind: "succeeded"; result: unknown }
+  | { kind: "failed"; error: { code: string; message: string } };
+```
+
+An HTTP handler receives `(input, CapabilityContext)`, with input as declared JSON or filtered native headers plus an owned body stream, and returns declared JSON or a Response; a Job handler receives `(input, JobContext)` and returns ExecutionOutcome.
+Only JobContext exposes job ID, progress, absolute execution deadline and optional callback binding.
+The common helpers bind the original registration/connection; request fields cannot select a different identity.
+M08 and M05 own the ordinary HTTP resource lifetime through body completion, while M06 adds durable attempt fences only for Jobs.
+Jobs prebinds an opaque callback correlation to original job/provider/account before invoking a handler when the provider supports echoing it.
+The callback URL is a configured service route; correlation is a locator and still requires source/per-task verification.
+Any verifier secret is protected by Jobs and the provider adapter, never exposed in JobView or treated as an outbound credential.
+Hooks return values; only Jobs validates and commits attachment or terminal outcomes.
+Task context has a bounded provider schema and contains no reusable outbound authenticators.
+Optional `observe(task, context)`, `cancel(task, context)` and callback interpretation reuse the same original identity; observation never submits the task again.
+The remote-cancel context is restricted to the recorded task and separate cleanup deadline rather than the expired execution context.
+
+Scoped checkout returns credentials and matching validated runtime context together.
+Authority generation changes on disconnect or incompatible/unknown account replacement; proven same-account reauthorization can preserve it.
+Credential generation advances on each successful bundle publication, including deliberate revalidation of identical bytes, and `lastConnectorReauthAt` changes only after successful deliberate authorization/import with supported evidence.
+Neither credential renewal nor job continuation resets that timestamp.
+A caller reacquires the complete snapshot rather than combining cached context with newer credentials.
+
+`Credentials.reserveMutation` takes an already authorized setup/import/renewal intent and creates one server-owned CredentialMutationRef.
+For an existing connection it locks that connection and captures its exact bundle pair; first setup instead binds the single setup transaction with no prior bundle, and atomic publication creates the new connection once.
+A conflicting setup/import fails before provider work; renewal waits only within its existing deadline, with no held pool connection or hidden mutation queue.
+`claimMutationStep`, `markMayHaveDispatched` and `publishBundle` require that reference and the applicable live processor ClaimRef; neither client JSON nor a provider hook may supply or rebase the expected pair.
+`recoverMutation` compares the recorded mutation/revision and any old processor identity while fencing cancelled/expired work; it does not require a live lease to recover an expired claim.
+Connections stores only the reference and browser/protocol correlation with its setup transaction; processor/expected-pair/dispatch ownership lives once in the Credentials mutation representation.
+Renewal has no parallel attempt authority or duplicate reservation state machine.
+The reservation belongs to the logical transaction across verified browser handoff, while each active processor has its own token/incarnation/lease; a lease timeout is not permission to resume an uncertain exchange.
+[Competing credential mutations](access-connections.md#competing-credential-mutations) owns the exact predicate, pre-dispatch versus possibly-invalidating recovery and proven-independent-replacement rule.
+Recovery of an old reference cannot make a newer independent bundle unusable or clear another reservation.
+These internal coordination types are excluded from public ConnectionView/AuthorizationView and from capability contexts.
+
+The helper is preferred; trusted custom clients may use scoped checkout but must satisfy equivalent routing, deadline, secrecy and disposal requirements.
+They may not keep independent credential caches, mutate persistence or export entrusted/helper-derived secrets.
+Ordinary HTTP output bodies transfer to the owning request scope; credentials, intermediate bodies and detached work cannot escape it.
+Job bodies, credentials and background work cannot escape an attempt's cleanup scope.
+[Attempt cleanup](providers-execution.md#managed-attempt-cleanup) requires confirmed disposal or worker termination before capacity reuse; a completed timeout Promise is insufficient.
+
+## Live notifications and service errors
+
+[Events](events-http-sdk.md#redis-transport-and-live-sse) owns one versioned internal envelope with source revision, trusted ingress/expiry and encoded payload bounds.
+A public provider notification preserves native data inside `{id, provider, connectionId?, type, data}` with only authorized references and necessary entrusted-secret filtering.
+An event ID is not a replay position; generic dedupe is optional and never replaces signature/replay verification.
+Job hints contain IDs and revision hints, never result bodies; recipients read authoritative Jobs under current disclosure authority.
+
+Service error bodies use `{error: {code, message}, requestId}` with safe fields and no raw exceptions.
+Provider errors retain native meaning and status.
+
+| Status | Service meaning |
+| --- | --- |
+| 400 | Malformed service control/schema. |
+| 401 | Invalid/expired service authentication. |
+| 403 | Denied current site or operator/shared authority. |
+| 404 | Absent or non-visible private resource. |
+| 409 | Changed submission, credential mutation already in progress, stale mutation or result not ready, distinguished by code. |
+| 410 | Result expired while metadata remains. |
+| 413 | Configured input/payload limit exceeded. |
+| 422 | Connection/reauthorization required or unsupported declared behavior. |
+| 431 | Request-header budget exceeded at the service handler. |
+| 500 | Safe handler failure or invalid declared capability output before commitment; external effects may already exist. |
+| 502 | Upstream transport/invalid response before commitment. |
+| 503 | Required dependency or physical resource unavailable; no uncommitted acceptance. |
+| 504 | Operation deadline or connect/header/stall timeout before commitment. |
+
+Early parser/ingress errors may lack the service marker/body; after commitment terminate a failed body without changing status or appending JSON.
+A resource error or Retry-After hint is not authorization for automatic business replay.
+
+## Core handoffs and invariants
+
+| Handoff | Owner and required check | Result/failure |
 | --- | --- | --- |
-| `access-required`, `access-expired`, `access-denied` | Missing, expired or insufficient backend authority. | Renew the selected front-door binding; no provider login substitution. |
-| `not-found` | Unknown or non-visible connection, capability, receipt or authorization transaction. | None; avoid revealing another holder's resources. |
-| `invalid-input`, `request-conflict`, `unsupported` | Contract violation, reused key with changed command, or unsupported lifecycle. | Correct the request or module/configuration. |
-| `holder-required`, `connection-required`, `reauthorization-required` | Missing delegated binding or provider authorization. | Obtain the required binding or explicit connection flow. |
-| `permission-required` | Connection lacks proven provider permissions. | Explicit reauthorization if supported. |
-| `busy`, `rate-limited`, `provider-unavailable` | Bounded local or remote capacity failure. | Retry only when effect evidence and policy permit. |
-| `cancelled`, `deadline-exceeded` | Work stopped or exceeded its budget. | Inspect any admitted write before deciding on a new command. |
-| `outcome-unknown`, `partial-effect`, `invalid-provider-output` | External effect cannot be represented as normal success. | Inspect or provider-specific reconciliation. |
-| `cursor-expired`, `resync-required`, `result-expired`, `history-expired` | Required retained state or recovery generation is unavailable. | Reread current state or reconcile the old command; do not silently repeat a write. |
-| `internal-error`, `storage-unavailable` | Service cannot uphold its contract. | Safe bounded retry only where no uncertain effect exists. |
+| `Access.authenticate` | Verify session, fixed authentication expiry, current site and configured app context. | Request-local owner scope or denial. |
+| `Connections.authorizeUse` | Personal owner equality or explicit current operator audience; declared mode and immutable provider association. | Current ConnectionUse or non-visible/required-connection failure. |
+| `Access/Connections/Credentials.prepareRequest` | One M09 read projection applies their owned predicates coherently for session/site/config/selection/audience/bundle usability; omit secrets for no-credential mode. | Request-scoped authority and encrypted bundle for one immediate ordinary operation, zero writes or policy shared locks when usable. |
+| `Credentials.checkout` | Consume that snapshot once for the immediate request operation, or freshly check background authority/generations/live claim/deadline. | Scoped immutable snapshot or bounded mutation/renewal/reauthentication failure; no cross-request permission cache. |
+| `Credentials.reserveMutation/publishBundle/recoverMutation` | One current per-connection setup/import/renewal owner and immutable expected bundle pair; publication requires a live processor, recovery fences the recorded interrupted claim and affects only that pair. | Atomic bundle publication, safe release, uncertainty barrier or explicit conflict/stale result. |
+| `Provider.resolveEndpoint` | Interpret only validated configuration/context. | Destination descriptor; Transport checks socket recipient and TLS before credentials leave. |
+| `Jobs.admit/claim/settle` | Atomic uniqueness and [live predicates](persistence-operations.md#transactions-concurrency-and-failure). | Committed transition or explicit conflict/stale result. |
+| `Events.verify/publish/deliver` | Verified source, coherent byte/age bounds and current local audience. | Best-effort live delivery/drop, independent of durable Jobs. |
 
-Error messages and details are service-controlled safe metadata.
-Provider bodies, credential fields, callback query strings, and external account identities do not flow into this common error shape.
+State mutations and background checkout use the scoped lock order and fresh database wall time after waits.
+Ordinary operations use the coherent read-only snapshot boundary, not one transaction per module; fixed expiry is checked again before use, and a later helper operation requires fresh authority.
+Credential publication requires current connection authority; eligible original outcome publication does not require a still-usable provider connection.
+These are distinct interfaces, so disconnect cannot accidentally reject every original result or allow an old renewal to restore secrets.

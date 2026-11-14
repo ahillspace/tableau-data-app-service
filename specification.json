@@ -1,0 +1,201 @@
+{
+  "description": "Complete maintained specification. History and review evidence are excluded from build authority. The board embeds these documents directly.",
+  "documents": [
+    {
+      "id": "goals",
+      "title": "Accepted requirements",
+      "path": "GOALS.md",
+      "kind": "Requirements baseline",
+      "description": "Current accepted product requirements and scope."
+    },
+    {
+      "id": "overview",
+      "title": "Review guide",
+      "path": "planning/README.md",
+      "kind": "Planning overview",
+      "description": "Review order, status definitions, accepted scope and implementation authority."
+    },
+    {
+      "id": "decisions",
+      "title": "Current policies and engineering gates",
+      "path": "planning/decision-register.md",
+      "kind": "Policy and evidence",
+      "description": "D01-D08 distinguish current policy from engineering; E01-E05 require observed evidence."
+    },
+    {
+      "id": "system",
+      "title": "System boundaries and data classification",
+      "path": "planning/system-design.md",
+      "kind": "System design",
+      "description": "Processes, trust boundaries, logical state, failure handling and deployment proof."
+    },
+    {
+      "id": "modules",
+      "title": "Module responsibilities and dependency direction",
+      "path": "planning/module-design.md",
+      "kind": "Module design",
+      "description": "M01-M10 interfaces, state owners, invariants, recovery and extension contracts."
+    },
+    {
+      "id": "api",
+      "title": "Draft API contracts",
+      "path": "planning/api-design.md",
+      "kind": "Wire design",
+      "description": "Current route IDs through A39 with retired IDs omitted, ordinary invocation versus explicit Jobs, caller authority and evidence-dependent surfaces."
+    },
+    {
+      "id": "flows",
+      "title": "Seven end-to-end data flows",
+      "path": "planning/data-flows.md",
+      "kind": "Journey design",
+      "description": "F01-F07 step tables, including ordinary capability invocation without Jobs."
+    },
+    {
+      "id": "plan",
+      "title": "Dependency-ordered implementation slices",
+      "path": "planning/build-plan.md",
+      "kind": "Implementation plan",
+      "description": "Implementation slices, engineering dependencies and observable completion evidence."
+    },
+    {
+      "id": "limits",
+      "title": "Current limitations",
+      "path": "planning/limitations-audit.md",
+      "kind": "Constraints and support gaps",
+      "description": "Current constraints, their user impact, configuration and verification status."
+    },
+    {
+      "id": "product",
+      "title": "Product overview",
+      "path": "planning/product-overview.md",
+      "kind": "Current specification",
+      "description": "Product overview."
+    },
+    {
+      "id": "prd",
+      "title": "Product requirements",
+      "path": "PRD.md",
+      "kind": "Current specification",
+      "description": "Product requirements."
+    },
+    {
+      "id": "architecture",
+      "title": "Application architecture",
+      "path": "architecture.md",
+      "kind": "Current specification",
+      "description": "Application architecture."
+    },
+    {
+      "id": "contracts",
+      "title": "Shared contracts",
+      "path": "specs/contracts.md",
+      "kind": "Current specification",
+      "description": "Shared contracts."
+    },
+    {
+      "id": "access",
+      "title": "Access, connections and credentials",
+      "path": "specs/access-connections.md",
+      "kind": "Current specification",
+      "description": "Access, connections and credentials."
+    },
+    {
+      "id": "providers",
+      "title": "Provider transport, capabilities and optional Jobs",
+      "path": "specs/providers-execution.md",
+      "kind": "Current specification",
+      "description": "Native routing and ordinary reusable code, with explicit durable execution."
+    },
+    {
+      "id": "events",
+      "title": "Events, HTTP and browser SDK",
+      "path": "specs/events-http-sdk.md",
+      "kind": "Current specification",
+      "description": "Events, HTTP and browser SDK."
+    },
+    {
+      "id": "persistence",
+      "title": "Persistence and operations",
+      "path": "specs/persistence-operations.md",
+      "kind": "Current specification",
+      "description": "Persistence and operations."
+    },
+    {
+      "id": "verification",
+      "title": "Verification requirements",
+      "path": "verification.md",
+      "kind": "Current specification",
+      "description": "Verification requirements."
+    },
+    {
+      "id": "readiness",
+      "title": "Implementation readiness",
+      "path": "implementation-readiness.md",
+      "kind": "Current specification",
+      "description": "Implementation readiness."
+    },
+    {
+      "id": "readme",
+      "title": "Specification guide",
+      "path": "README.md",
+      "kind": "Current specification",
+      "description": "Specification guide."
+    },
+    {
+      "id": "task-openspec-changes-native-response-streaming-design",
+      "title": "native-response-streaming / design.md",
+      "path": "openspec/changes/native-response-streaming/design.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-native-response-streaming-proposal",
+      "title": "native-response-streaming / proposal.md",
+      "path": "openspec/changes/native-response-streaming/proposal.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-native-response-streaming-specs-native-response-streaming-spec",
+      "title": "native-response-streaming / specs / native-response-streaming / spec.md",
+      "path": "openspec/changes/native-response-streaming/specs/native-response-streaming/spec.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-native-response-streaming-tasks",
+      "title": "native-response-streaming / tasks.md",
+      "path": "openspec/changes/native-response-streaming/tasks.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-tableau-site-access-design",
+      "title": "tableau-site-access / design.md",
+      "path": "openspec/changes/tableau-site-access/design.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-tableau-site-access-proposal",
+      "title": "tableau-site-access / proposal.md",
+      "path": "openspec/changes/tableau-site-access/proposal.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-tableau-site-access-specs-tableau-site-access-spec",
+      "title": "tableau-site-access / specs / tableau-site-access / spec.md",
+      "path": "openspec/changes/tableau-site-access/specs/tableau-site-access/spec.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "task-openspec-changes-tableau-site-access-tasks",
+      "title": "tableau-site-access / tasks.md",
+      "path": "openspec/changes/tableau-site-access/tasks.md",
+      "kind": "Engineering task",
+      "description": "Bounded engineering work and its acceptance criteria."
+    }
+  ]
+}

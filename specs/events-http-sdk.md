@@ -1,136 +1,255 @@
-# Events and client boundary
+# Events, HTTP, and SDK
 
-Status: proposed module contract.
-Events owns verified ingress and replay; HTTP owns transport validation; the SDK owns client coordination without inventing authority.
+Status: integrated optional Redis/live-delivery and browser wire contracts; implementation and platform verification remain future work.
+Events owns source verification/routing and transient distribution; HTTP owns wire validation and SDK owns the thin browser adapter.
+[Access](access-connections.md) owns identity/audiences, and [Jobs](providers-execution.md) owns durable callback transitions independently of live notifications.
 
-## Event ingress
+## Optional event ingress
 
-Each configured ingress route selects one provider registration and a provider verifier.
-The route identifier is not authentication.
-The HTTP adapter preserves bounded raw bytes and relevant headers for signature verification before parsing untrusted JSON.
-The verifier checks the provider's actual signature/challenge scheme, timestamp/replay requirements and configured secret or public key.
-Unsigned notifications are unsupported unless a separately reviewed authenticated transport proves their source.
-Subscription challenges are distinct from accepted events and must follow the provider's verified challenge protocol.
+Enable events explicitly per deployment; disabled mode constructs no Redis client or connection and requires no broker for startup/readiness.
+A provider declares source identity, signature/challenge/replay verification, native payload interpretation and manual, Data App or service setup ownership.
+Preserve bounded exact raw bytes/headers where verification requires them; reject unsupported verification rather than accept unsigned payloads by default.
+Payload app/owner/source locators are untrusted until mapped through verified source evidence and current stored associations.
+Personal events follow owner equality in verified deployment/site scope; shared sources use explicit current verified-site/user audiences.
+App IDs can filter attribution but never authorize another owner or broaden an audience.
 
-The provider normalizer returns a stable event identity, typed safe event data and a routing key backed by verified payload evidence.
-The events owner maps that key through operator-owned `EventSubscription` and source associations defined in [contracts.md](contracts.md); a payload cannot simply nominate an arbitrary app or holder.
-Each subscription references a registered event schema/version and an explicitly enabled compatible authoritative read capability for resync.
-Configuration rejects a delegated source with an app-wide audience, an incompatible provider/connection, or a resync read unavailable to the target audience.
-Connectionless authenticated sources can use an explicit app audience when their permitted resync read also requires no delegated connection.
-The event deduplication key includes provider registration, source/subscription identity and provider event identity.
-If the provider has no stable event ID, the adapter must declare a deterministic bounded replay key and its collision/retention limitations, or declare reliable deduplication unsupported.
+Verify and route once, then publish a bounded native notification without waiting for every browser recipient.
+Acknowledgement means verified best-effort forwarding acceptance, never browser receipt, durable storage or replay.
+If forwarding is unavailable, return the provider-documented failure response; a healthy publish with zero subscribers is an acknowledged drop.
+An ambiguous publish is recorded as possible loss/duplication and is not automatically repeated by the service; provider redelivery remains possible under its protocol.
+Slow/disconnected subscribers are handled independently and do not hold a provider acknowledgement open.
+No generic dedupe state machine is mandatory; an integration may add a bounded source-scoped cache where stable IDs make it useful.
+Dedupe is neither signature replay protection nor exactly-once delivery, and eviction/restart can admit duplicates.
+Provider events do not launch business Jobs automatically.
+Useful native payload is ordinary event data; a hint-only integration must justify its extra fetch and loss of transient details.
+Job-ID completion hints specifically refer to saved Job state/results and do not define all capability or provider event payloads.
 
-Deduplication admission, audience routing and feed insertion commit atomically before success is acknowledged to the provider.
-Duplicate delivery acknowledges the existing accepted event without adding another feed item.
-Storage failure returns the provider's retryable failure response and never acknowledges an event as stored.
-Normalization is bounded inline work; no raw-event processing queue is required for the initial contract.
-Provider events do not automatically invoke capabilities.
+## Redis transport and live SSE
 
-## Feed and resynchronization
+Redis Pub/Sub completely replaces temporary database event relay/fetch/delete machinery and any Postgres notification transport.
+No raw-event table, outbox, replay archive, Redis Stream or durable delivery queue exists.
+Postgres stores authoritative source associations, audiences and Jobs; Redis stores no durable authority or coordination lock.
+Each API replica has a dedicated subscriber connection plus bounded publishing access where needed; the worker publishes optional postcommit job-ID hints only when events are enabled.
+Every API subscribes before event readiness, including reconnect acknowledgement, and all messages use that receive path, even when published locally.
+Use deployment-scoped channel prefixes and exact subscriptions so one event is not also duplicated through overlapping pattern subscriptions.
+Redis logical database numbers do not isolate Pub/Sub channels, and disconnected subscribers cannot recover missed messages from Pub/Sub ([Redis delivery and scoping](https://redis.io/docs/latest/develop/pubsub/)).
+Channels/audience fields are routing hints only, never authorization.
+
+A durable job transition commits first, then optionally publishes an opaque job ID/revision hint without result/input bodies.
+A subscriber rereads current Jobs state under disclosure authority before forming a browser notification.
+Hint failure cannot roll back a result, delay durable callback acknowledgement or prevent bounded work scans.
+Authentication, proxy, job admission/recovery and task callbacks continue during Redis failure when their own dependencies are healthy.
+Core API readiness must not remove every replica because event readiness is degraded.
+Expose event status separately, fail new event streams/forwarding honestly while unavailable and keep the underlying durable APIs usable.
+
+### One payload and age contract
+
+Events owns one configured logical native payload cap `P` in bytes, enforced on accepted verified ingress and preserved through all forwarding stages.
+For JSON, count the exact UTF-8 serialization of the native data; for a provider-defined raw payload, count its verified raw bytes and declare its media type.
+A raw ingress representation limit may account for signatures/wrappers, but it cannot accept a logical payload that fails only because a smaller downstream logical allowance was invented.
+Bound envelope fields independently and compute transport budgets from `P` and the chosen encoding, including JSON escaping, SSE framing and physical client buffers.
+Use versioned base64url bytes in the internal Redis envelope to avoid unbounded secondary JSON escaping; `N` bytes require `ceil(4*N/3)` unpadded encoded characters.
+The public SSE wire uses the same bounded payload representation plus metadata, and the SDK decodes the native payload once for its callback API.
+Ensure a maximum accepted event fits one supported per-stream message budget or reject incompatible configuration before event readiness.
+Do not truncate native payloads or shrink their allowance through envelope overhead.
 
 ```ts
-type ClientEvent = {
-  id: string;
-  event: EventRef;
-  occurredAt?: string;
-  data: unknown;
-};
-
-type EventPage = {
-  events: readonly ClientEvent[];
-  nextCursor: string;
-  hasMore: boolean;
+type LiveEnvelope = {
+  version: 1;
+  kind: "provider" | "job-hint";
+  eventId: string;
+  sourceId?: string;
+  sourceRevision?: number;
+  jobId?: string;
+  jobRevision?: number;
+  ingressAt: string;
+  expiresAt: string;
+  payloadEncoding?: "base64url";
+  payloadMediaType?: string;
+  payload?: string;
 };
 ```
 
-Use authenticated polling of a durable per-app feed first.
-Every row carries an audience of either the app's explicit service-policy audience or an exact delegated holder/connection association.
-Reads apply current capability, connection and holder policy, including after disconnect.
-They also check the current subscription revision and recovery generation; restored rows or removed subscriptions do not disclose private historical data.
-A provider message concerning a delegated connection is never broadcast to every viewer of the app.
-Only schema-approved minimum data is stored and returned; an invalidation hint is preferred when full provider payloads would disclose unnecessary information.
+The public SSE `event` field is `provider`, `job-hint` or `resync-required`, with one bounded JSON `data` value:
 
-Feed order represents service acceptance order, not authoritative provider occurrence order.
-A per-app counter is advanced under a row lock in the same transaction as insertion, with the lock held until commit.
-This avoids acknowledging a high-water cursor past an earlier uncommitted row.
-When one source event targets several apps, acquire app-counter locks in a deterministic order.
-Notification mechanisms may wake readers later, but persisted rows and cursors remain authoritative.
+```ts
+type PublicLiveData =
+  | { version: 1; kind: "provider"; id: string; provider: string;
+      connectionId?: string; type: string; payloadEncoding: "base64url";
+      payloadMediaType: string; payload: string }
+  | { version: 1; kind: "job-hint"; id: string; jobId: string; revision: number }
+  | { version: 1; kind: "resync-required"; reason: "connected" | "possible-loss" };
+```
 
-Cursors bind app, holder/binding audience, subscription-policy revision, recovery generation and expiry and are integrity protected.
-Changed audience policy or recovery generation returns resync-required; the service does not silently continue a cursor across those histories.
-Pagination advances over a bounded scanned range, including invisible rows, without exposing them.
-The service returns `hasMore` when that scan limit prevents reaching the current head.
-The client retains the last acknowledged cursor and may receive duplicates after interruption; it deduplicates by event ID.
-No single-delivery or exactly-once browser guarantee is made.
+The event name and discriminant must agree; metadata uses the same bounded schemas and computed framing budget, with no private source verifier/account context.
+The SDK decodes provider JSON to native `data` or declared raw data to `Uint8Array`, yielding the [public notification](contracts.md#live-notifications-and-service-errors); it never wraps native proxy responses in this envelope.
+Job hints disclose only authorized identity/revision; the app retrieves JobView/results from authoritative APIs.
+SSE IDs are opaque notification identities, never replay cursors.
 
-When replay state expired, return `resync-required` instead of an apparently complete empty feed.
-To start or recover, the client obtains a fresh feed cursor first, rereads authoritative state through read capabilities, then polls from that cursor and rereads state affected by subsequent invalidations.
-The cursor-before-read order avoids losing notifications during the reread.
-This is eventual resynchronization, not an atomic provider snapshot; a capability requiring stronger consistency must declare a provider-supported snapshot protocol.
-Missed upstream notifications cannot be reconstructed by the feed alone, so registration requires the event definition's compatible authoritative read.
-That read may use client-owned query/filter state; the generic feed does not invent a provider-wide snapshot or reconstruct arbitrary historical queries.
+Provider envelopes require source ID/revision and payload; job hints require only job ID/revision and no result body.
+IDs, media types and all envelope fields have bounded shared schemas; reject unknown versions, invalid combinations and oversized encoded data before allocation/decoding.
+Trusted ingress timestamps are assigned by the service, never copied from provider payload timestamps as authority.
+Configure a maximum event age and measured clock-skew tolerance across replicas; validate expiry ordering and reject implausible future ingress time.
+Check age on subscriber receipt and again before logical delivery; socket/broker buffering is not an event TTL.
+Expired/obsolete queued events are discarded, with safe loss counters.
 
-## HTTP surface
+### Current delivery and backpressure
 
-All routes below use a versioned `/v1` prefix and verified access except the inert landing shell, protocol callbacks and separately verified provider event ingress.
-The path's resource ID never substitutes for authorization.
+On receipt, check source active state/revision and current personal/shared routing before enqueue to each local stream.
+Immediately before beginning each logical SSE event, recheck current session, fixed authentication expiry, enabled verified site and personal/shared audience plus source revision or job disclosure.
+Use current authoritative Postgres reads, batching immediately deliverable recipients without waiting for slow clients.
+Enqueue and logical delivery may share that read only with no intervening wait/async boundary; queued delivery needs a fresh check.
+A cache invalidated only by lossy Redis messages cannot authorize stale delivery.
+Keep no authority locks through network writes; bytes released by a completed check cannot be recalled by a later revocation.
+Private event data is never broadcast merely because the browser named a connection/source ID.
 
-| Route | Contract |
-| --- | --- |
-| `GET /capabilities` | `DiscoveryResult` with permitted definitions, availability and an owner-scoped command window. |
-| `POST /invocations` | Validate and invoke a command; returns its typed result. |
-| `GET /invocations/:id` | Inspect a currently visible receipt/result. |
-| `POST /invocations/lookup` | Read-only lookup using the original command-window token and request key after the response or invocation ID was lost. |
-| `GET /connections` | List only visible safe connection references and states. |
-| `POST /authorizations` | Begin a permitted delegated flow. |
-| `GET /authorizations/:id` | Read its state under the initiating holder association. |
-| `GET /authorizations/:id/landing` | Inert flow shell with no private data; the URL alone cannot launch authorization. |
-| `POST /authorizations/:id/launch` | Verify the same initiating app/holder and current generation, set transaction-specific browser correlation, then return the provider redirect to that browser. |
-| `DELETE /connections/:id` | Local disconnect plus honest remote-revocation status. |
-| `GET /events/head` | Obtain a fresh authorized cursor for initial read or resync. |
-| `GET /events?cursor=...&limit=...` | Read a bounded replay page. |
+Bound publisher pending bytes, subscriber decode/work queues, Redis client output/input buffers, per-SSE queued bytes and aggregate API memory separately.
+Do not await a slow browser in the shared subscriber callback, allocate a full maximum buffer for every idle stream or create unbounded async tasks per recipient.
+Drop/close slow clients under measured queue/stall limits, clear their buffers and signal resync where the transport permits.
+Disable offline publish queues or bound them to immediate failure without retention, and disable automatic retry of ambiguous publishes.
+Reconnect resubscribes for future events, clears obsolete local queues and signals possible loss to affected browsers; never replay cached pre-outage payloads as fresh.
+Broker output-buffer disconnection is an event loss boundary ([Redis client buffers](https://redis.io/docs/latest/develop/reference/clients/)).
 
-The landing shell is the sole public browser-shell exception in this table; launch is always access-protected and follows the selected transport's CSRF/replay rules.
-Static routes such as `lookup` are distinguished from invocation IDs by route registration and ID grammar.
-Lookup bodies and command-window tokens are excluded from logs just like invocation bodies.
-Protocol callback and event URLs belong to configured adapters and do not expose a general provider credential API.
-No public endpoint accepts arbitrary provider URLs, raw service credentials or operator app-registration commands.
+Use private broker access, verified TLS, separate publish/subscribe credentials with deployment-channel ACLs and least-privilege commands.
+Treat Redis as a trusted transient plaintext boundary for private event data; exclude entrusted secrets and body logging, and configure observability without payload capture ([Redis TLS](https://redis.io/docs/latest/operate/oss_and_stack/management/security/encryption/), [Redis ACLs](https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/)).
+No broker persistence is used to promise event retention.
 
-Use 200 for completed inspection/execution, 202 for an already running receipt, 400 for invalid input, 401 for absent/expired binding, 403 for insufficient visible authority, 404 for non-visible resources, 409 for command conflicts or uncertain writes, 410 for expired retained state, 429 for capacity/rate limits, and 502/503 for provider/service unavailability.
-Lookup returns 200 with a typed `not-recorded` result within the original history interval, or 410 with `history-expired` after that interval or a generation change.
-A malformed window is invalid input; a valid window belonging to another owner is non-visible and reveals no receipt.
-The typed result and effect evidence remain authoritative; HTTP status alone never directs a write retry.
-Responses carrying private state use no-store caching and safe correlation IDs.
-Strict body/header limits and schema validation precede domain calls.
-Cookie-based access requires explicit CSRF defenses in the selected access adapter; bearer-based access has its own replay and storage requirements.
-Exact configured CORS origins constrain browser access but are not used as authentication.
+Browser SSE uses authenticated fetch with the current service bearer and AbortSignal; native EventSource cannot supply the chosen arbitrary authorization header.
+Each connection/reconnection sends `resync-required`, with no Last-Event-ID replay contract.
+The app fetches current provider state where supported and reads retained Jobs after lost hints; some events cannot be reconstructed.
+Configure SSE-only comment heartbeats, stall limits and jittered reconnect delays from actual ingress/browser evidence.
+On service 401, the common session manager may restore/renew still-valid authority once before reconnect; true expiry/denial stops reconnect pending explicit identity recovery.
+A native provider 401 is not a service-session failure.
+SSE reconnect never repeats proxy requests or job submissions and never silently switches to normal browser polling.
 
-## Browser SDK
+## Proposed HTTP surface
 
-The SDK accepts the service base URL and a caller-supplied access transport that obtains the chosen trusted binding, including any supported authorization-landing context.
-It provides discover, invoke, inspect, connection status, explicit connect/disconnect, and event polling methods with shared exported types.
-Before sending a command, it retains the discovery-issued command window, timing metadata, request key and exact command in the caller's chosen recovery store or operation handle.
-It does not require persistent browser storage of raw inputs; if the host cannot retain the command safely, automatic resubmission is disabled while key/window lookup remains available.
-Recovery storage lifetime and confidentiality are host responsibilities, not a requirement to persist credentials or create a local account.
-It keeps request keys and windows stable for response recovery and does not silently retry writes with new ones.
-It never downgrades identity, selects a service connection for a delegated capability, or sends provider credentials from browser storage.
+The [API inventory](../planning/api-design.md#endpoint-inventory) maps routes to these canonical contracts; names remain draft compatibility choices.
+Private routes require current verified service authority, configured app context and resource ownership/shared audience, not personal app-use grants.
+Callbacks, registry administration and provider ingress use separate transaction/source/management authority.
+Use POST for setup/launch/import/disconnect, ordinary capability invocation and explicit Job submit/cancel; GET status/result never performs provider work.
+A39 uses current request authority with declared JSON or native body input and returns declared JSON or native HTTP with the same response carrier/error/stream rules, without Job acceptance, progress or persistence.
+New admission returns 202 plus Location and JobView; equal authorized recovery returns 200, changed command 409.
+Private resource responses use no-store; errors use the [shared vocabulary](contracts.md#live-notifications-and-service-errors).
 
-Connection initiation is an explicit user action when the service reports a requirement.
-The browser opens the service landing, which must prove the same app and holder through the selected access adapter before launch sets any correlation cookie or redirects to the provider.
-A copied locator cannot establish the same holder in another browser.
-Popup and top-level variants both preserve that launch proof requirement; unsupported transport/browser combinations return an explicit unavailable flow rather than dropping it.
-The browser validates exact message origin, expected window and transaction correlation and treats any completion message only as a prompt to read server status.
-Popup closure and timeout are distinct from denial or success.
-If popups are blocked, a configured top-level return flow may be used without removing the correlation requirement.
-No account is assumed connected merely because a popup closed.
+The bearer and app path never reach the provider.
+Carry connection selection in `X-Integration-Connection` and native header pairs as base64url UTF-8 JSON in `X-Integration-Request-Headers`.
+Validate once with a shared codec, then enforce Transport's credential-owned fields before injection.
+Raw body/query stays native rather than a universal JSON/base64 body wrapper.
+Reject request hop-by-hop fields, Host, Cookie, Authorization, forwarded/service controls and provider-defined credential/signing collisions.
+Strip response hop-by-hop, Set-Cookie, internal/service controls and upstream CORS policy; preserve remaining useful native fields and intentionally returned provider-created credentials.
+Credential-based cookie providers require an explicit server adapter rather than ambient browser cookies.
 
-The SDK passes cancellation, bounds polling and respects server retry delays.
-If the complete initial response is lost, it first performs read-only lookup with the retained window and key.
-Within the original admission interval, an identical same-window/key resubmission may recover an unrecorded or lost request under server deduplication.
-After admission closes, it performs lookup/inspection only; `not-recorded` never causes a new window/key to be created for the old write.
-After output expiry it exposes `result-expired` and the safe receipt; after history expiry it exposes `history-expired` and requires reconciliation before any intentionally new write.
-Missing window/key metadata, an unknown history horizon, or an access-generation change disables automatic write resubmission.
-Client time estimates may conservatively stop retries early; only server time can admit a command or declare a window expired.
-It surfaces uncertain writes, expired results and resync requirements as explicit application states.
-Optional web components or Tableau wrappers can consume this SDK later.
-The core assumes no access to Tableau's private cookies, no identity proof from Tableau display names, and no unverified browser/version compatibility.
+Configure browser transport for actual package origins, including a verified supported opaque-origin mode where required.
+A null Origin is never identity; credentialless CORS transport can expose bearer-authenticated APIs to supported opaque packages without accepting cookies as ordinary API authority.
+Do not expose cookie restoration to arbitrary null-origin callers; [Access](access-connections.md#recommended-session-prototype) owns the stronger transaction/client binding and its evidence gate.
+Use no-store and Vary: Origin with appropriate explicit expose headers; no shared CDN private-body cache.
+CORS preflight OPTIONS is local and never dispatched, while an authorized native OPTIONS remains a provider request.
+The opener validates service origin/window/transaction; the service does not pretend an opaque opener has an exact app origin.
+
+## Native request carrier
+
+M10 automatically sends POST to the same proxy route with `X-Integration-Method: GET` or `HEAD` when the requested native method has a supplied body, including an explicitly supplied empty body.
+The public ProxyRequest and signal option do not change, and no endpoint registration or per-call transport option is required.
+M08 accepts that control only on the authenticated proxy POST route, only once and only with GET or HEAD; other values, duplicates or use on another method/route are invalid wire input.
+M08 consumes the control and passes the original method separately to M05, which sends that method and the raw streamed body upstream after the ordinary authorization/destination checks.
+Without the control, POST remains an ordinary native POST.
+The service does not reinterpret a native request body as JSON/base64 or use query/body fields as alternate method controls.
+The carrier has the same no-store, CORS, authority and no-replay rules as other proxy requests.
+
+For FormData, leave the physical Content-Type unset in the SDK so the browser generates the multipart boundary, and forward that generated Content-Type with the unchanged multipart bytes.
+Reject a caller-supplied provider Content-Type with FormData rather than sending a mismatched boundary; raw pre-encoded multipart bytes may instead carry their explicit native Content-Type.
+For other body types, a valid explicit provider Content-Type takes precedence over a browser-generated default; otherwise use the physical body's generated type when present.
+Only this body Content-Type default is imported from browser request headers; other provider fields come from the validated tunnel, not arbitrary ambient browser headers.
+M08/M05 regenerate correct outbound framing rather than trusting a caller-supplied Content-Length or Transfer-Encoding.
+No file-wide conversion or server body accumulation is needed to select the carrier.
+
+## Native response carrier
+
+M05 disables automatic upstream redirect following.
+M08 uses a 200 HTTP carrier for every provider status from 300 through 399 and for every response to a tunneled HEAD request; other supported final responses retain their native service-wire status.
+This also carries a bodyless 304 without confusing it with an instruction to follow a redirect.
+The reserved `X-Integration-Response-Metadata` control contains base64url UTF-8 JSON `{version: 1, status, headers}`, where `headers` is the filtered native name/value pair list.
+M08 alone sets this control and `X-Integration-Origin: provider`, and explicitly exposes both through CORS.
+The metadata contains only the supported final status and safe native headers after secrecy/transport filtering and private-response policy; no body, credential or arbitrary destination authority is embedded.
+M10 validates its version, shape, bounds and status against the originating request, then constructs a Response with that status, filtered headers and the carrier body stream.
+The metadata cannot supply reserved control fields; M10 adds `X-Integration-Origin: provider` from the validated physical carrier and consumes the metadata control rather than exposing it as a native provider field.
+Supported final statuses are 200-599, with null bodies for HEAD and bodyless statuses; informational responses are not final SDK Responses and protocol upgrades are unsupported.
+A metadata carrier is valid only with physical status 200 and origin provider, and its status must be 300-399 unless the original request used the HEAD carrier.
+Invalid metadata is a protocol failure, cancels/releases the carrier body and rejects without replay.
+
+For a body-bearing carrier, send the same raw encoded representation as the ordinary proxy, with the actual Content-Encoding and valid Content-Length on the physical carrier when known.
+The browser performs its normal content decoding once; M10 passes the resulting stream directly to the Response constructor and never decodes it again based on the metadata's Content-Encoding.
+Native Content-Encoding/Content-Length in the reconstructed headers describe the transferred representation, as they can on an ordinary Fetch response, rather than promising the size of browser-exposed decoded bytes.
+Do not put original encoding only in metadata while sending encoded bytes without a physical Content-Encoding; that would expose compressed bytes as ordinary native content.
+For upstream HEAD or a bodyless native status, the carrier has no payload and no physical Content-Encoding or nonzero native Content-Length; retain permitted representation metadata only inside the control and construct the native Response with a null body.
+This matters when the browser sent POST for an upstream HEAD: its native representation length must not frame a nonexistent POST response payload.
+Avoid duplicate native header emission on the carrier except fields needed for correct representation transport; carrier no-store, CORS and framing are service-owned.
+Metadata is bounded before commitment, while body forwarding remains incremental with backpressure and abort propagation.
+
+The synthetic Response has an empty `url`, `type: "default"`, `redirected: false` and empty `statusText`; applications inspect native status/headers/body rather than infer a provider fetch history from those properties.
+The SDK uses browser `redirect: "error"` for the service request so an unexpected front-door redirect fails without following a bearer-bearing request or returning an opaque success.
+Provider redirects are observable HTTP responses under this carrier contract, not SDK rejections or automatic retries.
+Safe Location disclosure is independent of authorization to follow it; future controlled server following uses the distinct M05 extension contract.
+
+
+## Header budgets and control integrity
+
+HTTP owns one shared codec/validator and one supported transport-budget profile derived from actual browser, runtime, provider-client and ingress limits.
+Compute encoded controls and complete physical header sizes from validated native fields and bounded service overhead; do not maintain independent contradictory negotiated allowances.
+Provider discovery may expose the nonsecret supported profile for SDK known-input validation without a new endpoint or caller override.
+The SDK cannot predict browser/intermediary-added fields; server/parser/ingress enforcement remains authoritative.
+
+Validate HTTP field syntax and byte values, CR/LF rejection, bounded pair count/decoded aggregate, exact UTF-8 JSON escaping and base64url expansion.
+For an N-byte serialized value, budget `ceil(4*N/3)` encoded characters plus field names/framing and verified headroom for authorization, CORS, tracing, boundaries and other physical headers.
+Response accounting includes raw upstream parser limits, filtered metadata, encoded carrier controls and any representation headers also emitted physically.
+Header compression does not enlarge the supported decoded header list.
+Bound encoded input before decoding and allocations, and reject oversize upstream metadata before downstream commitment while closing its resources.
+
+Reserve every `X-Integration-*` control case-insensitively, reject duplicates/malformed versions and strip provider spoofing before generating adapter controls.
+Control fields never reach the provider; neither caller headers nor provider metadata can alter service identity/method/origin rules.
+Known invalid SDK input fails before dispatch; service handlers use 400 for malformed controls, 431 for request-header excess and 502 for invalid/oversize upstream headers.
+Never truncate or silently drop useful native headers to fit a profile.
+Early parser/ingress rejection may yield unmarked HTTP or connection failure rather than service JSON, and does not prove no provider effect.
+Verify the full path in both directions.
+Protocol facts follow [Fetch](https://fetch.spec.whatwg.org/), [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html) and [Node HTTP](https://nodejs.org/api/http.html#httpmaxheadersize); these facts are not implementation evidence.
+
+## Embedded browser SDK
+
+Include the framework-independent SDK directly in the Data App package, with one service client and optional jobs/events modules.
+Reuse one session/handoff manager and one carrier codec; generate public resource types from one maintained schema source, keeping server secret/claim types out of the bundle.
+Expose discovery, explicit connect/static setup/disconnect, native `request`, ordinary capability `invoke`, explicit job submit/list/get/result/cancel and live subscription.
+`invoke` accepts CapabilityInvocation and AbortSignal, reuses native body/header controls or serializes declared JSON arguments, and returns Response at headers; it does not generate a submission key, retain commands or poll a Job.
+A missing HTTP entrypoint fails explicitly; neither a slow call nor a large response falls back to Job submission.
+The developer explicitly chooses `submitJob` only for a registered durable entrypoint and its retained outcome contract.
+Page-local cleanup is separate from server signout, which is not a product surface.
+The SDK returns native Responses/streams without default whole-body parsing or endpoint wrappers.
+Whole-body `json()`, `text()` or `blob()` is an explicit app choice, not a large-media workaround supplied by the service.
+
+Generate a new bounded opaque key only for a new logical job; retain the exact command/key for explicit lost-admission recovery.
+Use the current-owner job collection to rediscover retained work without storing private commands as long-lived browser secrets.
+Expiry/interruption and cancellation status never instruct hidden business retry.
+Session renewal may reconnect SSE but cannot replay provider calls or slide verified authentication time.
+Safe connection readiness and deliberate provider account replacement are explicit; popup closure never means connection success.
+HTML media/download navigation cannot simply attach fetch bearer headers, so actual authorized media consumption remains D04 evidence work without a reusable query-bearer shortcut.
+Data Apps own returned data and deliberate cross-provider behavior; no external backend consumer or outbound notification fanout is added.
+
+## Source lifecycle state and execution
+
+Events persists source ID, provider registration, setup owner, verified account routing, optional connection/authority generation, source revision, state and any provider expiry/renew-after time.
+Store personal owner/site or explicit operator setup authority, independently of app attribution and browser streams.
+States are `configured`, `active`, `attention-required` and `retired`; verified setup/routing is required before active delivery.
+Manual/Data App-owned setup has no automatic lifecycle hooks unless the provider specifically requires them.
+Native setup calls alone cannot publish service audience associations.
+
+Only configured service-managed create/renew/retire runs through the existing worker scheduler with bounded I/O/cleanup and a source claim containing token, incarnation, lease and expected source/connection revisions.
+Use a durable `claimed`/`may-have-dispatched` phase before mutating external hooks, current checkout at dispatch and conditional result publication after validation/encryption outside locks.
+An expired undispatched claim is replaceable; an expired or lost possibly-dispatched mutating hook becomes attention-required unless documented provider-safe recovery exists.
+A short lease never proves that remote subscription creation/renewal did not occur.
+No blind duplicate recreation, universal subscription engine or separate scheduler is introduced.
+
+Retirement atomically disables local routing and advances source revision before any best-effort remote cleanup; stale callbacks/hook results cannot restore it.
+Disconnect/account replacement retires only its bound sources; provider-wide sources follow their own owner.
+Source expiry/attention cannot report healthy delivery, and current source revision is checked again at logical browser delivery.
+No revoked secret is retained for later cleanup.
+Future stronger delivery or isolation needs a justified extension; these contracts promise bounded lossy live distribution only.

@@ -1,106 +1,238 @@
-# Design and future implementation verification
+# Verification and evidence boundaries
 
-Status: revised design checks following independent review; no application tests or live integration checks have been run.
-The current artifact is a specification, so initial verification consists of consistency review, source provenance, link checking and independent scenario walkthroughs.
-The matrix below defines evidence a later implementation must produce.
+Status: executable future acceptance plan for the accepted architecture; no application test below has run.
+This document owns proof obligations, while component specifications own behavior.
+User architecture acceptance includes the initial worker-wide interruption tradeoff; independent document convergence, implementation verification and delivered user acceptance remain separate.
 
-## Synthetic fixtures
+## Existing evidence and limits
 
-Provider Cedar has no-credential reads, a delegated authorization-code connection, rotating refresh credentials, a paginated read and a keyed write.
-Provider Flint has an operator-managed service API key, a derived short-lived credential, a non-expiring credential option and signed invalidation events.
-These are invented protocol fixtures, not claims about real products.
-The same generic value-read/value-update shapes exercise both providers without embedding messaging, CRM or workflow semantics.
-The test boundary supplies verified app and holder contexts; negative tests use untrusted wire input and must be rejected.
+The [published Cloud observation](specs/access-connections.md#published-identity-evidence), captured on 2026-11-12 UTC with Extensions API 1.19.0 and Tableau 2026.3.4, initialized a Data App and exposed an opaque uniqueUserId without connectedServer identifiers or Extensions fetch.
+A separate top-level login completed backend-verified OIDC and a Tableau site session returning stable site/user IDs for the authorizing account.
+It did not prove silent restoration/reauthentication, account switching, media, long-term sessions, cross-app continuity, the proposed service handoff or Tableau Server compatibility.
+It did not compare to the embedded viewer, and such equality is not required.
 
-## Goal coverage
+Earlier isolated transport probes observed browser manual-redirect opacity, GET-body Fetch rejection, a synthetic POST carrier reaching an upstream GET with body, raw versus decoded gzip behavior and header-tunnel expansion beyond a tested runtime parser limit.
+Those observations motivate the native carrier/representation contracts but do not verify this service, real provider/intermediary support, published Tableau transport or deployed ingress.
+No runtime queue/load/database/Redis/host/key-recovery test is claimed from source inspection or these primitives.
+Historical reviews certify only their frozen source/evidence scope.
+Document hashes, links, semantic review and local viewer/export checks establish a reviewable artifact, not application support.
 
-| Goal | Journey and required observation | Main owners |
-| --- | --- | --- |
-| 1. App discovery | Two configured apps receive only their enabled capability versions; disabled or unverified apps cannot discover private configuration. | Access, registry, HTTP. |
-| 2. No credentials | Cedar public read completes without holder, connection creation, provider login or secret lookup. | Execution, provider. |
-| 3. Service identity | Flint service capability uses the exact app binding; a browser-selected replacement connection is rejected. | Access, connections. |
-| 4. Delegated identity | Missing holder and missing connection produce distinct requirements; explicit authorization creates an app/holder-owned connection without a user profile. | Access, connections, SDK. |
-| 5. No ID-based authority | Another app or holder cannot list, use, disconnect, inspect results for, or receive events about the connection by knowing its ID. | All resource readers. |
-| 6. Credential variants | Known expiry, no expiry, unknown expiry, API key and derived credentials each follow their declared lifecycle; unsupported behavior fails before dispatch. | Credentials, provider. |
-| 7. Races and ambiguity | Concurrent refresh has one owner; disconnect wins over stale refresh; interrupted exchange and ambiguous write never become unproven success or automatic replay. | Credentials, execution, persistence. |
-| 8. Typed reads/writes | Input/output validation, page limits, cursor binding, cancellation, request budgets and write retry policy are exercised through the HTTP/SDK path. | Registry, execution, HTTP/SDK. |
-| 9. Events and resync | Invalid signatures fail; duplicates create one event; lost browser delivery replays; expired replay returns resync-required and rereads authoritative state. | Provider, events, SDK. |
-| 10. Second provider | Add Flint registration/driver/handler with existing seams and no change to Cedar logic or public API shape. | Composition root and module owners. |
+## Harness and release scope
 
-## Cross-module failure checks
+For later authorized implementation, use real Postgres and two API replicas; exercise two worker replicas when validating background execution/core maintenance and real Redis only where events are enabled.
+Ordinary native/capability tests must run without Job admission/handlers or Redis, while the accepted topology's bounded core maintenance remains owned.
+Use controlled synthetic providers and process/network fault injection so external sends and invocation counts can be observed independently of local job state.
+Cedar exercises shared OAuth/rotating tokens, two approved account-specific instances, native writes/files and external tasks.
+Flint exercises static/operator/derived credentials and only the event source lifecycle needed by its fixture.
+Extend fixtures as features are implemented; use Slack for the first real native/provider capability example while keeping the exact bespoke feature unselected and provider code outside core.
+Use actual published Cloud and Server Data Apps for platform claims, with the supported adapter/deployment/browser/CSP configuration recorded.
+Test only relevant implemented features for each slice, then the complete supported journey before full-product completion.
+Never enable a synthetic identity adapter in production configuration.
 
-- Expire or revoke access after discovery and again after receipt admission; the next dispatch and result disclosure recheck authority.
-- Race two identical invocation commands, then reuse the key with changed input; observe one handler and an explicit conflict.
-- Change a configured service connection after an invocation, then retry its key; observe the original receipt and no new identity selection.
-- Lose a write response, then inspect by request key; observe the same invocation even when the client never received its ID.
-- Kill the process immediately before and immediately after the write marker; observe no-effect interruption versus uncertain effect, with no automatic execution on restart.
-- Return provider success with an invalid output shape; observe applied-effect failure and no blind retry.
-- Complete one of two writes and definitively reject the second; observe a partial-effect result rather than atomic success/failure fiction.
-- Lose a rotating refresh response and expire its claim; observe renewal-uncertain and no second refresh using the old token.
-- Disconnect while renewal or reauthorization is in flight; stale completions cannot restore a credential or usable connection.
-- Replay a callback, swap issuer, omit browser correlation, or reauthorize a different external subject; each attempt fails without replacing the old connection.
-- Begin authorization as holder A, transfer the landing locator to B, and reject B at the authenticated launch check before issuing a correlation cookie or provider redirect.
-- Launch a legitimate new popup with the same verified app/holder and complete two concurrent transactions with independent correlation cookies and one-time callback claims.
-- Race authorization completion against app disable; no connection is published under disabled policy.
-- Attempt endpoint authority replacement, a forbidden redirect and DNS address substitution; credential-bearing traffic never reaches an unauthorized destination.
-- Present a cursor under another holder, connection epoch, query or capability version; reject it without disclosing provider pagination state.
-- Change page size or supply a private provider token as the public cursor; reject before provider dispatch.
-- Return a handler-supplied public nextCursor instead of private continuation; reject without leaking it into output or the receipt.
-- Delay a feed transaction while another event arrives; no returned high-water cursor skips the uncommitted event.
-- Filter private feed rows while paginating; advance safely without exposing the other holder's data or falsely indicating completion before the scan limit.
-- Fail the database between event verification and commit; do not acknowledge durable acceptance.
-- Fail final receipt persistence after provider success; retain uncertain durable evidence and suppress a second execution.
-- Expire output while retaining a command tombstone; report result-expired without reexecuting the write.
-- Restore before a disconnect, completed write and acknowledged feed position; reject old authority/history references across private reads, callbacks, admission and dispatch, not only outbound execution.
-- Under fresh access after recovery, reject old-generation command windows and provider cursors and return resync-required for old feed cursors even if their wall-clock expiry has not passed.
-- Remove an event subscription or make its resync capability unavailable; reject invalid configuration and prevent old audience cursors from continuing unchanged.
+## V01 - Platform identity, handoff and sessions
 
-## Revised contract walkthroughs
+Owner: Access/HTTP/SDK, E01 and B01/B03.
 
-### Private pagination
+- [ ] Document official supported registration, callback mode, endpoint and backend deployment/site/user verification for each Cloud/Server adapter; reject browser ID/email/unsigned claims as owner evidence.
+- [ ] Run two apps/two owners across both platforms with login, reload, new tab, return, browser restart, blocked/partitioned storage and deliberate account switching; verify correct owner resources and no app-use grant requirement.
+- [ ] Move transaction creation, callback and redemption across API replicas; transfer locators, swap state/issuer/callback/window and race duplicate redemption, proving no unbound attachment or bearer release.
+- [ ] Exercise actual opaque/null origins: opener verifies service origin/window, service uses supported correlation, and a cookie plus an arbitrary null-origin initiation proof cannot mint bearer access.
+- [ ] Evaluate silent hardening only with a simple transparent prototype and record UX/browser/embed/performance impact; CHIPS alone and browser ancestry assertions are not binding proof, and no approval screen or new Tableau feature may be assumed.
+- [ ] Demonstrate returning-client binding and the actual restoration/renewal mechanism; if absent, report the incomplete requirement rather than claiming a cookie candidate works.
+- [ ] Verify seven-day (604800-second) configurable authentication expiry immediately before/at/after the boundary, including repeated activity/refresh; expired bearer alone fails, newly verified authentication may create new authority.
+- [ ] Exercise normal access renewal during provider consent versus true session revocation/expiry, concurrent tabs and wrong owner/site; clear old page views before displaying deliberately established new identity.
+- [ ] Record actual consent/MFA/gesture prompts and whether reauth can be silent; verify page closure does not disconnect providers/cancel jobs and adds no service signout UI.
 
-The SDK sends base input, a bounded page size and no cursor for the first page, with a fresh request key and valid command window.
-HTTP validates the public envelope; execution validates the base input and passes only the page size to the handler.
-The handler maps the provider page to `{ value: { items }, continuation }` without knowing caller ownership or cursor cryptography.
-Execution protects that continuation with the query digest, caller/connection/generation bindings and expiry, inserts the resulting public cursor, validates the full `Page<T>` and persists the result.
-For the next page, the SDK uses the same base query and page size with a new request key and the returned public cursor.
-Execution validates and unwraps it before passing private continuation to the handler.
-Substitution of holder, query, page size, version, connection epoch or generation fails before provider I/O.
+Pass evidence includes actual platform/browser records and negative tests; no viewer-equality or new Tableau feature-request prerequisite is added.
 
-### Complete write response loss and retention
+## V02 - Registry and personal/shared authority
 
-Before sending, the SDK retains window W, its admission/history/output timing metadata, request key K and the command in its chosen operation handle.
-The service admits W/K, the provider applies the write, and the entire HTTP response is lost.
-Lookup with W/K within the history interval returns the same receipt; an identical resubmission within the admission interval cannot create a second handler.
-After output expiry but before history expiry, lookup returns result-expired with the receipt and performs no write.
-After history expiry, lookup returns history-expired and submission with W/K cannot create new work even after the tombstone is deleted.
-The SDK requires reconciliation and does not replace W or K automatically.
-If the original request was not yet admitted, not-recorded permits only same-window/key recovery while admission remains open; after that it remains a lookup/manual-reconciliation path.
-If W or K was lost, the SDK cannot infer a safe retry horizon and disables automatic resubmission.
+Owner: Access/Connections/Persistence, B02.
 
-### Restore across stale authority and history
+- [ ] Register configured deployment/site IDs concurrently with a registry-only credential; verify one record, atomic attribution, no implicit re-enable and no identity-field patch/migration.
+- [ ] Reject ordinary viewer/provider credentials, forged email headers and arbitrary issuer/discovery input on management routes; registry credentials cannot call private provider APIs or impersonate users.
+- [ ] Admit any verified email domain on an enabled site; distinguish the same site/user IDs under different deployments and prove controlled URL alias changes require continuity evidence.
+- [ ] Use one owner's personal connection/job across configured apps without new personal bindings; deny another owner and verify app ID changes cannot broaden shared authority.
+- [ ] Add a site and race explicit shared-site/user audience inserts/deletes against checkout/start/disclosure, including absent membership; only explicit current audience grants access.
+- [ ] Disable/re-enable a site during sessions, queued/running work and events; next site-bound checks deny without deleting retained results or claiming cancellation of already-dispatched work.
 
-Stop the service, close the external recovery gate and advance its generation before opening a restored database.
-A restored active connection that was later disconnected remains quarantined; no private result or feed read can use its restored flag as authority.
-Old callbacks cannot install credentials, old access cannot read private data, and old command windows cannot recreate writes whose receipts fell into the backup gap.
-The operator reviews current policy, quarantined credentials and missing-write disposition before initializing and opening the new generation.
-New delegated/service connections are explicitly authorized/provisioned, and clients obtain fresh access and resync from a new feed head.
-An old position-100 feed cursor is rejected even when the restored counter was 90, so newly accepted 91-100 events cannot be silently skipped under that cursor.
+## V03 - Provider setup, context and reauthorization
 
-## Required implementation evidence
+Owner: Connections/Credentials/Providers/Persistence, B04/B08.
 
-Use real Postgres integration tests for unique claims, conditional updates, commit ordering and restart behavior; in-memory mocks cannot establish those guarantees.
-Use a controlled external HTTP fixture for credential rotation, idempotency, redirects, cancellation and deliberate response loss.
-Exercise the actual Fastify routes and browser SDK together, then inspect the rendered connection and uncertain-result states in a browser.
-Run project-selected type checks, formatting, lint and meaningful tests before a later implementation is described as complete.
+- [ ] Exercise personal OAuth/static, operator OAuth/static and derived/no-credential modes with protected setup, current authority and no personal-to-shared fallback.
+- [ ] Connect two accounts under one registration with different approved instances; atomic bundles never combine one credential with another context/destination.
+- [ ] Fail required discovery on new setup, replacement and post-rotation renewal; affected endpoints remain unready and possibly invalidated old tokens are not reported usable.
+- [ ] Race callback/import/discovery publication against cancellation, session expiry, replacement and disconnect; stale claims/generations cannot install secrets or revive routing.
+- [ ] On two API replicas and a worker, begin two setups/imports against one authority generation and race setup against renewal; only one shared mutation reservation reaches provider work, conflicts are explicit, unrelated connections progress, and no database connection/lock is held during consent, discovery or bounded contender waits.
+- [ ] Delay old setup discovery across verified same-account publication and attempt late commit: immutable captured credential generation plus mutation owner must reject it even when authority generation is unchanged; deliberate identical-byte revalidation still advances credential generation.
+- [ ] Crash/cancel/expire setup before dispatch, after possibly invalidating exchange/launch and after exchange before required discovery; prove pre-dispatch old-bundle preservation, cumulative invalidation across browser/discovery phases, and unusable uncertainty only for the still-matching expected bundle.
+- [ ] Resolve uncertainty with documented safe recovery or a proven independent explicit replacement, then deliver old publication and old recovery scans; neither may overwrite, clear or poison the new bundle/reservation. Without independence evidence, reject automatic renewal and unsafe replacement even after time passes or a new login.
+- [ ] Move a verified callback to another API after an explicit browser-wait handoff; a fresh active processor may continue the same reservation, while expired active claims cannot authorize uncertain exchange replay.
+- [ ] Reauthorize with verified same-account/client/destination/grant continuity: authority generation remains, credential generation and deliberate reauth time advance, queued freshness-blocked work unblocks.
+- [ ] Repeat with unknown/different account or incompatible continuity: generation changes and old jobs cannot inherit new identity.
+- [ ] Leave connector interval unset and verify no invented periodic expiry; when configured, refresh does not reset it, while supported deliberate static revalidation and derived-base behavior follow the declared contract.
+- [ ] Add a second ordinary provider using configuration/necessary hooks without duplicating routes, storage, renewal or existing provider logic.
 
-Real-provider acceptance separately records supported grant modes, endpoint/identity evidence, renewal rules, permission enforcement, pagination consistency, provider key lifetime and event retry behavior from official documentation and observed tests.
-Tableau acceptance separately records tested Cloud/Server versions, hosting mode, supported browsers, popup/top-level authorization return, network/CORS behavior and the chosen request-binding transport.
-Until those checks occur, compatibility remains an explicit external dependency.
+## V04 - Renewal uncertainty and entrusted secrets
 
-## Review evidence
+Owner: Credentials/Persistence, B04.
 
-The unchanged independent initial proposal is preserved under [design/astra-initial](design/astra-initial/architecture.md), with its [initial manifest](reviews/astra-initial-frozen.json).
-The [independent review](reviews/astra-initial-independent-review.md) identifies the four cross-module corrections, and the [revision disposition](reviews/astra-revision-disposition.md) records how the architecture owner resolved them.
-The revised canonical source has its own [manifest](reviews/astra-revised-source.json); historical comparison and review records remain outside that source digest.
-These records establish which documents were inspected, not runtime correctness, a tested restore procedure or user acceptance.
+- [ ] Verify one mutation representation owns setup/import/renewal revision/processor/dispatch authority, combined prepared reserve/dispatch preserves the pre-I/O invalidation marker, and publication returns coherent state without redundant fetch.
+- [ ] Concurrent API/worker requests for the same revision produce one coordinated renewal; unrelated connections progress independently, with bounded waits and no held pool connection during backoff.
+- [ ] Kill before and after may-have-dispatched commit, lose rotating-token response, expire a live attempt and deliver late success; only an expired undispatched claim can be replaced without ambiguity recovery.
+- [ ] Return successful rotation then fail required-context discovery/validation/publication; preserve unusable uncertainty and reject late token/context revival.
+- [ ] Race renewal against setup/import, disconnect/new generation/deadline/claim fencing; require current shared mutation ownership, exact token/incarnation/lease and both generations at publication, with explicit zero-row stale outcome and no poisoning of newer independent material.
+- [ ] During the current mutator's potentially invalidating dispatch, deny new old-bundle checkout while retaining its eligible publication authority; verify started-job renewal still uses original account/current authority after ordinary session/connector freshness expiry.
+- [ ] Exercise known/non-expiring/unknown/static/derived credentials and omitted refresh-token semantics through supported provider evidence.
+- [ ] Attempt entrusted-secret retrieval/logging/context export and helper-derived output; protect them while allowing intentionally returned native provider-created credentials without generic classification/scanning.
+- [ ] Verify failed credential repair never automatically repeats the original business request.
+
+## V05 - Native HTTP, files and media
+
+Owner: Transport/HTTP/SDK, B05/B08.
+
+- [ ] Run native JSON/text/binary/multipart, repeated query/header fields, errors/rate limits/paging and browser-selected local files through actual service/SDK; no capability wrapper or local filesystem path is required.
+- [ ] Supply empty/nonempty GET/HEAD bodies and FormData: automatic POST carrier reaches original upstream method/body, browser boundary remains correct and conflicting Content-Type/duplicate controls fail before dispatch.
+- [ ] Inspect 301/302/303/307/308 and other 3xx plus bodyless 304 through physical 200 carrier, with native status/safe Location and zero follow-up; unexpected front-door redirect rejects.
+- [ ] Verify ordinary/tunneled HEAD and bodyless status framing with large representation metadata, null SDK bodies, synthetic Response properties and browser header normalization.
+- [ ] Use gzip and ranges to verify unchanged encoded bytes, actual physical encoding/length, one browser decode, 206 partial accounting, 416/validators and no decompression/recompression mismatch.
+- [ ] Exercise one shared header profile at/beyond actual runtime/ingress request/response limits, including JSON escaping/base64url expansion, unknown browser-added fields and case-insensitive control/credential spoofing.
+- [ ] Confirm oversized metadata fails honestly before commitment, no silent header truncation, and early unmarked HTTP/network failures do not promise service JSON or no provider effect.
+- [ ] Probe relative-path/authority/base-path escapes, DNS changes at socket connection, TLS failures, provider-context substitution and credential header/query collisions; explicitly configured private providers work while metadata/control redirection fails.
+- [ ] Preserve intentional native new-credential results, while a specifically known entrusted-secret retrieval exception prevents the actual stored authenticator from leaving.
+- [ ] Deliver first chunk before EOF; generate long/large transfers with fast/slow concurrent readers, uploads and provider-native HTTP streams, without arbitrary total response cap or SSE envelope injection.
+- [ ] Stall connect, headers, upstream and downstream independently; healthy progressing streams survive beyond short wait windows, while abort/late failure releases resources without appended JSON or replay.
+- [ ] Prove actual authenticated image/video/download consumption and range seeking in published Cloud and Server through selected ingress; no whole-video Blob or reusable query-bearer shortcut stands in for the required journey.
+
+Measure resident memory, byte queues, sockets, time to first byte and cleanup, rather than infer boundedness from a mocked stream.
+
+## V06 - Admission, scheduling and execution claims
+
+Owner: Jobs/Persistence, B06.
+
+- [ ] Race equal semantic commands with reordered JSON properties and bounded non-UUID keys across APIs; one durable input/metadata row results, changed input/version/selection conflicts and another owner cannot recover it.
+- [ ] Lose admission response, change automatic defaults, disconnect the connection or retire executable code while retaining comparison schema; equal current-authority recovery returns the original job before new selection/allocation.
+- [ ] Enforce 100000000-byte input/result boundaries and lower trusted limits with exact serialized accounting; reject caller overrides and invalid config without a smaller hidden parser/default allowance.
+- [ ] Kill the producer immediately after commit and drop every optional Redis hint; bounded scans/startup/reconnect/capacity-release scheduling still discover committed queued/due work.
+- [ ] Run multiple workers with due-time ordering, bounded scans and no private started-job prefetch; confirm one live claim and bounded observation fairness.
+- [ ] Kill at running commit before invocation, after remote effect and before result commit, and during uncertain persistence; expired initial claims report interruption and never replay automatically.
+- [ ] Exercise author-opted finite retries only after settled/disposed failure, retaining original identity/deadline and never resubmitting an attached task.
+- [ ] Fail actual resource allocation/database commit/disk writes; never report uncommitted durable acceptance or add pending-count/future-result reservations.
+
+## V07 - External waits, cancellation and deadline races
+
+Owner: Jobs/Providers, B06.
+
+- [ ] Persist a provider task ID, release attempt resources, restart workers and recover read-only observation without initial invocation; lose an observer lease and repeat only observation.
+- [ ] Deliver authenticated early callback using prebound correlation before handler return; attach/settle once and reject late superseded handler/observer writes.
+- [ ] Test no-prebinding providers with documented lookup/redelivery, and reject supported-tracking claims for callback-only providers lacking recovery; send-before-ID persistence remains explicit unknown outcome.
+- [ ] Expire ordinary browser/connector freshness during started work and verify original account/current authority continuation, while new submission/start fails freshness and never switches accounts.
+- [ ] Disconnect during started work: later checkout fails, but eligible original outcome/callback without new credentials commits and saved results remain readable under current disclosure.
+- [ ] Queue initial work past 24 hours without starting: no queue-age expiry; first start sets the configured deadline once, with external waits/retries included and no reset by progress/refresh/config changes.
+- [ ] Race queued cancellation/start and running cancellation/success/callback/deadline; first eligible terminal state/time/result remains immutable and timeout does not set user-requested cancellation.
+- [ ] Return a task ID while cancellation races submission; retain verified original identity only before the fixed cleanup deadline under the original invocation binding, rejecting wrong tokens, changed task IDs and late results without reviving execution.
+- [ ] Delay maintenance and test before/equal/after deadline for claims, checkout, heartbeat/progress, attachment and outcome, including a lock wait crossing expiry; late non-timeout advancement is rejected.
+- [ ] Exercise post-terminal remote cleanup with its separate deadline/claim and original account: issued marker commits before send, crash after marker never repeats uncertain cancel, expired undispatched claim can be safely fenced/reclaimed.
+- [ ] Verify remote unsupported/unavailable/unconfirmed/confirmed evidence, revoked credential denial, bounded cleanup expiry and immutable terminal completion/retention.
+- [ ] Disconnect Redis throughout callback acceptance, cancellation and external observation; durable Jobs transitions remain independent.
+
+## V08 - Real Postgres authority predicates
+
+Owner: Persistence with Access/Connections/Jobs, B02/B06.
+
+- [ ] Race transactional background checkout/start/final-result-disclosure locks against exclusive site/provider/session/connection changes, including ordinary non-key updates; FOR KEY SHARE must not accidentally replace required FOR SHARE.
+- [ ] Insert/delete absent shared audience membership while transactional readers hold its parent; no missing-child race grants or preserves unauthorized access.
+- [ ] Exercise peer-ID ordering, lock timeout/deadlock rollback, explicit zero-row stale results and pool release between retries, with unrelated connection progress.
+- [ ] Begin a transaction before lease/deadline expiry and block its required lock until afterward; fresh database wall time rejects advancement rather than transaction-start time granting grace.
+- [ ] Reuse obsolete claim token, wrong incarnation, expired lease, wrong authority/credential generation and superseded source revision; each conditional mutation fails explicitly.
+- [ ] On usable A18, instrument one coherent authorization/bundle read with zero logical writes or policy shared-lock commit; race site/session/provider/audience/connection revocation committed before versus after its statement snapshot, verifying denial versus permitted overlap without remote atomicity.
+- [ ] Exercise no-credential and automatic/ambiguous selection, unknown config revisions, slow preparation crossing fixed expiry and a later A39 helper call after revocation; no stale permission cache, duplicate module fetch or account substitution is allowed.
+- [ ] Separately prove background checkout commit and final saved-result disclosure retain their stronger conditional boundaries.
+- [ ] Instrument lock duration and demonstrate no provider I/O, large canonicalization/encryption, payload decoding or stream drain under authority locks.
+- [ ] Authorize payload reference, revoke while preparing plaintext, then attempt release; current recheck denies new logical disclosure, while already-released bytes are acknowledged as irreversible.
+
+## V09 - Redis loss, bytes, age and current delivery
+
+Owner: Events/HTTP/operations, B07.
+
+- [ ] Start events disabled with no Redis deployment/client; auth/proxy/Jobs/callbacks work and no broker connection is attempted.
+- [ ] With events enabled, distribute SSE across APIs and publish on any replica/worker; every API subscribes before event readiness, local publish uses one subscriber path and no second database relay exists.
+- [ ] Stop broker/publisher/subscriber separately, including ambiguous publish and reconnect; core readiness remains usable, new event forwarding fails honestly, durable callbacks commit and missed notifications do not lose Jobs.
+- [ ] Verify zero subscribers is an acknowledged drop, one stalled client does not block healthy ones/provider acknowledgement, and offline/ambiguous publishes are not automatically retained/retried.
+- [ ] Exercise logical payload exactly at cap and beyond, multibyte JSON/raw payload, envelope bounds, base64url expansion and SSE framing; every accepted payload fits the downstream logical allowance without truncation.
+- [ ] Delay broker/socket/worker queues, skew clocks within/beyond configured tolerance and inject future timestamps; check age on receipt and logical delivery and discard expired/obsolete data.
+- [ ] Batch immediately deliverable recipients with one current authorization read and no async gap, then queue a slow recipient and require a fresh delivery check; no event-body writes or stale authority reuse.
+- [ ] Revoke session/site/shared membership or retire source between enqueue and delivery; current authoritative checks deny despite lost invalidation messages or misleading channel/audience hints.
+- [ ] Saturate publisher, subscriber decode/work, broker client and individual/aggregate SSE byte budgets independently; no unbounded per-recipient Promise, offline queue or slow-reader coupling remains.
+- [ ] Reconnect clears old queues, resubscribes only for future events and signals resync; true denial stops reconnect, ordinary valid-session renewal can reconnect without business replay.
+- [ ] Verify deployment channel isolation, TLS certificate checks, separate publish/subscribe privileges/ACLs and absence of private payload/entrusted-secret logs.
+
+## V10 - Source ownership and uncertainty
+
+Owner: Events/Providers, B07.
+
+- [ ] Exercise declared manual, Data App and service setup only where supported, preserving provider-wide sources after browser closure and keeping native setup distinct from service routing.
+- [ ] Race create/renew/retire hooks against source revision, audience edit, connection generation change and claim/lease loss; stale results never restore retired routing.
+- [ ] Kill before/after mutating hook may-have-dispatched and lose the response; uncertain outcomes become attention-required unless documented provider recovery proves safe continuation.
+- [ ] Bound hook execution/disposal and prove source recovery does not monopolize reserved job control or retain revoked credentials for cleanup.
+
+## V11 - Encryption and offline maintenance
+
+Owner: Persistence/operations, B02/B09.
+
+- [ ] Tamper tags/ciphertext/context, swap envelopes across records/generations and remove required keys; fail closed with no unauthenticated plaintext release.
+- [ ] Stop all writers and automatic replacement, verify process exclusion and run offline rekey one large envelope at a time under a byte budget; no plaintext artifact/log is created.
+- [ ] Interrupt before/after each envelope replacement, resume by authenticated key ID, stop safely on wrong/unknown keys and verify complete coverage before reopening.
+- [ ] Verify old backup key custody and preserve unresolved renewal/source uncertainty through maintenance; no custom restore-generation subsystem is expected.
+
+## V12 - Host recovery, resources and upgrades
+
+Owner: Operations with all affected owners, B06/B09.
+
+- [ ] With Jobs/events disabled, verify core session/handoff/mutation expiry recovery still progresses and no Job scans/slots/heartbeats gate ordinary routing; retained/unfinished Jobs keep necessary recovery/cleanup enabled after admission is disabled.
+- [ ] Run a never-settling background Promise with healthy heartbeats, an ignored AbortSignal, unread body and stuck cleanup; attempt deadlines stop claims and cause confirmed worker termination before capacity reuse.
+- [ ] Run a CPU-blocking loop while sibling handlers, observations and source maintenance are active; independent host liveness forces exit/replacement without relying on the blocked event loop.
+- [ ] Observe sibling interruption/unknown effects and no automatic replay; replacement scans persisted external waits, expired claims, cancellation and deadlines correctly.
+- [ ] Saturate execution slots and demonstrate reserved control scheduling/database resources still recover expired claims/deadlines/cancellation and provide bounded observation fairness when the loop is responsive.
+- [ ] Remove Postgres while event loop remains responsive and distinguish dependency readiness from liveness; remove Redis and degrade only events, without cycling every healthy API.
+- [ ] Mix near-cap input/result JSON, canonicalization/crypto/driver copies, authenticated result reads, uploads/media, authentication and callbacks; measure RSS/event-loop delay/pool waits/control latency and choose physical budgets from evidence.
+- [ ] Verify aggregate database/broker/socket budgets across all replicas, control reserves, maintenance and deployment overlap; no isolated default is multiplied beyond capacity.
+- [ ] Drain in-flight ordinary HTTP capability versions without retaining their code for Job retention; test clean/failed migrations and compatible old/new API/worker overlap with active Job/observer versions and incarnation fencing; incompatible upgrades exclude all writers/automatic restart.
+- [ ] Send graceful and forced termination during streams, renewal and task submission; stop admission/claims first and preserve the specified uncertainty rather than assuming shutdown completed.
+
+No host, price, workload, slot count, throughput or SLA is proven until these measurements exist.
+Per-handler children remain a justified extension if the accepted initial worker boundary fails measured recovery/disruption needs.
+
+## V13 - Retention and disclosure
+
+Owner: Jobs/Access, B06.
+
+- [ ] List/read own jobs across configured apps with bounded keyset filters; no other owner/shared-audience leak, private body prefetch or personal app-use grant occurs.
+- [ ] Disconnect a provider and read retained original results with current service identity/site/ownership/shared audience; new provider checkout stays denied.
+- [ ] Expire body at seven-day configurable policy and metadata at thirty-day configurable policy from immutable completion; reads/callbacks/remote cleanup never extend them.
+- [ ] Return explicit not-ready/no-result/expired behavior, delete unnecessary execution input while preserving command comparison/schema, and never rerun for a result read.
+- [ ] Preserve nonterminal jobs until completion/deadline handling, delete expired bodies without decryption and process cleanup under byte/time limits.
+- [ ] Delete terminal metadata and verify key reuse may create new work with no remaining duplicate-admission guarantee.
+
+## V14 - Ordinary capability execution and database economy
+
+Owner: Providers/Transport/HTTP/SDK with Access/Credentials/Persistence, B05/B08.
+
+- [ ] Discover HTTP-only, Job-only and dual-entrypoint fixtures; invoke A39 versus explicitly submit A20, rejecting unsupported modes without fallback or a new capability grant.
+- [ ] Run declared JSON and raw/multipart streamed-input handlers without JSON/base64 file conversion, plus direct JSON and incremental native-response handlers, preserving useful native data/errors/headers and intentional provider-created credentials under the same entrusted-secret custody boundary.
+- [ ] Invoke with Jobs/Redis disabled and observe provider sends plus HTTP results independently; no input/result/Job/receipt rows, submission-key hashing, progress or hidden polling is created.
+- [ ] Revoke authority or expire the session/connector interval between two helper operations; the later operation denies while an already-authorized operation may finish without being given Job continuation authority.
+- [ ] Abort before headers, disconnect during streaming, fail after remote success and restart the API; dispose resources, report only observable failure/unknown effects and never replay or promote work to a Job.
+- [ ] Exercise HTTP output body ownership and unread intermediate bodies; normal API drain/liveness and measured handler CPU/cleanup protect physical resources without Job leases/watchdogs, with trusted-handler collateral disruption recorded honestly.
+- [ ] Measure login/restore/discovery/refresh/Job/event/maintenance database interactions using the owning consolidation targets; return state from required writes, batch safe metadata, avoid unrelated/unauthorized body loads and retain necessary publication/disclosure fences.
+
+No measured SQL count, latency gain, query plan or runtime correctness is claimed until these checks run.
+
+## Reporting completion
+
+For each implemented gate, record source revision, environment, exact command/scenario, observed outcome and remaining limitations without secrets or personal/workstation identifiers in product documents.
+Run applicable formatting/lint/type/build plus meaningful database/process/browser tests when application code exists.
+Inspect actual user flows for useful status/error/account/media behavior and accessibility; a mocked unit test or build alone is insufficient.
+Document-only validation reports must label snapshot/link/manifest/viewer checks separately from these unrun gates.
+No new code or platform is created by this specification task.

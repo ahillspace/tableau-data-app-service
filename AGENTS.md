@@ -2,7 +2,9 @@
 
 Read GOALS.md before changing a specification.
 This workspace is a design exercise; do not implement the application, install a platform, or publish/deploy anything.
-Keep one shared internal service for a solutions engineering team as the operating scope.
+Keep one shared service deployment with an operator-controlled administrative boundary.
+Describe the public product for Data App developers and viewers without restricting its audience to a profession or team.
+Exclude personal context, workstation paths and private workflow details from public specification artifacts.
 Specs and plans describe our system in original language; external architecture research lives outside this workspace.
 Use official protocol/provider documentation to establish external facts.
 Write one complete sentence per line in long Markdown and use plain hyphens.
@@ -13,3 +15,9 @@ Preserve review history and mark design convergence separately from implementati
 
 Astra owns application design, initial specification authoring, and substantive review.
 Reserve GPT-6.1 Sol for implementation and do not use Luna for substantive specification work.
+
+## Current specification authority
+
+Use README.md and specification.json to locate current requirements, contracts and verification gates.
+The generated review board embeds these same sources and is not separately maintained policy.
+Decisions, reviews and frozen design snapshots preserve historical evidence; they do not override current specifications or supply implementation defaults.

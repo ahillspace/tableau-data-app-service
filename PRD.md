@@ -1,58 +1,62 @@
-# Product requirements and goal assessment
+# Product requirements
 
-Status: revised architecture-owner proposal following independent review; user acceptance and implementation verification remain pending.
-[GOALS.md](GOALS.md) is the user requirement baseline.
-This PRD develops the independently authored goal assessment and separates requirements, recommendations and unresolved dependencies.
+Status: accepted product and architecture direction with the optional-Job revision integrated.
+Owner consistency and viewer checks are document evidence, not implementation verification; historical independent reviews cover earlier snapshots.
+[GOALS](GOALS.md) owns policy values and scope; this document owns the observable journeys and completion meaning.
+No application or deployment exists.
 
 ## Required outcome
 
-A solutions engineer configures a Tableau Data App once, then uses one browser client to discover and invoke the capabilities enabled for that app.
-The shared service owns external authorization and credentials, attributes activity to the configured app, and keeps provider differences behind narrow server modules.
-The service has one administrative boundary and serves multiple configured apps.
-The user has selected Node.js LTS, strict TypeScript, Fastify, Postgres, and Kysely as the working technology direction.
+A developer includes the embedded SDK in a Tableau Cloud or Tableau Server Data App, establishes a verified service session and connects an authorized external account.
+The app uses native provider endpoints without implementing a backend wrapper for every operation.
+The service owns identity, credential custody/renewal, approved routing, reusable optional capabilities, explicitly chosen durable jobs and live events; the author owns app behavior and provider business semantics.
+App IDs select configuration/defaults and attribution, not package proof or per-app feature permissions.
+Personal resources follow the verified owner across configured apps, and shared operator accounts require explicit verified-site/user audiences.
 
-Individual actions use individual delegated authorization wherever supported.
-An operation that requires no external credentials does not trigger a connection flow.
-An explicitly configured service operation may use a service credential without requiring the viewer to connect an account.
-A failed delegated operation never changes execution identity to get a successful result.
+## User journeys
 
-The viewer's Tableau session, a configured app ID, a URL, and an allowed browser origin are not sufficient authority for this backend.
-The front door and onboarding remain deferred.
-The design must therefore specify a trusted request-binding contract without inventing its transport or claiming a deployable authentication solution.
-No general user directory, developer tenancy, provider-specific workflow, or provider implementation is part of this work.
-
-## Recommended initial shape
-
-Use one server process, one Postgres database, statically registered provider and capability modules, and a framework-independent browser SDK.
-Organize the server around access, connections, credentials, capabilities, execution, and events, with thin HTTP and persistence adapters.
-These are ownership boundaries within one application, not separate deployable services or packages by default.
-Run capabilities inline within bounded requests.
-Persist operation receipts so a lost response or interrupted write can be represented honestly without building a job system.
-Use a durable event feed with authenticated polling first; additional delivery transports can consume the same feed later.
-
-External protocol handling uses maintained libraries.
-Provider adapters supply validated endpoint configuration, credential behavior, permission interpretation, and operation-specific request/response mapping.
-The core supplies authority checks, encrypted storage, renewal coordination, controlled outbound requests, limits, receipts, and event delivery.
-
-## Acceptance evidence
-
-The ten goal scenarios are mapped to executable future checks in [verification.md](verification.md).
-At this stage a design is reviewable when each scenario has an owner, precise contracts, failure states, and a recovery path.
-Source inspection and contract walkthroughs do not establish live Tableau or provider compatibility.
-Acceptance by the user and implementation verification remain separate later milestones.
-
-## Open dependencies
-
-| Dependency | Required decision or evidence | What remains possible now |
+| Journey | Required behavior | Owning contract |
 | --- | --- | --- |
-| Trusted request binding | Select how a request proves its configured app and, when needed, a private execution holder. | Specify and test the domain boundary using trusted fixtures. |
-| Holder continuity | Decide whether a holder survives only one browser session or can be recovered through a trusted external subject. | Bind delegated connections to the exact verified holder; provide no unproven cross-session recovery. |
-| Tableau/browser support | Test selected Cloud/Server versions, Data App hosting, browser network access and authorization return behavior. | Keep the SDK independent and document required browser operations. |
-| First real provider | Confirm its grant types, identity evidence, scopes, renewal, idempotency, pagination and event guarantees. | Prove module composition with synthetic providers. |
-| Operational limits | Select request deadlines, event retention, receipt retention, credential key custody and backup policy. | Define validated configuration and safe failure behavior for absent requirements. |
+| Native access | Read/write native paths, queries, headers, responses/errors and pagination without capability handlers. | [Transport](specs/providers-execution.md#native-forwarding-and-transport). |
+| Cloud and Server identity | Verify deployment/site/stable user through supported deployment adapters; a separate authorizing login suffices. | [Access](specs/access-connections.md#common-session-and-tableau-direction). |
+| Return visits and multiple apps | Restore current authority across supported reload/new-tab/return journeys, preserve account separation and share personal ownership without app-use grants. | [Session contract](specs/access-connections.md#recommended-session-prototype). |
+| Trusted sites | Existing protected enrollment integration registers deployment/site identity; all verified users pass eligibility without email/per-user/per-app signup. | [Registry](specs/access-connections.md#trusted-site-registry-administration). |
+| Shared/public APIs | Use explicitly available shared accounts or no-credential mode without personal login or fallback after personal failure. | [Connection selection](specs/access-connections.md#connection-selection-and-state). |
+| Provider setup | Support shared OAuth, personal static import, operator-managed and derived lifecycle with atomic credentials/context. | [Credential variants](specs/access-connections.md#credential-variants-and-confidentiality). |
+| Reauthorization | Preserve account authority for proven same-account reauth; replacement with unknown/different identity cannot retarget jobs. | [Generations](specs/access-connections.md#reauthorization-and-generations). |
+| Uploads/media | Stream browser-selected files, large responses and native provider HTTP streams with bounded buffering and honest abort/late failure. | [Transport](specs/providers-execution.md#native-forwarding-and-transport). |
+| Reusable ordinary capability | Invoke registered provider code with current request authority and receive JSON or streamed HTTP, without Job persistence or separate grants. | [Ordinary invocation](specs/providers-execution.md#ordinary-capability-invocation). |
+| Deliberate durable work | Explicitly admit once, recover equal submissions, run in a worker and track persisted external tasks without resubmission. | [Jobs](specs/providers-execution.md#durable-admission-and-execution). |
+| Cancellation/recovery | Distinguish local terminal outcome, unknown remote effects and optional bounded remote-cancel evidence. | [Recovery](specs/providers-execution.md#interruption-external-tasks-and-cancellation). |
+| Retained history | Rediscover/read own retained work across configured apps and after provider disconnect under current disclosure authority. | [Disclosure](specs/access-connections.md#disclosure-and-trust-boundary). |
+| Live events | Receive verified native data through lossy Redis/SSE; reconnect with possible-loss signals and fetch current state where possible. | [Events](specs/events-http-sdk.md#redis-transport-and-live-sse). |
+| Provider extension | Add a second provider using static configuration and necessary narrow hooks, reusing identity/credentials/transport/jobs/events. | [Extension](specs/providers-execution.md#provider-extension-checklist). |
+| Operations | Replicas coordinate through Postgres, survive honest interruption and enforce compatible migration/offline key maintenance. | [Operations](specs/persistence-operations.md). |
 
-The recommended recovery contract includes a generation held outside restored database state and server-issued command windows.
-These are narrow safeguards for stale authority/history and lost responses, not a new identity or execution platform.
+## Accepted policy and architecture
 
-No missing dependency authorizes an insecure default.
-In particular, an unconfigured access adapter rejects requests instead of trusting app IDs, headers, origins, or Tableau display metadata.
+[GOALS](GOALS.md) is the single policy reference for seven-day verified authentication, configurable connector freshness with no invented default, 100 MB input/result caps, 24-hour first-start deadline and seven/thirty-day retention.
+It also owns no automatic business replay, retained owner reads, private entrusted secrets, allowed native provider-created credentials and the Data App-only consumer boundary.
+The input/result caps, execution deadline and saved-result retention apply only to deliberate Jobs; ordinary calls/downloads may stream directly.
+No arbitrary response-size ceiling, pending-job quota, per-user/app/IP quota or speculative future-result reservation is introduced.
+Physical capacity, header/socket/byte budgets and provider limits still require measured enforcement.
+
+The accepted topology is one codebase with API and worker roles, initially one each and replica-safe from the start, with authoritative Postgres and optional Redis Pub/Sub.
+Ordinary capability handlers run in the API request with shared transport and no durable recovery; Job handlers run in the worker process; confirmed whole-process termination can interrupt siblings when cooperative cleanup fails.
+That initial interruption tradeoff is accepted, while per-handler child isolation remains a measured extension.
+Core maintenance still runs without Jobs; scans/hooks for optional background features are conditional.
+Redis failure degrades live events only; native requests, ordinary capabilities, durable Jobs and external callbacks remain independent.
+No host, price, traffic level, SLA or fixed concurrency value is selected.
+
+## Evidence and completion
+
+The [published Cloud observation](specs/access-connections.md#published-identity-evidence) supports initialization and separate backend-verified login/site/user identity.
+It does not establish silent restoration, account switching, media, long-term behavior, Server compatibility or a complete service implementation.
+Viewer equality is not required and no Tableau feature-request dependency is assumed.
+Silent-login hardening remains conditional on a simple transparent solution without adverse UX/embed/browser/performance cost; otherwise its concrete tradeoff must be surfaced.
+Actual package opaque origins, popup/window correlation, CSP and network behavior must be tested rather than replaced with impossible exact-origin opener checks.
+
+[Verification](verification.md) defines runnable future gates for both platforms, two APIs/two workers, real Postgres races, Redis failure/loss, large payloads and host recovery.
+Support claims apply only to observed supported journeys; optional jobs/events do not delay early native-access evidence.
+Document consistency and viewer checks can establish a reviewable design, not implemented behavior or user acceptance of the delivered experience.
+Application implementation/deployment requires separate authorization.

@@ -11,6 +11,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 def source_paths(root: Path) -> list[Path]:
+    manifest = root / 'specification.json'
+    if manifest.exists():
+        return sorted(root / entry['path'] for entry in json.loads(manifest.read_text())['documents'])
+    # Frozen snapshots predate the explicit current-source manifest.
     paths = [p for p in root.glob('*.md') if p.name != 'AGENTS.md']
     for folder in ('specs', 'decisions'):
         paths.extend((root / folder).rglob('*.md'))
@@ -42,8 +46,8 @@ def snapshot(root: Path) -> dict:
     encoded = json.dumps(entries, sort_keys=True, separators=(',', ':')).encode()
     return {'format': 1, 'sha256': hashlib.sha256(encoded).hexdigest(),
             'files': entries, 'errors': errors,
-            'scope': 'Top-level Markdown (except agent instructions), specs/, decisions/. '
-                     'Review records and rendered artifacts are excluded to avoid recursive digests.',
+            'scope': 'Current specification.json documents when present; otherwise frozen legacy '
+                     'top-level Markdown, specs/ and decisions/. Review records and rendered artifacts are excluded.',
             'limits': 'Checks file presence and local file links only; does not prove semantic '
                       'consistency, external URL availability, or implementation behavior.'}
 

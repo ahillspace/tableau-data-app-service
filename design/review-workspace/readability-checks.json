@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-11-13T10:57:35.780Z",
+  "scope": "Current flow readability at narrow iframe widths",
+  "htmlSha256": "a3058646f858279c3a779203847bee95f72417095095d0f4479cc765850f20fd",
+  "checks": [
+    {
+      "layout": "block",
+      "diagram": 820,
+      "canvas": 840,
+      "page": 1066,
+      "viewport": 1066
+    },
+    {
+      "layout": "block",
+      "diagram": 770,
+      "canvas": 592,
+      "page": 626,
+      "viewport": 626
+    }
+  ],
+  "browserErrors": []
+}

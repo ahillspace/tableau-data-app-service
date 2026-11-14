@@ -1,0 +1,114 @@
+{
+  "checkedAt": "2026-11-13T10:57:35.781Z",
+  "htmlSha256": "a3058646f858279c3a779203847bee95f72417095095d0f4479cc765850f20fd",
+  "sourceManifest": "specification.json",
+  "browser": "154.0.8037.97",
+  "scope": "Standalone file and same-origin srcdoc harness; not a published OHP session",
+  "results": [
+    {
+      "name": "Model ownership, graph references, cross-links and unique HTML IDs",
+      "result": true
+    },
+    {
+      "name": "No page overflow at 1440px",
+      "result": true
+    },
+    {
+      "name": "No page overflow at 1100px",
+      "result": true
+    },
+    {
+      "name": "No page overflow at 390px",
+      "result": true
+    },
+    {
+      "name": "Diagram component opens the correct inspector",
+      "result": true
+    },
+    {
+      "name": "Diagram Enter and Space change the inspector without JavaScript errors",
+      "result": true
+    },
+    {
+      "name": "Optional Redis fanout, independent core availability and accepted scoped coordination",
+      "result": {
+        "redisFanout": [
+          [
+            "api",
+            "redis"
+          ],
+          [
+            "redis",
+            "api"
+          ]
+        ],
+        "scopedLocks": "Accepted",
+        "staleRestrictions": false
+      }
+    },
+    {
+      "name": "Every scenario and step renders",
+      "result": true
+    },
+    {
+      "name": "All 33 API contract details render; empty filter handled",
+      "result": true
+    },
+    {
+      "name": "API rows retain Enter and Space detail selection",
+      "result": true
+    },
+    {
+      "name": "Every module opens; empty filter handled",
+      "result": true
+    },
+    {
+      "name": "Accepted scope and policies are read-only; retired consumers/routes absent; restoration retained",
+      "result": {
+        "retiredNodes": [],
+        "retiredRoutes": [],
+        "restores": true,
+        "eventSteps": 7,
+        "localClose": [
+          [
+            "browser",
+            "browser"
+          ]
+        ],
+        "summaries": true
+      }
+    },
+    {
+      "name": "Every embedded canonical source matches current filesystem bytes and SHA-256",
+      "result": 28
+    },
+    {
+      "name": "Public artifact excludes workstation metadata and private audience/enrollment context",
+      "result": true
+    },
+    {
+      "name": "All 37 current limitations search correctly; all five evidence gates render",
+      "result": true
+    },
+    {
+      "name": "Complete current manifest, readable PRD, offline document navigation and all internal anchors",
+      "result": true
+    },
+    {
+      "name": "All 28 expanded source documents fit the 390px page; long code scrolls locally",
+      "result": true
+    },
+    {
+      "name": "Print covers overview and seven review topics once; full specification remains in HTML",
+      "result": true
+    },
+    {
+      "name": "Same-origin srcdoc iframe renders and handles flow interaction",
+      "result": true
+    },
+    {
+      "name": "Browser JavaScript errors",
+      "result": []
+    }
+  ]
+}

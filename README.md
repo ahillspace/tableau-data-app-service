@@ -1,25 +1,35 @@
 # Tableau Data App integration service
 
-Status: revised Astra-authored design proposal for one shared internal solutions engineering service.
-User acceptance and implementation verification remain pending.
-This repository contains specifications and review artifacts, not an implemented application.
+This repository is the complete maintained design for one shared backend serving Tableau Data Apps on Cloud and Server.
+The accepted architecture uses independently replicable API and worker roles, authoritative Postgres and optional lossy Redis Pub/Sub.
+Native routing and ordinary capability calls use HTTP; saved command/result bodies, Job execution limits and retention belong only to explicitly submitted Jobs.
+No application is implemented or deployed.
+The optional-Job and read-only routing revision has owner consistency and generated-viewer checks; historical independent reviews cover their recorded snapshots only.
+Architecture acceptance, document checks and runtime/user acceptance remain separate; no additional approval is required for this specification update.
 
-Start with the user's [goal baseline](GOALS.md), the [product requirements and assessment](PRD.md), and the [architecture](architecture.md).
-The design uses a single modular Node application and Postgres, fixed none/service/delegated execution identity, bounded inline capability execution, durable receipts and a verified event feed.
-The front-door transport, tested Tableau/browser support and first real provider remain explicit dependencies.
+Start with the [product overview](planning/product-overview.md), [product requirements](PRD.md) and [accepted policies](GOALS.md).
+Current sources contain the complete design; historical proposals/reviews do not supply defaults.
 
-The current contracts are:
+## Current specification
 
-- [Shared types and invariants](specs/contracts.md).
-- [Access, connections and credentials](specs/access-connections.md).
-- [Provider modules and execution](specs/providers-execution.md).
-- [Events, HTTP and browser SDK](specs/events-http-sdk.md).
-- [Persistence and recovery](specs/persistence-operations.md).
-- [Decisions and alternatives](decisions/choices.md).
-- [Verification scenarios and evidence limits](verification.md).
+| Source | Authority |
+| --- | --- |
+| [GOALS](GOALS.md) / [PRD](PRD.md) | Accepted policy and required user journeys. |
+| [Architecture](architecture.md) | Accepted topology, ownership, tradeoffs and extension boundaries. |
+| [Shared contracts](specs/contracts.md) | Common types, semantic submission comparison and cross-component handoffs. |
+| [Access](specs/access-connections.md) | Verified identity, sessions, registry, personal/shared authority and credential lifecycle. |
+| [Providers and execution](specs/providers-execution.md) | Native transport, ordinary capability calls and explicitly selected Jobs with cancellation/recovery. |
+| [Events and wire](specs/events-http-sdk.md) | Redis/SSE, source lifecycle, browser carriers and SDK. |
+| [Persistence and operations](specs/persistence-operations.md) | Schemas, scoped locks, resource admission, readiness, migration and rekey. |
+| [Verification](verification.md) | Future executable acceptance gates and precise existing evidence limits. |
+| [Readiness](implementation-readiness.md) / [planning index](planning/README.md) | Linked rationale, APIs, module/flow maps, implementation sequence and unresolved empirical evidence. |
 
-The independent initial proposal is preserved unchanged in [design/astra-initial](design/astra-initial/architecture.md).
-Its [manifest](reviews/astra-initial-frozen.json), [fresh independent review](reviews/astra-initial-independent-review.md), [post-freeze historical comparison](reviews/astra-historical-comparison.md), and [revision disposition](reviews/astra-revision-disposition.md) record the design's provenance and corrections.
-The [revised source manifest](reviews/astra-revised-source.json) identifies the canonical text prepared for targeted confirmation.
-Earlier mixed-model drafts and their review history are historical evidence preserved in Git, including `archive/initial-agent-draft`; they are not the current implementation contract.
-Independent review can establish document-level convergence, not user acceptance, live compatibility or application test results.
+The [manifest](specification.json) lists all 28 maintained sources, including bounded [site access](openspec/changes/tableau-site-access/proposal.md) and [native streaming](openspec/changes/native-response-streaming/proposal.md) implementation plans.
+Planning maps refer to owning contracts rather than creating competing normative rules.
+The [review workspace](design/review-workspace/README.md) generates a local presentation from those exact sources; it is not independently maintained policy.
+[History](history.md) preserves prior reviews and frozen designs without certifying the current candidate.
+
+The [Cloud evidence](specs/access-connections.md#published-identity-evidence) establishes separate verified login/site-user identity only.
+Full Cloud/Server sessions, browser transport/media, race/recovery/load and hosting behavior remain unverified.
+Do not claim a runtime test passed because a document or viewer check passed.
+This specification update does not authorize application implementation, installation or publication.
