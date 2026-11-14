@@ -83,3 +83,73 @@ export const serviceErrorSchema = z.strictObject({
   requestId: z.string(),
 });
 export type ServiceErrorBody = z.infer<typeof serviceErrorSchema>;
+
+export const headerProfileSchema = z.strictObject({
+  version: z.literal(1),
+  physicalBytes: z.number().int().positive(),
+  nativeBytes: z.number().int().positive(),
+  pairs: z.number().int().positive(),
+  jsonBytes: z.number().int().positive(),
+  encodedBytes: z.number().int().positive(),
+});
+export const providerViewSchema = z.strictObject({
+  id: opaqueId,
+  mode: z.enum(["none", "personal", "operator"]),
+  endpoints: z.array(opaqueId),
+  setupModes: z.array(z.enum(["static", "oauth"])),
+  transport: headerProfileSchema,
+});
+export type ProviderView = z.infer<typeof providerViewSchema>;
+export const replacementSchema = z.strictObject({
+  connectionId: opaqueId,
+  expectedAuthorityGeneration: z.number().int().positive(),
+});
+export const staticConnectionInputSchema = z.strictObject({
+  providerRegistrationId: opaqueId,
+  inputs: z.record(z.string(), z.json()),
+  replacement: replacementSchema.optional(),
+});
+export type StaticConnectionInput = z.infer<typeof staticConnectionInputSchema>;
+export const authorizationBeginSchema = z.strictObject({
+  providerRegistrationId: opaqueId,
+  inputs: z.record(z.string(), z.json()).optional(),
+  replacement: replacementSchema.optional(),
+  permissionOption: opaqueId.optional(),
+  initiationVerifier: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const authorizationViewSchema = z.strictObject({
+  id: opaqueId,
+  state: z.enum(["pending", "exchanging", "succeeded", "failed", "cancelled", "expired"]),
+  expiresAt: z.iso.datetime(),
+  connectionId: opaqueId.optional(),
+  error: z.strictObject({ code: z.string(), message: z.string() }).optional(),
+});
+export type AuthorizationBegin = z.infer<typeof authorizationBeginSchema>;
+export type AuthorizationView = z.infer<typeof authorizationViewSchema>;
+const jsonContract = z.strictObject({ kind: z.literal("json"), schema: z.json() });
+const httpContract = z.strictObject({ kind: z.literal("http") });
+export const capabilityDefinitionSchema = z.strictObject({
+  ref: capabilityRefSchema,
+  providerRegistrationId: opaqueId,
+  http: z
+    .strictObject({
+      input: z.union([jsonContract, httpContract]),
+      response: z.union([jsonContract, httpContract]),
+    })
+    .optional(),
+  job: z
+    .strictObject({
+      inputSchema: z.json(),
+      resultSchema: z.json(),
+      inputLimitBytes: z.number().int().positive().optional(),
+      resultLimitBytes: z.number().int().positive().optional(),
+      executionLimitSeconds: z.number().int().positive().optional(),
+    })
+    .optional(),
+});
+export type CapabilityDefinition = z.infer<typeof capabilityDefinitionSchema>;
+export const providerCollectionSchema = z.strictObject({ items: z.array(providerViewSchema) });
+export const connectionCollectionSchema = z.strictObject({ items: z.array(connectionViewSchema) });
+export const capabilityCollectionSchema = z.strictObject({
+  items: z.array(capabilityDefinitionSchema),
+});

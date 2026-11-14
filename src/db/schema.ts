@@ -15,15 +15,15 @@ export interface SitesTable {
   deployment_id: string;
   site_id: string;
   enabled: boolean;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: ColumnType<Date, Date | string | undefined, Date | string>;
+  updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 export interface SiteChangesTable {
   id: string;
   site_id: string;
   actor_id: string;
   enabled: boolean;
-  changed_at: Generated<Timestamp>;
+  changed_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 export interface OwnersTable {
   id: string;
