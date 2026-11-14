@@ -24,6 +24,15 @@ export type RetireConnection = (
   connectionId: string,
   authorityGeneration: number,
 ) => Promise<void>;
+// Created only by trusted composition. Background claims and operator authority
+// remain live checks inside each short mutation transaction.
+export type CredentialActor = {
+  ownerId: string | null;
+  sessionId: string | null;
+  authenticationExpiresAt: Date;
+  lock(tx: CoreTransaction, providerId: string, ref?: MutationRef): Promise<void>;
+};
+type Actor = AccessContext | CredentialActor;
 const inProgress = () =>
   new ServiceError(409, "credential-mutation-in-progress", "Credential mutation is in progress");
 export class CredentialsService {
@@ -33,6 +42,11 @@ export class CredentialsService {
     readonly secrets: SecretBox,
     readonly retireConnection?: RetireConnection,
   ) {}
+  private lockActor(tx: CoreTransaction, actor: Actor, providerId: string, ref?: MutationRef) {
+    return "lock" in actor
+      ? actor.lock(tx, providerId, ref)
+      : this.access.lockAuthority(tx, actor, providerId);
+  }
 
   async capture(
     access: AccessContext,
@@ -173,7 +187,7 @@ export class CredentialsService {
   }
 
   async reserve(
-    access: AccessContext,
+    access: Actor,
     providerId: string,
     kind: Mutation["kind"],
     expiresAt: Date,
@@ -182,7 +196,7 @@ export class CredentialsService {
     onReserve?: (tx: CoreTransaction, ref: MutationRef) => Promise<void>,
   ): Promise<MutationRef> {
     return this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, providerId);
+      await this.lockActor(tx, access, providerId);
       let previous: Connection | undefined;
       if (replacement) {
         previous = await tx
@@ -308,7 +322,7 @@ export class CredentialsService {
     return time;
   }
   async claim(
-    access: AccessContext,
+    access: Actor,
     providerId: string,
     ref: MutationRef,
     incarnation: string,
@@ -317,7 +331,7 @@ export class CredentialsService {
   ): Promise<ClaimRef> {
     if (!Number.isSafeInteger(leaseMs) || leaseMs <= 0) throw new Error("Invalid mutation lease");
     return this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, providerId);
+      await this.lockActor(tx, access, providerId, ref);
       const { mutation } = await this.lockMutation(tx, ref);
       const time = await this.live(tx, mutation);
       if (mutation.processor_token || !["reserved", "waiting"].includes(mutation.phase)) stale();
@@ -343,14 +357,14 @@ export class CredentialsService {
     });
   }
   async dispatch(
-    access: AccessContext,
+    access: Actor,
     providerId: string,
     ref: MutationRef,
     claim: ClaimRef,
     mayInvalidate: boolean,
   ): Promise<void> {
     await this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, providerId);
+      await this.lockActor(tx, access, providerId, ref);
       const { mutation } = await this.lockMutation(tx, ref);
       await this.live(tx, mutation, claim);
       if (mutation.phase !== "processing" && mutation.phase !== "dispatched") stale();
@@ -361,14 +375,9 @@ export class CredentialsService {
         .execute();
     });
   }
-  async wait(
-    access: AccessContext,
-    providerId: string,
-    ref: MutationRef,
-    claim: ClaimRef,
-  ): Promise<void> {
+  async wait(access: Actor, providerId: string, ref: MutationRef, claim: ClaimRef): Promise<void> {
     await this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, providerId);
+      await this.lockActor(tx, access, providerId, ref);
       const { mutation } = await this.lockMutation(tx, ref);
       await this.live(tx, mutation, claim);
       await tx
@@ -379,7 +388,7 @@ export class CredentialsService {
     });
   }
   async publish(
-    access: AccessContext,
+    access: Actor,
     provider: ProviderRegistration,
     ref: MutationRef,
     claim: ClaimRef,
@@ -396,7 +405,7 @@ export class CredentialsService {
     if (previous) this.assertPair(previous, ref.expected);
     const prepared = this.prepare(provider, candidate, previous, ref.kind === "renewal");
     return this.db.transaction().execute(async (tx) => {
-      await this.access.lockAuthority(tx, access, provider.id);
+      await this.lockActor(tx, access, provider.id, ref);
       const { mutation, connection } = await this.lockMutation(tx, ref);
       const time = await this.live(tx, mutation, claim);
       if (mutation.access_session_id !== access.sessionId) stale();
@@ -449,12 +458,12 @@ export class CredentialsService {
     ref: MutationRef,
     forced = false,
     options?: {
-      initiator: { access: AccessContext; providerId: string };
+      initiator?: { access: AccessContext; providerId: string };
       finalize(tx: CoreTransaction): Promise<void>;
     },
   ): Promise<"released" | "uncertain" | "stale"> {
     return this.db.transaction().execute(async (tx) => {
-      if (options)
+      if (options?.initiator)
         await this.access.lockAuthority(tx, options.initiator.access, options.initiator.providerId);
       const connection = ref.connectionId
         ? await tx
@@ -506,7 +515,10 @@ export class CredentialsService {
           .where("id", "=", connection.id)
           .execute();
       await options?.finalize(tx);
-      if (options && options.initiator.access.authenticationExpiresAt <= (await databaseTime(tx)))
+      if (
+        options?.initiator &&
+        options.initiator.access.authenticationExpiresAt <= (await databaseTime(tx))
+      )
         throw new ServiceError(401, "authentication-required", "Verified authentication required");
       return uncertain ? "uncertain" : "released";
     });

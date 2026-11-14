@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ConnectionService } from "../src/connections/service.js";
 import type { CoreServices } from "../src/core-ports.js";
-import { up } from "../src/db/migrations/030_events.js";
 import { SourceMaintenance } from "../src/events/lifecycle.js";
 import { Sources } from "../src/events/sources.js";
 import type { EventProvider, SourcePublication } from "../src/events/types.js";
@@ -14,7 +13,6 @@ async function fixture(
   publication: Partial<SourcePublication> = {},
 ) {
   const f = await coreFixture();
-  await up(f.db);
   const connections = new ConnectionService(
     f.db,
     f.access,

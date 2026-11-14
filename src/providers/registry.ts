@@ -81,6 +81,19 @@ export type ProviderRegistration = {
     remote: boolean;
     mayInvalidate: boolean;
   };
+  renewal?: {
+    mayInvalidate: boolean;
+    renew(
+      bundle: CredentialBundle,
+      context: {
+        signal: AbortSignal;
+        request(
+          url: string,
+          init: { method: string; headers?: Headers; body?: string },
+        ): Promise<Response>;
+      },
+    ): Promise<CredentialBundle>;
+  };
   attach(snapshot: {
     credentials: unknown;
     runtimeContext: Readonly<Record<string, unknown>>;

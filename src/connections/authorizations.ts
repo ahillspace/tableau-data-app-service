@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
-import { IdentityProtocol } from "../access/adapters.js";
 import type { AccessService } from "../access/service.js";
 import { authFailure } from "../access/service.js";
 import type { AccessContext } from "../core-ports.js";
 import { type Database, databaseTime } from "../db/database.js";
 import { absent, ServiceError, stale } from "../http/errors.js";
+import { providerProtocol } from "../providers/protocol.js";
 import type { ProviderRegistry } from "../providers/registry.js";
 import type { AuthorizationBegin, AuthorizationView } from "../public/schemas.js";
 import type { SecretBox } from "../security/encryption.js";
@@ -309,18 +309,7 @@ export class AuthorizationService {
           .execute();
       },
     );
-    const endpoints = new Map(
-      Object.values(provider.endpoints).map((endpoint) => {
-        const { blockedPaths: _blockedPaths, resolveBase: _resolveBase, ...fixed } = endpoint;
-        return [
-          new URL(endpoint.baseUrl).origin,
-          { ...fixed, baseUrl: new URL(endpoint.baseUrl).origin },
-        ] as const;
-      }),
-    );
-    const tokenOrigin = new URL(definition.metadata.token_endpoint ?? "").origin;
-    if (!endpoints.has(tokenOrigin)) endpoints.set(tokenOrigin, { baseUrl: tokenOrigin });
-    const protocol = new IdentityProtocol(this.policy, endpoints).open(signal);
+    const protocol = providerProtocol(provider, this.policy).open(signal);
     try {
       await this.credentials.dispatch(
         access,

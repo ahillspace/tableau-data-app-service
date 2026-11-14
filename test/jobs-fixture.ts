@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ConnectionService } from "../src/connections/service.js";
 import { createDatabase } from "../src/db/database.js";
-import { up } from "../src/db/migrations/020_jobs.js";
 import { PayloadProcessor } from "../src/jobs/payloads.js";
 import { JobsService } from "../src/jobs/service.js";
 import type { JobDeclaration } from "../src/jobs/types.js";
@@ -37,7 +36,6 @@ export async function jobsFixture(declarations: readonly JobDeclaration[] = [job
     workingBytes: 2200000000,
   });
   try {
-    await up(f.db as unknown as import("kysely").Kysely<unknown>);
     const provider = {
       ...fixtureProvider,
       capabilities: declarations.map((d) => ({

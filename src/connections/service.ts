@@ -17,17 +17,40 @@ import type { ProviderRegistry } from "../providers/registry.js";
 import type { ConnectionView } from "../public/schemas.js";
 import type { SecretBox } from "../security/encryption.js";
 import { SocketBudget, type TransportPolicy, TransportScope } from "../transport/native.js";
+import type { CredentialActor, MutationRef, RetireConnection } from "./credentials.js";
 import { type PreparedRequest, prepareRequest } from "./snapshot.js";
 
 export class ConnectionService implements ConnectionPort {
   readonly #background = new Map<string, BackgroundAuthorityPort>();
   readonly transportBudget: SocketBudget;
+  #renew:
+    | ((
+        authority: OperationAuthority,
+        providerId: string,
+        connectionId: string,
+        generation: number,
+        signal: AbortSignal,
+      ) => Promise<void>)
+    | undefined;
+  installRenewal(
+    renew: (
+      authority: OperationAuthority,
+      providerId: string,
+      connectionId: string,
+      generation: number,
+      signal: AbortSignal,
+    ) => Promise<void>,
+  ): void {
+    if (this.#renew) throw new Error("Renewal owner is already installed");
+    this.#renew = renew;
+  }
   constructor(
     readonly db: Database,
     readonly access: AccessService,
     readonly secrets: SecretBox,
     readonly providers: ProviderRegistry,
     readonly policy: TransportPolicy,
+    readonly retireConnection?: RetireConnection,
   ) {
     this.transportBudget = new SocketBudget(policy.maxSockets);
   }
@@ -43,16 +66,7 @@ export class ConnectionService implements ConnectionPort {
     registrationId: string,
     connectionId?: string,
   ): Promise<ConnectionUse | null> {
-    return (
-      await prepareRequest(
-        this.db,
-        this.secrets,
-        this.providers.get(registrationId),
-        access.appId,
-        { access },
-        connectionId,
-      )
-    ).use;
+    return (await this.prepareCurrent({ access }, access.appId, registrationId, connectionId)).use;
   }
   async prepare(
     token: string,
@@ -60,13 +74,42 @@ export class ConnectionService implements ConnectionPort {
     registrationId: string,
     connectionId?: string,
   ): Promise<PreparedRequest> {
+    return this.prepareCurrent({ token }, appId, registrationId, connectionId);
+  }
+  private async prepareCurrent(
+    authentication: { access: AccessContext } | { token: string },
+    appId: string,
+    registrationId: string,
+    connectionId?: string,
+    signal = AbortSignal.timeout(
+      this.policy.headersTimeoutMs + this.policy.connectTimeoutMs + this.policy.stallTimeoutMs,
+    ),
+  ) {
+    const provider = this.providers.get(registrationId);
+    const prepared = await prepareRequest(
+      this.db,
+      this.secrets,
+      provider,
+      appId,
+      authentication,
+      connectionId,
+      !!provider.renewal && !!this.#renew,
+    );
+    if (!prepared.needsRenewal || !prepared.use) return prepared;
+    await this.#renew?.(
+      { source: "request", access: prepared.access },
+      registrationId,
+      prepared.use.connectionId,
+      prepared.use.authorityGeneration,
+      signal,
+    );
     return prepareRequest(
       this.db,
       this.secrets,
-      this.providers.get(registrationId),
+      provider,
       appId,
-      { token },
-      connectionId,
+      authentication,
+      prepared.use.connectionId,
     );
   }
   async openScope(
@@ -77,13 +120,12 @@ export class ConnectionService implements ConnectionPort {
   ): Promise<ProviderScope> {
     const prepared =
       authority.source === "request"
-        ? await prepareRequest(
-            this.db,
-            this.secrets,
-            this.providers.get(registrationId),
-            authority.access.appId,
+        ? await this.prepareCurrent(
             { access: authority.access },
+            authority.access.appId,
+            registrationId,
             connectionId,
+            signal,
           )
         : undefined;
     return this.scope(authority, registrationId, connectionId, signal, prepared);
@@ -119,17 +161,16 @@ export class ConnectionService implements ConnectionPort {
         return current.take();
       }
       if (authority.source === "request") {
-        const fresh = await prepareRequest(
-          this.db,
-          this.secrets,
-          provider,
-          authority.access.appId,
+        const fresh = await this.prepareCurrent(
           { access: authority.access },
+          authority.access.appId,
+          registrationId,
           connectionId,
+          transport.signal,
         );
         return fresh.take();
       }
-      return this.backgroundCheckout(authority, registrationId, connectionId);
+      return this.backgroundCheckout(authority, registrationId, connectionId, transport.signal);
     };
     return {
       context: {
@@ -160,11 +201,36 @@ export class ConnectionService implements ConnectionPort {
     authority: Exclude<OperationAuthority, { source: "request" }>,
     registrationId: string,
     connectionId: string | undefined,
+    signal: AbortSignal,
   ): Promise<CredentialSnapshot | null> {
     const provider = this.providers.get(registrationId);
-    const selected = await this.db
+    let selected = await this.db
       .transaction()
-      .execute((tx) => this.lockBound(tx, authority, registrationId, connectionId));
+      .execute((tx) =>
+        this.lockBound(
+          tx,
+          authority,
+          registrationId,
+          connectionId,
+          !!provider.renewal && !!this.#renew,
+        ),
+      );
+    if (
+      selected?.credential_expires_at &&
+      selected.credential_expires_at <= new Date() &&
+      this.#renew
+    ) {
+      await this.#renew(
+        authority,
+        registrationId,
+        selected.id,
+        selected.authority_generation,
+        signal,
+      );
+      selected = await this.db
+        .transaction()
+        .execute((tx) => this.lockBound(tx, authority, registrationId, connectionId));
+    }
     if (!selected?.bundle) return null;
     const plaintext = this.secrets.open(selected.bundle, {
       kind: "connection",
@@ -200,6 +266,7 @@ export class ConnectionService implements ConnectionPort {
     authority: Exclude<OperationAuthority, { source: "request" }>,
     registrationId: string,
     connectionId?: string,
+    allowExpiry = false,
   ) {
     const owner = this.#background.get(authority.source);
     if (!owner)
@@ -217,14 +284,18 @@ export class ConnectionService implements ConnectionPort {
             ? "remote-cancel"
             : "event-source",
     };
-    await this.lockBackgroundRows(tx, scope);
+    await this.lockBackgroundRows(tx, scope, allowExpiry ? { allowExpiry: true } : undefined);
     await owner.lockClaim(tx, authority);
-    return this.lockBackgroundRows(tx, scope);
+    return this.lockBackgroundRows(tx, scope, allowExpiry ? { allowExpiry: true } : undefined);
   }
   async lockBackground(tx: CoreTransaction, scope: BackgroundScope): Promise<void> {
     await this.lockBackgroundRows(tx, scope);
   }
-  private async lockBackgroundRows(tx: CoreTransaction, scope: BackgroundScope) {
+  private async lockBackgroundRows(
+    tx: CoreTransaction,
+    scope: BackgroundScope,
+    renewal?: { mutationId?: string; allowExpiry?: boolean },
+  ) {
     const registrationId = scope.providerRegistrationId;
     const connectionId = scope.connectionId;
     const provider = this.providers.get(registrationId);
@@ -269,7 +340,8 @@ export class ConnectionService implements ConnectionPort {
         .selectFrom("connections")
         .selectAll()
         .where("id", "=", connectionId)
-        .forShare()
+        .$if(!!renewal, (query) => query.forUpdate())
+        .$if(!renewal, (query) => query.forShare())
         .executeTakeFirst();
       if (
         !connection ||
@@ -306,13 +378,13 @@ export class ConnectionService implements ConnectionPort {
           .where("id", "=", connection.mutation_id)
           .forShare()
           .executeTakeFirst();
-        if (mutation?.may_invalidate)
+        if (mutation?.may_invalidate && !renewal)
           throw new ServiceError(422, "renewal-uncertain", "Connection is unavailable");
       }
     } else if (connectionId)
       throw new ServiceError(400, "irrelevant-connection", "This provider has no connection");
     const time = await databaseTime(tx);
-    if (connection?.credential_expires_at && connection.credential_expires_at <= time)
+    if (!renewal && connection?.credential_expires_at && connection.credential_expires_at <= time)
       throw new ServiceError(422, "reauthorization-required", "Provider credential expired");
     if (
       connection &&
@@ -331,6 +403,58 @@ export class ConnectionService implements ConnectionPort {
         );
     }
     return connection;
+  }
+  async renewalActor(
+    authority: OperationAuthority,
+    registrationId: string,
+    connectionId: string,
+    generation: number,
+  ): Promise<CredentialActor> {
+    const owner =
+      authority.source === "request" ? undefined : this.#background.get(authority.source);
+    if (authority.source !== "request" && !owner)
+      throw new ServiceError(503, "authority-unavailable", "Background authority is unavailable");
+    const inspected =
+      authority.source === "request"
+        ? {
+            access: authority.access,
+            connectionId,
+            authorityGeneration: generation,
+            started: false,
+          }
+        : await owner!.inspect(authority);
+    if (inspected.connectionId !== connectionId || inspected.authorityGeneration !== generation)
+      absent();
+    const provider = this.providers.get(registrationId);
+    const scope: BackgroundScope = {
+      ...inspected,
+      providerRegistrationId: registrationId,
+      purpose:
+        authority.source === "job"
+          ? "observe"
+          : authority.source === "event-source"
+            ? "event-source"
+            : authority.source === "remote-cancel"
+              ? "remote-cancel"
+              : "start",
+    };
+    return {
+      ownerId: provider.mode === "operator" ? null : inspected.access.ownerId,
+      sessionId: authority.source === "request" ? authority.access.sessionId : null,
+      authenticationExpiresAt:
+        authority.source === "request"
+          ? authority.access.authenticationExpiresAt
+          : new Date(8640000000000000),
+      lock: async (tx, providerId, ref?: MutationRef) => {
+        if (providerId !== registrationId || (ref && ref.connectionId !== connectionId)) absent();
+        if (authority.source === "request")
+          await this.access.lockAuthority(tx, authority.access, registrationId);
+        await this.lockBackgroundRows(tx, scope, ref ? { mutationId: ref.id } : {});
+        await owner?.lockClaim(tx, authority as Exclude<OperationAuthority, { source: "request" }>);
+        // Recheck database wall time after waiting on the operation claim.
+        await this.lockBackgroundRows(tx, scope, ref ? { mutationId: ref.id } : {});
+      },
+    };
   }
   async disconnect(access: AccessContext, connectionId: string, expected: number): Promise<void> {
     const hint = await this.db
@@ -358,6 +482,7 @@ export class ConnectionService implements ConnectionPort {
           .where("id", "=", row.mutation_id)
           .execute();
       if (access.authenticationExpiresAt <= (await databaseTime(tx))) throw authFailure();
+      await this.retireConnection?.(tx, row.id, row.authority_generation);
       await tx
         .updateTable("connections")
         .set({

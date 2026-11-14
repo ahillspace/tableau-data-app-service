@@ -4,7 +4,6 @@ import { connect } from "node:net";
 import { test } from "node:test";
 import { ConnectionService } from "../src/connections/service.js";
 import type { CoreServices } from "../src/core-ports.js";
-import { up } from "../src/db/migrations/030_events.js";
 import { createEventsExtension } from "../src/events/index.js";
 import { decodeEnvelope, type EventLimits, eventBudgets } from "../src/events/protocol.js";
 import { slackEventProvider } from "../src/events/slack.js";
@@ -34,7 +33,6 @@ function signature(raw: string, timestamp = String(Math.floor(Date.now() / 1000)
 }
 async function fixture(redisUrl: string, profile = limits) {
   const f = await coreFixture();
-  await up(f.db);
   const connections = new ConnectionService(
     f.db,
     f.access,

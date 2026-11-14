@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import * as oauth from "oauth4webapi";
 import { z } from "zod";
 import { ServiceError } from "../http/errors.js";
 import { protocolJson } from "../transport/json.js";
@@ -92,7 +93,43 @@ export function slackRegistration(
     },
     capabilities: [],
   };
-  if (options.oauth) registration.oauth = slackOAuth(options.oauth, registration);
+  if (options.oauth) {
+    const definition = (registration.oauth = slackOAuth(options.oauth, registration));
+    registration.renewal = {
+      mayInvalidate: true,
+      async renew(previous, context) {
+        const credentials = credentialsSchema.parse(previous.credentials);
+        if (!credentials.refreshToken)
+          throw new ServiceError(
+            422,
+            "reauthorization-required",
+            "Slack refresh token is unavailable",
+          );
+        const response = await oauth.refreshTokenGrantRequest(
+          definition.metadata,
+          { client_id: definition.clientId },
+          definition.clientSecret ? oauth.ClientSecretPost(definition.clientSecret) : oauth.None(),
+          credentials.refreshToken,
+          {
+            [oauth.customFetch]: (url, init) =>
+              context.request(url, {
+                method: init.method,
+                headers: new Headers(init.headers),
+                body: init.body.toString(),
+              }),
+            signal: context.signal,
+          },
+        );
+        if (!response.ok)
+          throw new ServiceError(422, "provider-renewal-failed", "Slack renewal failed");
+        return definition.parseTokenResponse(await protocolJson(response), {
+          request: context.request,
+          previous,
+          renewal: true,
+        });
+      },
+    };
+  }
   return registration;
 }
 

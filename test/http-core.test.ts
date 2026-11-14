@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
+import { sql } from "kysely";
 import { z } from "zod";
 import { ConnectionService } from "../src/connections/service.js";
 import { createHttpApp } from "../src/http/app.js";
@@ -12,6 +13,7 @@ import { candidate, coreFixture, fixtureProvider } from "./core-fixture.js";
 
 test("real API streams native bytes and carriers and invokes ordinary JSON/native handlers without a Jobs schema", async () => {
   const f = await coreFixture();
+  await sql`drop table job_payloads, jobs cascade`.execute(f.db);
   let providerCalls = 0;
   const upstream = createServer((request, response) => {
     providerCalls++;

@@ -26,6 +26,7 @@ type SnapshotRow = AccessRow & {
 export type PreparedRequest = {
   access: AccessContext;
   use: ConnectionUse | null;
+  needsRenewal: boolean;
   take(): CredentialSnapshot | null;
 };
 export async function prepareRequest(
@@ -35,6 +36,7 @@ export async function prepareRequest(
   appId: string,
   authentication: { token: string } | { access: AccessContext },
   connectionId?: string,
+  allowRenewal = false,
 ): Promise<PreparedRequest> {
   const sampled = performance.now();
   const identity =
@@ -84,8 +86,11 @@ export async function prepareRequest(
     throw new ServiceError(422, "connection-required", "Choose an explicit connection");
   let expiry = row.access_expires_at.getTime() - row.server_time.getTime();
   let use: ConnectionUse | null = null;
+  const needsRenewal =
+    (!!row.credential_expires_at && row.credential_expires_at <= row.server_time) ||
+    (!!row.may_invalidate && allowRenewal);
   if (row.connection_id) {
-    if (row.state !== "active" || !row.bundle || row.may_invalidate)
+    if (row.state !== "active" || !row.bundle || (row.may_invalidate && !allowRenewal))
       throw new ServiceError(
         422,
         row.state === "renewal-uncertain" || row.may_invalidate
@@ -107,7 +112,7 @@ export async function prepareRequest(
           row.server_time.getTime(),
       );
     }
-    if (row.credential_expires_at)
+    if (row.credential_expires_at && !(needsRenewal && allowRenewal))
       expiry = Math.min(expiry, row.credential_expires_at.getTime() - row.server_time.getTime());
     if (expiry <= 0)
       throw new ServiceError(422, "reauthorization-required", "Connector reauthorization required");
@@ -122,9 +127,12 @@ export async function prepareRequest(
   return {
     access,
     use,
+    needsRenewal,
     take() {
       if (consumed) throw new Error("Request snapshot was already consumed");
       consumed = true;
+      if (needsRenewal)
+        throw new ServiceError(422, "reauthorization-required", "Provider credential expired");
       if (performance.now() - sampled >= expiry) throw authFailure();
       if (!row.connection_id || !row.bundle) return null;
       const plaintext = secrets.open(row.bundle, {
