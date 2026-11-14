@@ -1,0 +1,153 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #202723;
+  background: #f4f6f2;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+header {
+  margin-bottom: 32px;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  color: #526657;
+  font-weight: 700;
+}
+h1 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  margin: 12px 0;
+}
+header > p:last-child {
+  color: #526057;
+  line-height: 1.6;
+}
+section {
+  padding: 24px;
+  margin: 20px 0;
+  background: #fff;
+  border: 1px solid #dce2d8;
+  border-radius: 12px;
+}
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 16px;
+}
+label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 16px 0 6px;
+}
+input,
+select,
+textarea {
+  display: block;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #a8b4a5;
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+textarea {
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  resize: vertical;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+button {
+  border: 1px solid #27523b;
+  border-radius: 6px;
+  background: #27523b;
+  color: #fff;
+  padding: 11px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.secondary {
+  background: #fff;
+  color: #27523b;
+  margin-top: 8px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+pre:focus-visible {
+  outline: 3px solid #3c75c8;
+  outline-offset: 3px;
+}
+.request {
+  display: flex;
+  gap: 12px;
+}
+.request > label {
+  min-width: 100px;
+}
+.path {
+  flex: 1;
+}
+details {
+  margin-top: 20px;
+}
+summary {
+  cursor: pointer;
+  color: #27523b;
+}
+pre {
+  font-size: 0.8rem;
+  line-height: 1.6;
+  background: #f4f6f2;
+  border: 1px solid #dce2d8;
+  padding: 16px;
+  min-height: 120px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+}
+#status {
+  font-size: 0.875rem;
+  color: #526057;
+}
+@media (max-width: 480px) {
+  main {
+    padding: 24px 16px;
+  }
+  section {
+    padding: 18px;
+  }
+  .request {
+    display: block;
+  }
+  button {
+    min-height: 44px;
+  }
+}

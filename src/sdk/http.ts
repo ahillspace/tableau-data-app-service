@@ -46,8 +46,13 @@ export class ClientHttp {
       throw new TypeError("Invalid access token");
     this.#bearer = token;
   }
-  clearBearer(): void {
+  clearBearer(abort = false): void {
     this.#bearer = undefined;
+    if (abort) {
+      for (const request of this.#requests)
+        request.abort(new DOMException("Identity changed", "AbortError"));
+      this.#requests.clear();
+    }
   }
   close(): void {
     this.#closed = true;
@@ -88,7 +93,7 @@ export class ClientHttp {
       : controller.signal;
     let response: Response;
     try {
-      response = await this.fetcher(url, {
+      response = await this.fetcher.call(globalThis, url, {
         ...init,
         headers,
         signal,
@@ -143,7 +148,12 @@ export class ClientHttp {
   }
 
   async json<T>(path: string, parse: (input: unknown) => T, init: RequestInit = {}): Promise<T> {
-    const response = await this.fetch(path, init);
+    return this.#decodeJson(await this.fetch(path, init), parse);
+  }
+  async identityJson<T>(path: string, parse: (input: unknown) => T, init: RequestInit): Promise<T> {
+    return this.#decodeJson(await this.identity(path, init), parse);
+  }
+  async #decodeJson<T>(response: Response, parse: (input: unknown) => T): Promise<T> {
     if (!response.ok) {
       let body: unknown;
       try {

@@ -24,6 +24,34 @@ const limits: EventLimits = {
   heartbeatMs: 100,
 };
 const signingSecret = "test-only-signature-key";
+
+test("disabled Events needs no Redis configuration or schema and leaves core readiness available", async () => {
+  const f = await coreFixture();
+  const connections = new ConnectionService(
+    f.db,
+    f.access,
+    f.secrets,
+    new ProviderRegistry([fixtureProvider]),
+    { connectTimeoutMs: 1000, headersTimeoutMs: 1000, stallTimeoutMs: 1000, maxSockets: 8 },
+  );
+  const extension = createEventsExtension({ enabled: false });
+  const app = await createHttpApp({
+    db: f.db,
+    core: { db: f.db, controlDb: f.db, secrets: f.secrets, access: f.access, connections },
+    extensions: [extension],
+  });
+  try {
+    const readiness = await app.inject({ method: "GET", url: "/health/ready" });
+    assert.equal(readiness.statusCode, 200);
+    assert.deepEqual(readiness.json(), { core: "ready", events: ["disabled"] });
+    const unavailable = await app.inject({ method: "GET", url: "/v1/apps/one/events" });
+    assert.equal(unavailable.statusCode, 503);
+    assert.equal(unavailable.json().error.code, "events-disabled");
+  } finally {
+    await app.close();
+    await f.close();
+  }
+});
 function signature(raw: string, timestamp = String(Math.floor(Date.now() / 1000))) {
   return {
     "content-type": "application/json",

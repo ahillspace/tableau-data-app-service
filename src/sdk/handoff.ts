@@ -57,12 +57,18 @@ export function correlatedPopup(input: {
       if (event.data.type === "integration:ready" && !transferred) {
         transferred = true;
         input.popup.postMessage(
-          { type: "integration:proof", transactionId: input.transactionId, proof: input.proof },
+          {
+            type: "integration:proof",
+            transactionId: input.transactionId,
+            initiationProof: input.proof,
+          },
           input.serviceOrigin,
         );
       } else if (event.data.type === "integration:complete" && transferred) {
         cleanup();
         resolve();
+      } else if (event.data.type === "integration:failed") {
+        fail(new Error("Authorization failed in the service window"));
       }
     };
     const deadline = setTimeout(() => fail(new Error("Handoff expired")), remaining);

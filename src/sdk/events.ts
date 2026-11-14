@@ -1,4 +1,4 @@
-import { type PublicLiveData, publicLiveDataSchema } from "../public/schemas.js";
+import { opaqueId, type PublicLiveData, publicLiveDataSchema } from "../public/schemas.js";
 import { ClientHttp, ProtocolError, ServiceError } from "./http.js";
 
 export type LiveNotification =
@@ -31,6 +31,13 @@ export async function consumeEvents(
     frameLimit = encodedLimit + 4096;
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decode = (bytes?: Uint8Array, stream = false) => {
+    try {
+      return decoder.decode(bytes, { stream });
+    } catch {
+      throw new ProtocolError("Invalid SSE UTF-8");
+    }
+  };
   let line = "",
     name = "",
     data = "",
@@ -115,9 +122,11 @@ export async function consumeEvents(
     while (true) {
       const next = await reader.read();
       if (next.done) break;
-      const text = decoder.decode(next.value, { stream: true });
+      const text = decode(next.value, true);
       for (const char of text) {
-        if (++frameBytes > frameLimit)
+        const code = char.codePointAt(0)!;
+        frameBytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+        if (frameBytes > frameLimit)
           throw new ProtocolError("SSE frame exceeds deployed payload budget");
         if (char === "\n" && carriage) {
           carriage = false;
@@ -132,7 +141,7 @@ export async function consumeEvents(
         }
       }
     }
-    decoder.decode(); // Reject truncated UTF-8; an incomplete SSE event is never delivered.
+    decode(); // Reject truncated UTF-8; an incomplete SSE event is never delivered.
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -157,7 +166,7 @@ export class EventsClient {
   ): Promise<void> {
     const query = new URLSearchParams();
     for (const key of ["sourceId", "connectionId", "jobId"] as const)
-      if (options[key]) query.set(key, options[key]);
+      if (options[key] !== undefined) query.set(key, opaqueId.parse(options[key]));
     let restored = false;
     while (!options.signal?.aborted) {
       try {
@@ -188,13 +197,17 @@ export class EventsClient {
             "",
           );
         }
-        await consumeEvents(response, this.payloadBytes, receive);
+        await consumeEvents(response, this.payloadBytes, async (event) => {
+          try {
+            await receive(event);
+          } catch (cause) {
+            throw new ConsumerError(cause);
+          }
+        });
       } catch (error) {
         if (options.signal?.aborted) return;
-        if (
-          error instanceof ProtocolError ||
-          (error instanceof ServiceError && [401, 403, 404].includes(error.status))
-        )
+        if (error instanceof ConsumerError) throw error.cause;
+        if (error instanceof ProtocolError || (error instanceof ServiceError && error.status < 500))
           throw error;
         if (!options.reconnect) throw error;
       }
@@ -210,5 +223,10 @@ export class EventsClient {
         if (options.signal?.aborted) done();
       });
     }
+  }
+}
+class ConsumerError extends Error {
+  constructor(override readonly cause: unknown) {
+    super("Live notification callback failed");
   }
 }
