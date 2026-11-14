@@ -101,6 +101,7 @@ export interface CredentialMutationsTable {
   evidence: string | null;
 }
 export interface CoreDatabase {
+  authorizations: AuthorizationsTable;
   session_transactions: SessionTransactionsTable;
   restoration_bindings: RestorationBindingsTable;
   deployments: DeploymentsTable;
@@ -135,4 +136,20 @@ export interface RestorationBindingsTable {
   session_id: string;
   browser_profile: string;
   created_at: ColumnType<Date, Date | string | undefined, Date | string>;
+}
+export interface AuthorizationsTable {
+  id: string;
+  provider_registration_id: string;
+  app_id: string;
+  session_id: string;
+  owner_id: string;
+  mutation_id: string;
+  initiation_verifier: string;
+  browser_verifier: string | null;
+  state_verifier: string | null;
+  protected_state: Json<EncryptedEnvelope> | null;
+  state: "pending" | "exchanging" | "succeeded" | "failed" | "cancelled" | "expired";
+  launched: boolean;
+  expires_at: Timestamp;
+  connection_id: string | null;
 }

@@ -9,15 +9,25 @@ const credentialsSchema = z.strictObject({
   refreshToken: z.string().max(4096).optional(),
 });
 export function slackRegistration(
-  options: { id?: string; mode?: "personal" | "operator" } = {},
+  options: { id?: string; mode?: "personal" | "operator"; oauth?: SlackOAuthOptions } = {},
 ): ProviderRegistration {
-  return {
+  const registration: ProviderRegistration = {
     id: options.id ?? "slack",
     revision: 1,
     mode: options.mode ?? "personal",
-    endpoints: { api: { baseUrl: "https://slack.com/api" } },
+    endpoints: {
+      api: {
+        baseUrl: "https://slack.com/api",
+        blockedPaths: ["/api/oauth.v2.access", "/api/oauth.v2.exchange", "/api/oauth.access"],
+      },
+    },
     credentialsSchema,
-    contextSchema: z.strictObject({ tokenMode: z.enum(["bot", "user"]) }),
+    contextSchema: z.strictObject({
+      tokenMode: z.enum(["bot", "user"]),
+      teamId: z.string(),
+      userId: z.string(),
+      botId: z.string().optional(),
+    }),
     attach: (snapshot) =>
       new Headers({
         authorization: `Bearer ${credentialsSchema.parse(snapshot.credentials).accessToken}`,
@@ -61,7 +71,12 @@ export function slackRegistration(
           );
         return {
           credentials: { accessToken: token },
-          runtimeContext: { tokenMode },
+          runtimeContext: {
+            tokenMode,
+            teamId: data.team_id,
+            userId: data.user_id,
+            ...(data.bot_id ? { botId: data.bot_id } : {}),
+          },
           display: { label: "Slack", ...(data.team ? { accountLabel: data.team } : {}) },
           expiresAt: null,
           // A static user token does not prove application/grant continuity.
@@ -76,5 +91,109 @@ export function slackRegistration(
       },
     },
     capabilities: [],
+  };
+  if (options.oauth) registration.oauth = slackOAuth(options.oauth, registration);
+  return registration;
+}
+
+export type SlackOAuthOptions = {
+  clientId: string;
+  clientSecret?: string;
+  callbackUri: string;
+  tokenMode: "bot" | "user";
+  scopes: readonly string[];
+  pkceEnabled: boolean;
+};
+function slackOAuth(
+  config: SlackOAuthOptions,
+  registration: ProviderRegistration,
+): NonNullable<ProviderRegistration["oauth"]> {
+  if (config.pkceEnabled ? !!config.clientSecret : !config.clientSecret)
+    throw new Error(
+      "Slack requires either configured public PKCE or confidential client authentication",
+    );
+  return {
+    metadata: {
+      issuer: "https://slack.com",
+      authorization_endpoint: "https://slack.com/oauth/v2/authorize",
+      token_endpoint: "https://slack.com/api/oauth.v2.access",
+    },
+    clientId: config.clientId,
+    ...(config.clientSecret ? { clientSecret: config.clientSecret } : {}),
+    callbackUri: config.callbackUri,
+    scope: config.tokenMode === "bot" ? config.scopes.join(",") : "",
+    pkce: config.pkceEnabled,
+    ...(config.tokenMode === "user"
+      ? { authorizationParameters: { user_scope: config.scopes.join(",") } }
+      : {}),
+    launchMayInvalidate: true,
+    exchangeMayInvalidate: true,
+    async parseTokenResponse(raw, context) {
+      const data = z
+        .object({
+          ok: z.boolean(),
+          access_token: z.string().optional(),
+          refresh_token: z.string().optional(),
+          expires_in: z.number().positive().optional(),
+          team: z.object({ id: z.string() }).optional(),
+          bot_user_id: z.string().optional(),
+          authed_user: z
+            .object({
+              id: z.string(),
+              access_token: z.string().optional(),
+              refresh_token: z.string().optional(),
+              expires_in: z.number().positive().optional(),
+            })
+            .optional(),
+        })
+        .parse(raw);
+      if (!data.ok)
+        throw new ServiceError(422, "provider-authorization-failed", "Slack authorization failed");
+      const selected = config.tokenMode === "user" && !context.renewal ? data.authed_user : data;
+      if (!selected?.access_token || (selected.expires_in && !selected.refresh_token))
+        throw new ServiceError(
+          502,
+          "invalid-provider-response",
+          "Slack token response is incomplete",
+        );
+      const setup = registration.staticSetup;
+      if (!setup) throw new Error("Slack validation declaration missing");
+      const validated = await setup.prepare(
+        { token: selected.access_token, tokenMode: config.tokenMode },
+        { signal: new AbortController().signal, request: context.request },
+      );
+      const account = registration.contextSchema.parse(validated.runtimeContext);
+      if (
+        (data.team && data.team.id !== account.teamId) ||
+        (config.tokenMode === "user" &&
+          data.authed_user &&
+          data.authed_user.id !== account.userId) ||
+        (config.tokenMode === "bot" && data.bot_user_id && data.bot_user_id !== account.userId)
+      )
+        throw new ServiceError(502, "invalid-provider-account", "Slack account evidence conflicts");
+      const accountKey = createHash("sha256")
+        .update(
+          JSON.stringify([
+            config.clientId,
+            config.tokenMode,
+            account.teamId,
+            account.userId,
+            account.botId ?? null,
+          ]),
+        )
+        .digest("hex");
+      if (context.renewal && accountKey !== context.previous?.accountKey)
+        throw new ServiceError(502, "invalid-provider-account", "Slack renewal account changed");
+      return {
+        ...validated,
+        credentials: {
+          accessToken: selected.access_token,
+          ...(selected.refresh_token ? { refreshToken: selected.refresh_token } : {}),
+        },
+        accountKey,
+        expiresAt: selected.expires_in ? new Date(Date.now() + selected.expires_in * 1000) : null,
+        verifiedReauthorization: !context.renewal,
+      };
+    },
   };
 }

@@ -1,3 +1,4 @@
+import type { AuthorizationServer } from "oauth4webapi";
 import type { z } from "zod";
 import type { ProviderContext } from "../core-ports.js";
 import { ServiceError } from "../http/errors.js";
@@ -43,6 +44,28 @@ export type ProviderRegistration = {
   endpoints: Readonly<Record<string, Endpoint>>;
   credentialsSchema: z.ZodType;
   contextSchema: z.ZodType<Record<string, unknown>>;
+  oauth?: {
+    metadata: AuthorizationServer;
+    clientId: string;
+    clientSecret?: string;
+    callbackUri: string;
+    scope: string;
+    pkce: boolean;
+    authorizationParameters?: Readonly<Record<string, string>>;
+    launchMayInvalidate: boolean;
+    exchangeMayInvalidate: boolean;
+    parseTokenResponse(
+      data: unknown,
+      context: {
+        request(
+          url: string,
+          init: { method: string; headers?: Headers; body?: string },
+        ): Promise<Response>;
+        previous?: CredentialBundle;
+        renewal: boolean;
+      },
+    ): Promise<CredentialBundle>;
+  };
   staticSetup?: {
     inputSchema: z.ZodType;
     prepare(
@@ -69,6 +92,22 @@ export class ProviderRegistry {
   readonly #capabilities = new Map<string, HttpCapability>();
   constructor(providers: readonly ProviderRegistration[]) {
     for (const provider of providers) {
+      if (provider.oauth) {
+        const definition = provider.oauth;
+        for (const raw of [
+          definition.metadata.issuer,
+          definition.metadata.authorization_endpoint,
+          definition.metadata.token_endpoint,
+          definition.callbackUri,
+        ]) {
+          if (!raw) throw new Error("OAuth endpoint is missing");
+          const url = new URL(raw);
+          if (url.protocol !== "https:" || url.username || url.password || url.hash)
+            throw new Error("OAuth requires fixed HTTPS endpoints");
+        }
+        if (!definition.clientId || (!definition.pkce && !definition.clientSecret))
+          throw new Error("OAuth requires PKCE or confidential client authentication");
+      }
       if (this.#providers.has(provider.id)) throw new Error("Duplicate provider registration");
       this.#providers.set(provider.id, provider);
       for (const capability of provider.capabilities) {

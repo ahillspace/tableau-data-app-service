@@ -11,6 +11,7 @@ import type { SecretBox } from "../security/encryption.js";
 export type Replacement = { connectionId: string; expectedAuthorityGeneration: number };
 export type MutationRef = Readonly<{
   id: string;
+  kind: "setup" | "import" | "renewal";
   connectionId: string | null;
   setupId: string | null;
   expected: BundleRevision;
@@ -18,6 +19,11 @@ export type MutationRef = Readonly<{
 }>;
 type Connection = Selectable<ConnectionsTable>;
 type Mutation = Selectable<CredentialMutationsTable>;
+export type RetireConnection = (
+  tx: CoreTransaction,
+  connectionId: string,
+  authorityGeneration: number,
+) => Promise<void>;
 const inProgress = () =>
   new ServiceError(409, "credential-mutation-in-progress", "Credential mutation is in progress");
 export class CredentialsService {
@@ -25,6 +31,7 @@ export class CredentialsService {
     readonly db: Database,
     readonly access: AccessService,
     readonly secrets: SecretBox,
+    readonly retireConnection?: RetireConnection,
   ) {}
 
   async capture(
@@ -50,17 +57,32 @@ export class CredentialsService {
     return connection;
   }
 
-  prepare(provider: ProviderRegistration, candidate: CredentialBundle, previous?: Connection) {
+  prepare(
+    provider: ProviderRegistration,
+    candidate: CredentialBundle,
+    previous?: Connection,
+    renewal = false,
+  ) {
     const id = previous?.id ?? randomUUID();
-    const authority = previous
-      ? previous.authority_generation +
-        (candidate.accountKey !== null &&
-        candidate.accountKey === previous.account_key &&
-        candidate.verifiedReauthorization
-          ? 0
-          : 1)
-      : 1;
+    const authority =
+      renewal && previous
+        ? previous.authority_generation
+        : previous
+          ? previous.authority_generation +
+            (candidate.accountKey !== null &&
+            candidate.accountKey === previous.account_key &&
+            candidate.verifiedReauthorization
+              ? 0
+              : 1)
+          : 1;
     const credential = (previous?.credential_generation ?? 0) + 1;
+    if (
+      renewal &&
+      (!previous ||
+        previous.account_key !== candidate.accountKey ||
+        candidate.verifiedReauthorization)
+    )
+      stale();
     const credentials = provider.credentialsSchema.parse(candidate.credentials);
     const context = provider.contextSchema.parse(candidate.runtimeContext);
     const bytes = Buffer.from(JSON.stringify({ credentials, runtimeContext: context }));
@@ -111,6 +133,8 @@ export class CredentialsService {
         });
         if (current.mutation_id || current.state === "renewal-uncertain") throw inProgress();
         if (current.state === "disconnected") stale();
+        if (prepared.authority !== current.authority_generation)
+          await this.retireConnection?.(tx, current.id, current.authority_generation);
       }
       const time = await databaseTime(tx);
       if (access.authenticationExpiresAt <= time)
@@ -155,6 +179,7 @@ export class CredentialsService {
     expiresAt: Date,
     replacement?: Replacement,
     setupId?: string,
+    onReserve?: (tx: CoreTransaction, ref: MutationRef) => Promise<void>,
   ): Promise<MutationRef> {
     return this.db.transaction().execute(async (tx) => {
       await this.access.lockAuthority(tx, access, providerId);
@@ -212,13 +237,21 @@ export class CredentialsService {
           .set({ mutation_id: id })
           .where("id", "=", previous.id)
           .execute();
-      return {
+      const ref = {
         id,
+        kind,
         connectionId: previous?.id ?? null,
         setupId: setupId ?? null,
         expected,
         expiresAt,
       };
+      await onReserve?.(tx, ref);
+      if (
+        access.authenticationExpiresAt <= (await databaseTime(tx)) ||
+        ref.expiresAt <= (await databaseTime(tx))
+      )
+        stale();
+      return ref;
     });
   }
 
@@ -254,6 +287,7 @@ export class CredentialsService {
     if (
       !mutation ||
       mutation.expected_authority !== ref.expected.authorityGeneration ||
+      mutation.kind !== ref.kind ||
       mutation.expected_credential !== ref.expected.credentialGeneration ||
       ["uncertain", "succeeded", "failed"].includes(mutation.phase)
     )
@@ -279,6 +313,7 @@ export class CredentialsService {
     ref: MutationRef,
     incarnation: string,
     leaseMs: number,
+    onClaim?: (tx: CoreTransaction, claim: ClaimRef) => Promise<void>,
   ): Promise<ClaimRef> {
     if (!Number.isSafeInteger(leaseMs) || leaseMs <= 0) throw new Error("Invalid mutation lease");
     return this.db.transaction().execute(async (tx) => {
@@ -297,6 +332,13 @@ export class CredentialsService {
         })
         .where("id", "=", ref.id)
         .execute();
+      await onClaim?.(tx, claim);
+      const finalTime = await databaseTime(tx);
+      if (
+        access.authenticationExpiresAt <= finalTime ||
+        Math.min(time.getTime() + leaseMs, ref.expiresAt.getTime()) <= finalTime.getTime()
+      )
+        stale();
       return claim;
     });
   }
@@ -342,6 +384,7 @@ export class CredentialsService {
     ref: MutationRef,
     claim: ClaimRef,
     candidate: CredentialBundle,
+    finalize?: (tx: CoreTransaction, row: Connection) => Promise<void>,
   ): Promise<Connection> {
     const previous = ref.connectionId
       ? await this.db
@@ -351,12 +394,14 @@ export class CredentialsService {
           .executeTakeFirst()
       : undefined;
     if (previous) this.assertPair(previous, ref.expected);
-    const prepared = this.prepare(provider, candidate, previous);
+    const prepared = this.prepare(provider, candidate, previous, ref.kind === "renewal");
     return this.db.transaction().execute(async (tx) => {
       await this.access.lockAuthority(tx, access, provider.id);
       const { mutation, connection } = await this.lockMutation(tx, ref);
       const time = await this.live(tx, mutation, claim);
       if (mutation.access_session_id !== access.sessionId) stale();
+      if (connection && prepared.authority !== connection.authority_generation)
+        await this.retireConnection?.(tx, connection.id, connection.authority_generation);
       const values = {
         state: "active" as const,
         authority_generation: prepared.authority,
@@ -365,9 +410,10 @@ export class CredentialsService {
         display: candidate.display,
         credential_expires_at: candidate.expiresAt,
         account_key: candidate.accountKey,
-        last_connector_reauth_at: candidate.verifiedReauthorization
-          ? time
-          : (connection?.last_connector_reauth_at ?? null),
+        last_connector_reauth_at:
+          ref.kind !== "renewal" && candidate.verifiedReauthorization
+            ? time
+            : (connection?.last_connector_reauth_at ?? null),
         mutation_id: null,
       };
       const row = connection
@@ -392,11 +438,24 @@ export class CredentialsService {
         .set({ phase: "succeeded", processor_token: null, incarnation: null, lease_until: null })
         .where("id", "=", ref.id)
         .execute();
+      await finalize?.(tx, row);
+      const finalTime = await this.live(tx, mutation, claim);
+      if (access.authenticationExpiresAt <= finalTime)
+        throw new ServiceError(401, "authentication-required", "Verified authentication required");
       return row;
     });
   }
-  async recover(ref: MutationRef, forced = false): Promise<"released" | "uncertain" | "stale"> {
+  async recover(
+    ref: MutationRef,
+    forced = false,
+    options?: {
+      initiator: { access: AccessContext; providerId: string };
+      finalize(tx: CoreTransaction): Promise<void>;
+    },
+  ): Promise<"released" | "uncertain" | "stale"> {
     return this.db.transaction().execute(async (tx) => {
+      if (options)
+        await this.access.lockAuthority(tx, options.initiator.access, options.initiator.providerId);
       const connection = ref.connectionId
         ? await tx
             .selectFrom("connections")
@@ -446,6 +505,9 @@ export class CredentialsService {
           .set(uncertain ? { state: "renewal-uncertain" } : { mutation_id: null })
           .where("id", "=", connection.id)
           .execute();
+      await options?.finalize(tx);
+      if (options && options.initiator.access.authenticationExpiresAt <= (await databaseTime(tx)))
+        throw new ServiceError(401, "authentication-required", "Verified authentication required");
       return uncertain ? "uncertain" : "released";
     });
   }

@@ -68,7 +68,10 @@ export function registerCoreRoutes(
           id: provider.id,
           mode: provider.mode,
           endpoints: Object.keys(provider.endpoints),
-          setupModes: provider.staticSetup ? ["static"] : [],
+          setupModes: [
+            ...(provider.staticSetup ? ["static"] : []),
+            ...(provider.oauth ? ["oauth"] : []),
+          ],
           transport: HEADER_PROFILE,
         };
       }),
@@ -119,7 +122,11 @@ export function registerCoreRoutes(
     const setup = provider.staticSetup;
     const validated = setup.inputSchema.parse(input.inputs);
     const signal = requestAbort(request, reply);
-    const transport = new TransportScope(services.connections.policy, signal);
+    const transport = new TransportScope(
+      services.connections.policy,
+      signal,
+      services.connections.transportBudget,
+    );
     const previous = await services.credentials.capture(access, provider, input.replacement);
     const ref = setup.remote
       ? await services.credentials.reserve(
