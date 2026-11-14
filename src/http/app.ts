@@ -1,7 +1,9 @@
+import { createServer } from "node:http";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import type { ApiExtension, CoreServices } from "../core-ports.js";
 import { assertSchema, type Database } from "../db/database.js";
+import { HEADER_PROFILE } from "../public/headers.js";
 import { ServiceError } from "./errors.js";
 
 export async function createHttpApp(options: {
@@ -17,6 +19,8 @@ export async function createHttpApp(options: {
     routerOptions: { maxParamLength: 200 },
     bodyLimit: 1024 * 1024,
     forceCloseConnections: "idle",
+    serverFactory: (handler) =>
+      createServer({ maxHeaderSize: HEADER_PROFILE.physicalBytes, requestTimeout: 0 }, handler),
   });
   app.addHook("onSend", async (_request, reply) => {
     reply.header("cache-control", "no-store");
@@ -28,6 +32,7 @@ export async function createHttpApp(options: {
     reply
       .status(known ? error.status : validation ? 400 : 500)
       .header("X-Integration-Origin", "service")
+      .header("X-Integration-Error", "1")
       .send({
         error: {
           code: known ? error.code : validation ? "invalid-input" : "internal-error",

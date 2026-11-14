@@ -149,6 +149,6 @@ export async function sendResponse(
   reply.send(
     response.body
       ? Readable.fromWeb(response.body as import("node:stream/web").ReadableStream<Uint8Array>)
-      : null,
+      : undefined,
   );
 }

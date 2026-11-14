@@ -63,7 +63,23 @@ export interface ProviderScope {
   context: ProviderContext;
   dispose(reason?: unknown): Promise<void>;
 }
+export type BackgroundScope = {
+  access: Omit<AccessContext, "sessionId" | "authenticationExpiresAt">;
+  providerRegistrationId: string;
+  connectionId?: string;
+  authorityGeneration?: number;
+  started: boolean;
+  purpose: "start" | "observe" | "remote-cancel" | "event-source";
+};
 export interface ConnectionPort {
+  lockBackground(tx: CoreTransaction, scope: BackgroundScope): Promise<void>;
+  lockAuthority(
+    tx: CoreTransaction,
+    authority: Exclude<OperationAuthority, { source: "request" }>,
+    registrationId: string,
+    connectionId?: string,
+  ): Promise<void>;
+
   authorizeUse(
     access: AccessContext,
     registrationId: string,

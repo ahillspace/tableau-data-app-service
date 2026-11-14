@@ -25,6 +25,24 @@ export type TransportPolicy = {
   maxSockets: number;
   uploadLimitBytes?: number;
 };
+export class SocketBudget {
+  #active = 0;
+  constructor(readonly maximum: number) {
+    if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error("Invalid socket budget");
+  }
+  acquire(): () => void {
+    if (this.#active >= this.maximum)
+      throw new ServiceError(503, "transport-capacity", "Transport resources are unavailable");
+    this.#active++;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.#active--;
+      }
+    };
+  }
+}
 function allowedAddress(address: string, endpoint: Endpoint): boolean {
   let parsed = ipaddr.parse(address);
   if (parsed.kind() === "ipv6" && (parsed as ipaddr.IPv6).isIPv4MappedAddress())
@@ -99,10 +117,12 @@ export class TransportScope {
   readonly #dispatchers = new Set<Agent>();
   readonly #bodies = new Set<Readable>();
   readonly #operations = new Set<Promise<unknown>>();
+  readonly #releases = new Map<Agent, () => void>();
   #disposed = false;
   constructor(
     readonly policy: TransportPolicy,
     signal: AbortSignal,
+    readonly budget = new SocketBudget(policy.maxSockets),
   ) {
     this.signal = AbortSignal.any([signal, this.#abort.signal]);
   }
@@ -124,6 +144,8 @@ export class TransportScope {
       throw new ServiceError(403, "destination-denied", "Provider recipient is denied");
     const address = addresses[0];
     if (!address) throw new ServiceError(502, "dns-failed", "Provider destination unavailable");
+    this.signal.throwIfAborted();
+    const release = this.budget.acquire();
     const connector = buildConnector({
       timeout: this.policy.connectTimeoutMs,
       rejectUnauthorized: true,
@@ -132,7 +154,8 @@ export class TransportScope {
       lookup: (_hostname, _options, callback) => callback(null, address.address, address.family),
     });
     const dispatcher = new Agent({
-      connections: this.policy.maxSockets,
+      connections: 1,
+      maxHeaderSize: HEADER_PROFILE.physicalBytes,
       pipelining: 1,
       connect: (options, callback) => {
         connector(options, (error, socket) => {
@@ -155,6 +178,7 @@ export class TransportScope {
       },
     });
     this.#dispatchers.add(dispatcher);
+    this.#releases.set(dispatcher, release);
     const headers = new Headers();
     for (const [name, value] of native.headers ?? []) {
       if (!allowedNativeHeader(name) || entrusted.has(name))
@@ -214,6 +238,8 @@ export class TransportScope {
       result.body.once("close", () => {
         this.#bodies.delete(result.body);
         this.#dispatchers.delete(dispatcher);
+        this.#releases.get(dispatcher)?.();
+        this.#releases.delete(dispatcher);
         void dispatcher.destroy();
       });
       const pairs: [string, string][] = [];
@@ -228,6 +254,8 @@ export class TransportScope {
           value === undefined ||
           connectionNames.has(name) ||
           isReserved(name) ||
+          entrusted.has(name) ||
+          name === "authorization" ||
           name.startsWith("access-control-") ||
           [
             "set-cookie",
@@ -264,9 +292,17 @@ export class TransportScope {
     } catch (error) {
       this.#dispatchers.delete(dispatcher);
       await dispatcher.destroy();
+      this.#releases.get(dispatcher)?.();
+      this.#releases.delete(dispatcher);
       if (error instanceof ServiceError || this.signal.aborted) throw error;
+      const timeout =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof error.code === "string" &&
+        error.code.includes("TIMEOUT");
       throw new ServiceError(
-        502,
+        timeout ? 504 : 502,
         "upstream-transport",
         "Provider transport failed; effects may be unknown",
       );
@@ -279,6 +315,8 @@ export class TransportScope {
     for (const body of this.#bodies) body.destroy();
     await Promise.all([...this.#dispatchers].map((dispatcher) => dispatcher.destroy()));
     await Promise.allSettled(this.#operations);
+    for (const release of this.#releases.values()) release();
+    this.#releases.clear();
     this.#bodies.clear();
     this.#dispatchers.clear();
   }
