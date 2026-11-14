@@ -21,7 +21,7 @@ export function registerAuthorizationRoutes(
     const access = await service.access.authenticate(bearer(request.headers.authorization), appId);
     const view = await service.begin(access, authorizationBeginSchema.parse(request.body));
     reply.status(201);
-    return { ...view, launchUrl: `${origin}/v1/authorizations/${view.id}/launch` };
+    return view;
   });
   app.get("/v1/apps/:app/authorizations/:id", async (request) => {
     const { app: appId, id } = scoped.parse(request.params);
