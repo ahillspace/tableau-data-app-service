@@ -1,6 +1,7 @@
 # API design
 
-Status: specified draft route map, not implemented endpoints or a frozen public API.
+Status: maintained route contracts with a local implementation; [implementation status](../implementation-status.md) maps current executable surfaces and support limits.
+These contracts are not a frozen public compatibility promise.
 [Shared contracts](../specs/contracts.md) owns public types and errors; [HTTP/SDK](../specs/events-http-sdk.md) owns codecs/carriers/CORS; [Access](../specs/access-connections.md) owns identity and resource checks.
 This map supplies callers, inputs/outputs and remaining evidence without duplicating those contracts.
 
@@ -16,16 +17,17 @@ Private service resources use HTTPS, no-store and safe errors; no caller may sup
 ## Endpoint inventory
 
 All routes below are draft wire names implementing the owning contracts.
-A07 and A37 intentionally await actual browser evidence; they are not implemented or silently resolved by this document.
+A07 is implemented using fixed partitioned-cookie restoration, and A37 has SDK-authenticated image, MediaSource range and small download fixture evidence.
+Live Tableau deployment/browser support and arbitrary-size direct-to-disk download remain unverified.
 
 | ID | Method and path | Caller | Input -> response | Owner | Hold |
 | --- | --- | --- | --- | --- | --- |
 | A01 | POST `/v1/session/transactions` | Unauthenticated SDK bootstrap | Configured app/deployment and initiation-proof verifier -> inert locator/expiry | M01/M08 | D01/E01; bounded physical allocation, no IP/count quota. |
 | A02 | GET `/v1/session/transactions/:id/launch` | Browser navigation | Locator -> inert service-origin page | M01/M08 | D01; locator alone cannot start authentication. |
 | A03 | POST `/v1/session/transactions/:id/launch` | Bound popup bootstrap | Initiation proof and supported browser correlation -> configured identity redirect | M01/M08 | D01; no exact-origin identification of null opener. |
-| A04 | GET or POST `/v1/session/callback/:adapter` | Identity callback | Supported response/state/browser proof -> safe completion | M01/M08 | E01; actual callback mode and replica-safe single claim. |
+| A04 | GET `/v1/session/callback/:adapter` (Server `/Callback`) | Identity callback | Supported response/state/browser proof -> safe completion | M01/M08 | E01; actual callback mode and replica-safe single claim. |
 | A05 | POST `/v1/session/transactions/:id/redeem` | Initiating SDK | Single-use initiation proof -> verified service access and safe identity | M01/M08 | D01; no bearer in URL or arbitrary null-origin cookie redemption. |
-| A07 | Session restore/renew - path intentionally unset | Supported returning-client transport | Proven client/session binding -> current access or verified authentication required | M01/M10 | D01/E01; returning-client proof must be demonstrated, seven-day maximum fixed. |
+| A07 | POST `/v1/session/restore` | Supported returning-client transport | Proven client/session binding -> current access or verified authentication required | M01/M10 | D01/E01; returning-client proof must be demonstrated, seven-day maximum fixed. |
 | A08 | GET `/v1/apps/:app/providers` | Verified viewer | Configured context -> supported registrations, setup modes/endpoints and transport profile | M04/M01 | Configuration discovery, not feature permission grants. |
 | A09 | GET `/v1/apps/:app/connections` | Verified viewer | Optional provider filter -> own and explicitly shared safe connections | M02/M01 | Owner equality across configured apps; current shared site/user audience. |
 | A10 | GET `/v1/apps/:app/connections/:id` | Verified viewer | Locator -> safe state/readiness | M02/M01 | Non-visible equals absent; no credential/context disclosure. |
@@ -33,7 +35,7 @@ A07 and A37 intentionally await actual browser evidence; they are not implemente
 | A12 | GET `/v1/apps/:app/authorizations/:id` | Initiating owner/session | Locator -> safe status and committed connection ID | M02 | Current authority; app is attribution, not personal permission. |
 | A13 | GET `/v1/authorizations/:id/launch` | Browser navigation | Locator -> inert handoff page | M02/M08 | D01; no locator-only consent. |
 | A14 | POST `/v1/authorizations/:id/launch` | Bound initiating session/popup | Current proof -> correlated provider authorization | M02/M08 | D01/D08; same shared handoff, no URL bearer. |
-| A15 | GET or POST `/v1/authorizations/callback/:registration` | Provider callback | Protocol/state/browser evidence -> safe completion signal | M02/M04 | D08; live exchange plus shared mutation ownership/exact bundle pair before atomic publication. |
+| A15 | GET `/v1/authorizations/callback/:registration` | Provider callback | Protocol/state/browser evidence -> safe completion signal | M02/M04 | D08; live exchange plus shared mutation ownership/exact bundle pair before atomic publication. |
 | A16 | POST `/v1/apps/:app/authorizations/:id/cancel` | Initiating owner/session | Locator -> terminal attempt view | M02 | No remote grant rollback promise. |
 | A17 | POST `/v1/apps/:app/connections/:id/disconnect` | Personal management authority | Expected authority generation -> local state and remote revoke evidence | M02 | Preserve eligible original outcomes and retained owner reads. |
 | A18 | Native method or POST carrier `/v1/apps/:app/proxy/:registration/:endpoint/*path` | Verified viewer | Native query/body/header controls -> native Response/stream or explicit carrier | M05/M08/M10 | D04; GET/HEAD body carrier, inspectable no-follow responses and measured physical budgets. |
@@ -52,7 +54,7 @@ A07 and A37 intentionally await actual browser evidence; they are not implemente
 | A34 | GET `/health/live` | Host/network policy | No input -> minimal process responsiveness | M09/M08 | E05; dependency outage is not event-loop hang. |
 | A35 | GET `/health/ready` | Host/network policy | No input -> core readiness and separate event status | M09/M08 | Redis outage does not fail healthy core readiness; worker exposes equivalent protected status. |
 | A36 | POST `/v1/apps/:app/connections/static` | Personal owner | Provider-declared secret input and optional replacement -> safe committed connection | M02/M03/M08 | D08; write-only input, shared mutation arbitration and generation/continuity rules. |
-| A37 | Media element/download authorization - surface intentionally unset | Authorized viewer | Approved native resource -> actual supported streaming consumption | M01/M05/M08/M10 | D01/D04; evidence-dependent, no reusable query bearer or whole-file workaround. |
+| A37 | SDK authenticated fetch for app-owned image/range/download consumption | Authorized viewer | Approved native resource -> actual supported streaming consumption | M01/M05/M08/M10 | D01/D04; evidence-dependent, no reusable query bearer or whole-file workaround. |
 | A39 | POST `/v1/apps/:app/capabilities/:id/versions/:version/invoke` | Verified viewer | Declared JSON arguments or native body plus connection control -> declared JSON or native Response/stream | M04/M08/M05 | Ordinary current request authority; HTTP entrypoint required, no submission key, Job row, progress or saved result. |
 
 A38 remains retired; A39 is a new draft contract ID, preserving all existing IDs.

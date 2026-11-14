@@ -122,7 +122,8 @@ No hosting platform, price, traffic level, SLA or fixed execution-slot count is 
 ## Evidence and exclusions
 
 Use [verification](verification.md) for future platform, race, recovery, resource and operational proof.
-The service is unimplemented and this document task authorizes no application installation, implementation, publication or deployment.
+The local implementation and its observed deterministic/browser evidence are inventoried in [implementation status](implementation-status.md).
+Local application implementation and development setup are authorized; publication and deployment are separate actions.
 No customer tenancy, billing, self-service platform, workflow builder, sync engine, arbitrary code hosting, agent runtime, user directory or additional consumer type is included.
 External architecture research and private review traceability remain outside product sources.
 No running Nango token-vault dependency/evaluation, tenant management, service rate shaping, cooldown scheduler or fairness product is adopted.

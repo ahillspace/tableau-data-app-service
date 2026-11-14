@@ -3,7 +3,8 @@
 Status: accepted product and architecture direction with the optional-Job revision integrated.
 Owner consistency and viewer checks are document evidence, not implementation verification; historical independent reviews cover earlier snapshots.
 [GOALS](GOALS.md) owns policy values and scope; this document owns the observable journeys and completion meaning.
-No application or deployment exists.
+The application is implemented locally; [implementation status](implementation-status.md) records actual evidence and remaining live acceptance.
+No deployment is claimed.
 
 ## Required outcome
 
@@ -60,4 +61,4 @@ Actual package opaque origins, popup/window correlation, CSP and network behavio
 [Verification](verification.md) defines runnable future gates for both platforms, two APIs/two workers, real Postgres races, Redis failure/loss, large payloads and host recovery.
 Support claims apply only to observed supported journeys; optional jobs/events do not delay early native-access evidence.
 Document consistency and viewer checks can establish a reviewable design, not implemented behavior or user acceptance of the delivered experience.
-Application implementation/deployment requires separate authorization.
+Local application implementation is authorized; deployment and publication remain separate actions.

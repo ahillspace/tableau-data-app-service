@@ -2,7 +2,7 @@
 
 Status: accepted architecture with optional-Job/read-only routing contracts integrated and owner consistency/viewer checks completed.
 Historical independent reviews cover their earlier snapshots; they do not certify this revision or impose another approval gate.
-The service is unimplemented; no runtime/platform/load or host recovery verification is claimed.
+The application is implemented locally; [implementation status](implementation-status.md) separates actual tests from remaining platform, deployment capacity and host recovery evidence.
 This map links rationale to owners and future proof without creating another normative specification.
 
 ## Decision and acceptance map

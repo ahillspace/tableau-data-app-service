@@ -46,3 +46,59 @@ PKCE/state, expected popup/window/proof correlation, callback cookie matching, o
 There is no additional confirmation screen, ancestry helper or browser restriction.
 This residual exposure is deferred, not solved; actual Tableau embedding and live Slack/Server acceptance remain unproved.
 Production configuration cannot select fixture identity.
+
+## Protected operator setup
+
+Registry credentials and shared-connection operator credentials are separate high-entropy roles.
+Generate each role secret as 32 random bytes encoded with unpadded base64url, then store only its SHA-256 hex verifier beside a stable actor ID in the corresponding `registryCredentials` or `operatorCredentials` array.
+Duplicate role verifiers are rejected.
+Keep the original bearer in protected operator custody, outside the Data App/browser configuration.
+The registry role cannot act as a viewer or shared-connection operator.
+
+For an operator-mode Slack registration, POST JSON to `/v1/operator/apps/:app/connections/static` with the role bearer and `{providerRegistrationId,inputs,audience,replacement?}`.
+Each audience entry is `{deploymentId,siteId,subjectId}`; subject `*` explicitly selects all users of that enabled site, while an empty array grants nobody.
+`inputs` follows the installed provider's setup schema; Slack static setup accepts `{token,tokenMode}`, where tokenMode is `bot` or `user`.
+`replacement` is `{connectionId,expectedAuthorityGeneration}`.
+OAuth uses POST `/v1/operator/apps/:app/authorizations` with the canonical authorization inputs and explicit audience, then the same correlated popup launch/callback flow as personal setup.
+Operator status/cancel commands are GET `/v1/operator/apps/:app/authorizations/:id` and POST `/:id/cancel`.
+These commands do not create an operator website or grant a viewer impersonation role.
+Provisioning another site does not expand any existing audience.
+
+The worker health-only listener binds `HOST` and `WORKER_HEALTH_PORT` (default 3001), separate from API `PORT` (default 3000).
+Protect both health listeners through host/network policy.
+Worker readiness includes current core maintenance, applicable Jobs and configured source maintenance; process liveness is separate from dependency availability.
+The worker listener registers no business routes.
+
+## Environment loading and key maintenance
+
+The example environment uses dotenv syntax.
+Use the host's protected environment loader, or Node's `--env-file` with the compiled commands after building:
+
+```sh
+node --env-file=/protected/service.env dist/db/migrate.js
+node --env-file=/protected/service.env dist/config-command.js
+node --env-file=/protected/service.env dist/api.js
+node --env-file=/protected/service.env dist/worker.js
+```
+
+Do not shell-source unquoted JSON key values.
+Migrations use the migration role's environment; normal API/worker processes use the least-privilege service role.
+Cloud configuration requires the canonical pod origin and served public client-metadata path.
+Server configuration requires its canonical origin, stable expected site ID, target content URL, REST API version and an actually supported registered integration-service client type with `/Callback`.
+Do not impersonate the Tableau MCP client type or reuse Cloud token endpoints for Server.
+Custom Server registration/live compatibility must be established by the operator before claiming that deployment is supported.
+
+Offline key replacement accepts downtime:
+
+1. Stop every API, worker and maintenance writer and disable all host automatic replacement/restart.
+2. Preserve the old keys, new key and recovery evidence in protected custody, and configure both keys for the maintenance command.
+3. Run `npm run keys:reencrypt -- --from old-id --to new-id --working-bytes 2200000000 --writers-stopped` under the protected environment.
+4. If interrupted, keep writers stopped and rerun with the same old/new keys; authenticated metadata and conditional per-record updates allow resumption.
+5. After complete coverage/integrity verification, switch the active key and reopen compatible processes; retain old keys while backups require them.
+
+The command includes connection bundles, session transaction state, provider authorization state, event-source context and every Job input/result/task payload.
+It loads one protected envelope at a time, bounds its working bytes and does not emit plaintext artifacts.
+It holds an exclusive advisory maintenance lock against another rekey and rejects live normal service database sessions.
+Those database checks cannot prove host restart exclusion: `--writers-stopped` is an explicit operator precondition, not an automatic infrastructure control.
+The example working-byte number must cover the largest actual envelope and host headroom; it is not a product payload limit.
+A failed command retains old/new keys and uncertainty evidence and never automatically reopens writers.

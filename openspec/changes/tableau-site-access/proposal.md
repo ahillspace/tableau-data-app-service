@@ -14,9 +14,10 @@ The existing protected enrollment integration retains its narrow registry-manage
 
 ## Capabilities
 
-`tableau-site-access` is a bounded future implementation of [Access registry](../../../specs/access-connections.md#trusted-site-registry-administration), not a second policy authority.
+`tableau-site-access` is a bounded implementation slice of [Access registry](../../../specs/access-connections.md#trusted-site-registry-administration), not a second policy authority.
 
 ## Impact
 
 Access/Persistence/HTTP consume the existing shared interfaces; external enrollment UI, administrator identity, deployment and site-approval decisions remain outside this change.
-No application is implemented, and the Cloud login observation does not establish full sessions or Server compatibility.
+The local registry implementation is exercised with real Postgres in `test/authority.test.ts`.
+The historical Cloud login observation does not establish full sessions or Server compatibility.

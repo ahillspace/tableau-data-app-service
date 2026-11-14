@@ -11,10 +11,10 @@ Allow the example origin in the service's operator-controlled CORS configuration
 For a packaged Data App, bundle `app.ts` with its nonsecret `EXAMPLE_CONFIGURATION` and include `index.html` and `style.css`.
 The browser needs a supported popup that escapes an inherited opaque sandbox for the correlated service window.
 
-Production first enrollment currently returns `initial-enrollment-unavailable` while its security contract is unresolved.
-The example displays that service error and does not use browser storage, an unpartitioned cookie, or an alternative login fallback.
+Functional first login is enabled; the user explicitly deferred the initial cross-client silent-enrollment binding fix recorded in the run guide.
+The example uses no browser storage, unpartitioned cookie or alternative login fallback.
 Existing-session restoration uses the credentialed service endpoint; ordinary requests use only the per-client memory bearer.
-Local browser fixtures explicitly substitute synthetic identity and provider adapters and do not establish live Tableau Cloud, Server, or Slack acceptance.
+Local browser fixtures exercise the production Cloud identity adapter against a synthetic HTTPS issuer and provider and do not establish live Tableau Cloud, Server, or Slack acceptance.
 
 Connect Slack uses the configured OAuth setup when available, or exposes the explicitly configured static token setup.
 Token input is cleared immediately after submission and is never saved by the example.

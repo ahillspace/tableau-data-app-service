@@ -1,6 +1,6 @@
 # Data flows
 
-Status: seven maintained journey maps for the accepted architecture, not implemented executions.
+Status: seven maintained journey maps; [implementation status](../implementation-status.md) distinguishes implemented execution evidence from remaining live acceptance.
 Tables trace payload, authority, durable state and recovery to the owning contracts without defining alternative policies.
 App IDs always mean configured defaults/attribution or submission namespace, never personal feature grants.
 
@@ -227,7 +227,7 @@ sequenceDiagram
 ## F07 - Invoke reusable provider code through ordinary HTTP
 
 Purpose: reuse trusted provider-specific logic without retaining a command or outcome.
-Status: ordinary request contract specified; implementation and API-handler resource behavior remain unverified.
+Status: ordinary request behavior is implemented and tested through actual HTTP and Postgres; deployment workload capacity remains unverified.
 Modules: M01-M05, M08-M10, without M06.
 Routes: A19 discovery and A39 invocation; A20 is a separate deliberate durable choice.
 Owner: [Ordinary capability invocation](../specs/providers-execution.md#ordinary-capability-invocation).

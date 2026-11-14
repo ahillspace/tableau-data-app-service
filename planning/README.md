@@ -1,8 +1,8 @@
 # Build design review
 
 Status: optional-Job and read-only routing revisions integrated, with owner consistency and generated-viewer checks.
-Historical independent reviews apply to earlier snapshots; runtime evidence remains pending.
-No application, schema or deployment is implemented.
+Historical independent reviews apply to their snapshots; [implementation status](../implementation-status.md) records current bounded runtime evidence.
+Application code and schema migrations are implemented locally; no deployment is claimed.
 Architecture acceptance, document convergence, implementation verification and user acceptance of delivered behavior are separate milestones.
 
 ## Review order
@@ -20,7 +20,7 @@ Architecture acceptance, document convergence, implementation verification and u
 
 This planning pack is a linked map, not a second policy authority.
 The [component specifications](../specs/contracts.md) own normative mechanisms, with [GOALS](../GOALS.md) owning policy and [verification](../verification.md) owning evidence criteria.
-The [generated local review workspace](../design/review-workspace/README.md) embeds all 28 manifest documents from their exact source bytes.
+The [generated local review workspace](../design/review-workspace/README.md) embeds the manifest documents from their exact source bytes.
 Historical records remain unchanged and do not override current contracts.
 
 ## How to read status
@@ -33,8 +33,8 @@ Draft wire names/private layouts can be refined without a new product decision w
 
 ## Implementation authority
 
-This work is document authoring only.
-Future implementation proceeds through authorized slices, proving the affected journey before claiming support rather than requiring unrelated optional features first.
+Local application implementation and task-scoped development setup are authorized.
+Implementation proceeds through the owning slices, proving the affected journey before claiming support rather than requiring unrelated optional features first.
 The current Cloud observation is positive separate-login evidence; both Cloud and Server support still require their actual declared journey tests.
 No app feature grants, global authority row, secondary event relay or arbitrary quota may be reintroduced as an implementation convenience.
 Routine engineering choices and measured tuning do not require new product approval; changes to accepted policy or material ownership/failure semantics require explicit reconciliation.

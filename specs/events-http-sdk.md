@@ -1,6 +1,6 @@
 # Events, HTTP, and SDK
 
-Status: integrated optional Redis/live-delivery and browser wire contracts; implementation and platform verification remain future work.
+Status: implemented optional Redis/live-delivery and browser wire contracts, with bounded local evidence in [implementation status](../implementation-status.md); live platform verification remains open.
 Events owns source verification/routing and transient distribution; HTTP owns wire validation and SDK owns the thin browser adapter.
 [Access](access-connections.md) owns identity/audiences, and [Jobs](providers-execution.md) owns durable callback transitions independently of live notifications.
 

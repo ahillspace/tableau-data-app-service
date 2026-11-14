@@ -1,5 +1,5 @@
 {
-  "description": "Complete maintained specification. History and review evidence are excluded from build authority. The board embeds these documents directly.",
+  "description": "Maintained requirements and implementation evidence inventory. Historical reviews are excluded from build authority. The board embeds these documents directly.",
   "documents": [
     {
       "id": "goals",
@@ -196,6 +196,27 @@
       "path": "openspec/changes/tableau-site-access/tasks.md",
       "kind": "Engineering task",
       "description": "Bounded engineering work and its acceptance criteria."
+    },
+    {
+      "id": "implementation",
+      "title": "Implementation status and evidence",
+      "path": "implementation-status.md",
+      "kind": "Implementation evidence",
+      "description": "Current implemented surfaces, actual validation and precise remaining platform/host acceptance."
+    },
+    {
+      "id": "running",
+      "title": "Setup and operation",
+      "path": "RUNNING.md",
+      "kind": "Operation guide",
+      "description": "Local installation, configuration, migration, commands, role boundaries and offline key replacement."
+    },
+    {
+      "id": "browser-verification",
+      "title": "Synthetic browser verification procedure",
+      "path": "test/sdk-browser.md",
+      "kind": "Implementation evidence",
+      "description": "Actual Chromium fixture procedure and exact separation from live Tableau/Slack acceptance."
     }
   ]
 }

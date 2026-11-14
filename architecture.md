@@ -1,8 +1,8 @@
 # Architecture
 
 Status: accepted architecture direction with optional-Job and read-only routing revisions integrated.
-Owner consistency and viewer checks cover this revision; historical independent reviews cover earlier snapshots, and runtime proof remains pending.
-No application or deployment is implemented.
+Owner consistency and viewer checks cover the design; historical independent reviews cover their recorded snapshots.
+The application is implemented locally with bounded evidence in [implementation status](implementation-status.md); no deployment is claimed.
 [GOALS](GOALS.md) owns product policy; the specifications below own mechanisms, and [verification](verification.md) owns future proof obligations.
 
 ## Application shape

@@ -1,7 +1,7 @@
 # Build plan
 
-Status: future implementation slices only; this document update authorizes no application implementation or deployment.
-All tasks remain unchecked because no application exists.
+Status: implementation slices with local application code and bounded executable evidence.
+[Implementation status](../implementation-status.md) records delivered code and actual checks; the full release checklist below includes live platform and host obligations that local fixtures cannot close.
 Each slice consumes its owning contracts and verifies its affected journey; optional features do not block early native-access evidence.
 
 ## Dependency map
@@ -33,7 +33,7 @@ B01 can investigate supported identity alongside the fixture foundation; no gues
 
 **Owners:** M08/M09/M10 with architecture integration.
 **Depends on:** current accepted scope and canonical component contracts.
-**Holds:** future implementation authorization; unresolved browser wire surfaces remain explicit.
+**Holds:** full live platform evidence remains explicit; local implementation is authorized.
 
 - [ ] B00.1 Select maintained Node LTS/strict TypeScript/Fastify/Kysely/schema/protocol tools and one source for public resource types, keeping server secret/claim types out of the SDK.
 - [ ] B00.2 Build narrow API/worker composition with bounded core maintenance hooks for the first native journey, plus synthetic provider faults; add Job/source execution only in the slices needing it, extending fixtures with later slices.

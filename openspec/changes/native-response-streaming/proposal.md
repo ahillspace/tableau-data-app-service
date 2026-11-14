@@ -20,7 +20,7 @@ The canonical component contracts remain the authority; this package records acc
 
 ## Impact
 
-Future Transport/HTTP/SDK and their browser/provider/host fixtures are affected.
-No runtime exists, and this proposal authorizes no implementation/deployment.
+Transport/HTTP/SDK and their browser/provider/host fixtures are affected.
+Local implementation and deterministic/browser evidence are recorded in [implementation status](../../../implementation-status.md); deployment remains separate.
 Local-file upload shares the transport in B05, while this change focuses on response delivery and its carrier integration.
 Session/media transport remains evidence-dependent and no reusable query bearer or whole-body workaround is selected.

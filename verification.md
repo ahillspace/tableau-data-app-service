@@ -1,6 +1,7 @@
 # Verification and evidence boundaries
 
-Status: executable future acceptance plan for the accepted architecture; no application test below has run.
+Status: full acceptance obligations for the accepted architecture.
+[Implementation status](implementation-status.md) inventories tests actually run; unchecked scenarios below retain their full live platform/host scope and must not be inferred passed from source inspection.
 This document owns proof obligations, while component specifications own behavior.
 User architecture acceptance includes the initial worker-wide interruption tradeoff; independent document convergence, implementation verification and delivered user acceptance remain separate.
 
@@ -13,18 +14,19 @@ It did not compare to the embedded viewer, and such equality is not required.
 
 Earlier isolated transport probes observed browser manual-redirect opacity, GET-body Fetch rejection, a synthetic POST carrier reaching an upstream GET with body, raw versus decoded gzip behavior and header-tunnel expansion beyond a tested runtime parser limit.
 Those observations motivate the native carrier/representation contracts but do not verify this service, real provider/intermediary support, published Tableau transport or deployed ingress.
-No runtime queue/load/database/Redis/host/key-recovery test is claimed from source inspection or these primitives.
+Current application tests provide separate actual database/Redis/HTTP/process/key-recovery evidence, inventoried in implementation status.
+Source inspection and earlier primitives supply no additional runtime proof.
 Historical reviews certify only their frozen source/evidence scope.
 Document hashes, links, semantic review and local viewer/export checks establish a reviewable artifact, not application support.
 
 ## Harness and release scope
 
-For later authorized implementation, use real Postgres and two API replicas; exercise two worker replicas when validating background execution/core maintenance and real Redis only where events are enabled.
+For implementation verification, use real Postgres and two API replicas; exercise two worker replicas when validating background execution/core maintenance and real Redis only where events are enabled.
 Ordinary native/capability tests must run without Job admission/handlers or Redis, while the accepted topology's bounded core maintenance remains owned.
 Use controlled synthetic providers and process/network fault injection so external sends and invocation counts can be observed independently of local job state.
 Cedar exercises shared OAuth/rotating tokens, two approved account-specific instances, native writes/files and external tasks.
 Flint exercises static/operator/derived credentials and only the event source lifecycle needed by its fixture.
-Extend fixtures as features are implemented; use Slack for the first real native/provider capability example while keeping the exact bespoke feature unselected and provider code outside core.
+Extend fixtures as features are implemented; use Slack for native authentication/proxy with `capabilities: []`, while test-only providers exercise generic capability and Job machinery outside core.
 Use actual published Cloud and Server Data Apps for platform claims, with the supported adapter/deployment/browser/CSP configuration recorded.
 Test only relevant implemented features for each slice, then the complete supported journey before full-product completion.
 Never enable a synthetic identity adapter in production configuration.
