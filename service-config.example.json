@@ -1,6 +1,7 @@
 {
   "apps": [{"id":"slack-example","revision":1,"enabled":true,"defaults":{},"corsOrigins":["null"]}],
   "deployments": [{"id":"tableau-cloud","revision":1,"enabled":true,"kind":"cloud","podOrigin":"https://your-pod.online.tableau.com","clientPath":"/client-cloud.json"}],
+  "providers": [],
   "slack": {"id":"slack","revision":1,"enabled":true,"mode":"personal","reauthSeconds":null},
   "registryCredentials": [],
   "transport": {"connectTimeoutMs":10000,"headersTimeoutMs":30000,"stallTimeoutMs":30000,"maxSockets":32},

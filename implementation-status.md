@@ -9,11 +9,11 @@ The [run guide](RUNNING.md) supplies setup, configuration and commands.
 
 | Scope | Implemented behavior | Actual evidence | Remaining boundary |
 | --- | --- | --- | --- |
-| B00 foundation | Node LTS, strict TypeScript, Fastify, Kysely/Postgres, canonical public schemas, immutable migration owner and protected configuration. | `foundation.test.ts`, `application.test.ts`; real temporary Postgres, repeatable migrations, incompatible startup/configuration rejection and compiled process startup. | Deployment-specific database roles, TLS, ingress and aggregate capacity. |
+| B00 foundation | Node LTS, strict TypeScript, Fastify, Kysely/Postgres, canonical public schemas, immutable migration owner and protected configuration. | `foundation.test.ts`, `application.test.ts`, `installed-providers.test.ts`; real temporary Postgres, repeatable migrations, incompatible startup/configuration rejection and compiled process startup. | Deployment-specific database roles, TLS, ingress and aggregate capacity. |
 | B02 authority | Stable deployment/site/user owners; fixed sessions; protected site registry; personal ownership across apps; explicit shared audiences; coherent ordinary snapshots with no writes; fresh post-lock authority and scoped mutation claims. | `authority.test.ts`, `operator.test.ts`, `credential-boundaries.test.ts`; actual Postgres races, revoke/expiry/parent checks and cross-owner denial. | Full mixed-load deployment sizing and live multi-platform acceptance. |
 | B03 identity/session | Production Cloud OIDC validation and Server reference adapter; PKCE/state; correlated popup/proof handoff; one-use callback/redemption; partitioned HttpOnly restoration; fixed authentication maximum. | `sessions.test.ts`, `identity-adapters.test.ts`, `sdk-session.test.ts`, `sdk-browser.md`; actual TLS negative cases and Chromium reload/new-tab/browser-restart restoration. | Synthetic issuer evidence is not live Cloud/Server embedding or a registered Server client-type compatibility claim; initial silent-enrollment risk is explicitly deferred below. |
 | B04 credentials | One writer for static/local/remote import, OAuth, renewal and operator publication; exact revision fences; uncertainty; known-account continuity; atomic credential/context/audience/source changes; request-scoped derived authenticators. | `authorizations.test.ts`, `renewals.test.ts`, `authority.test.ts`, `operator.test.ts`, `credential-boundaries.test.ts`; delayed exchanges, cancellation, two-service renewal races, expired claims and failed atomic retirement. | Live Slack app permissions/rotation and supported Server registration must be verified in their configured environments. |
-| B05 native HTTP | Node/Undici streaming; approved destinations, pinned recipient/TLS verification, entrusted/protected headers, encoded bytes, GET/HEAD and no-follow carriers, progress stall handling, disposal and no business replay. | `transport.test.ts`, `http-core.test.ts`, Chromium native/image/media/download checks; real HTTP, TLS, nonreading sockets and cancelled upload producers. | Actual Tableau CSP/ingress/provider limits; arbitrary-size direct-to-disk browser download is not demonstrated. |
+| B05 native HTTP | Node/Undici streaming; approved destinations, pinned recipient/TLS verification, entrusted/protected headers, encoded bytes, GET/HEAD and no-follow carriers, progress stall handling, disposal and no business replay. | `transport.test.ts`, `http-core.test.ts`, `native-path.test.ts`, Chromium native/image/media/download checks; real HTTP, TLS, nonreading sockets and cancelled upload producers. | Actual Tableau CSP/ingress/provider limits; arbitrary-size direct-to-disk browser download is not demonstrated. |
 | B06 Jobs | Optional versioned declarations; semantic admission/idempotent recovery; encrypted input/result/task payloads; bounded scans/claims; local/external execution, callbacks, cancellation, uncertainty, retention and owner rediscovery. | `jobs.test.ts`, `jobs-external.test.ts`, `jobs-runtime.test.ts`, `sdk-jobs.test.ts`; actual Postgres/HTTP/child-process faults and full 100 MB resource experiment. | Capacity measurements are one controlled fixture, not a universal host/concurrency guarantee. |
 | B07 Events | Optional Redis Pub/Sub and per-API authenticated SSE; current source/audience checks; exact ingress verification; bounded age/bytes/queues; independent slow-client disposal; source maintenance/retirement and Job hints. | `events.test.ts`, `events-lifecycle.test.ts`; actual Redis/HTTP/SSE outage/reconnect, maximum payload, source claim waits and nonreading clients. | Slack ships no event declaration; installed source providers supply native verification/setup hooks. Broker credentials/networks are host-owned. |
 | B08 SDK/example | Memory bearer; fixed restoration; popup correlation; canonical discovery/connection/authorization APIs; ordinary invoke; explicit Jobs; lossy Events; native Response/body ownership; small Slack UI. | `sdk*.test.ts`, strict example typecheck and actual Chromium fixture described in `test/sdk-browser.md`. | Browser fixture does not establish live Tableau account switching, long-term sessions or all browser/storage policies. |
@@ -39,14 +39,16 @@ A37 is supported through SDK-authenticated fetch for app-owned image decoding, M
 
 Trusted setup composition uses `Sources.associate` to verify an owner-bound source association and `SourceMaintenance` for bounded hooks/retirement.
 There is no generic browser assertion that a source is verified or public API for its private verifier/context.
-Source hooks and generic Job/capability declarations are installed trusted source code, never uploaded browser code or configuration-selected modules.
+Source hooks and generic Job/capability declarations are installed in the shared trusted `src/installed.ts` source inventory, never uploaded browser code or configuration-selected modules.
+The protected JSON `providers` metadata list and special Slack entry use one registration descriptor for publication and both roles' startup checks.
+Encoded native object paths remain encoded through the router; separator/traversal rejection and normalized custody exclusions run before dispatch.
 Production composition installs Slack with native static/OAuth authentication and proxy endpoints, and `capabilities: []`.
 Test-only providers exercise the optional capabilities, Jobs and event source machinery.
 
 ## Validation commands and bounds
 
 Run `npm run typecheck`, `npm run typecheck:example`, `npm run lint`, `npm run build` and `REDIS_SERVER=/absolute/redis-server npm test`.
-The final integrated standard suite passed 75 tests with no failures, cancellations or skips on Node 26.13.1.
+The first frozen candidate passed 75 integrated tests on Node 26.13.1; the scoped review correction evidence is recorded below.
 Both strict typechecks, Biome and the production build also passed.
 The standard suite starts actual isolated Postgres, Redis, HTTP/TLS and child processes; it does not depend on a shared database or broker.
 The browser procedure is documented in [browser verification](test/sdk-browser.md), and the 100 MB controlled experiment is `test/jobs-resource.ts`.
@@ -67,3 +69,14 @@ No synthetic identity can be selected through production configuration.
 Cloud and Server are implemented through distinct supported protocol contracts, but live Server service-client registration compatibility and complete live Cloud/Server Data App journeys remain unverified.
 Live Slack credentials were not available for acceptance; deterministic static/OAuth/rotation behavior uses controlled upstreams.
 No arbitrary ordinary response cap, tenancy, rate shaping, quota, fixed product execution-slot count or backend consumer is introduced.
+
+## Scoped code review corrections
+
+Round one identified a durable callback attachment race, native encoded-path identity loss and a configured-application mismatch for non-Slack installed providers.
+Each finding was confirmed through its actual production route/configuration with Postgres before correction.
+The callback fix commits its verified terminal outcome after concurrent attachment or confirms an immutable terminal duplicate, preserving original task context and avoiding replay.
+The native regression compares exact upstream DELETE targets for encoded question marks, fragments, percent signs and spaces and rejects encoded separators, traversal and custody bypasses before provider send.
+The configured-provider regression exercises publication/readiness, ordinary HTTP with no Job writes and an explicit Job through independent API/worker applications, while Slack remains `capabilities: []`.
+The corrected integrated suite passed 85 tests with zero failures, cancellations or skips on Node 26.13.1.
+Both strict typechecks, Biome, the production build and whitespace checks passed.
+The original synthetic browser proof and its live acceptance limits remain unchanged; these corrections do not claim a new live Tableau/Slack or repeated browser run.

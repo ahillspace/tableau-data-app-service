@@ -47,6 +47,19 @@ There is no additional confirmation screen, ancestry helper or browser restricti
 This residual exposure is deferred, not solved; actual Tableau embedding and live Slack/Server acceptance remain unproved.
 Production configuration cannot select fixture identity.
 
+## Installed provider configuration
+
+`src/installed.ts` is the one trusted source inventory consumed by the configuration command, API and worker.
+Install provider declarations, matching optional Job declarations and event verifiers there through ordinary source imports.
+The existing `application.ts` exports remain available to callers.
+The protected JSON `providers` array contains registration metadata only: `{id,revision,enabled,mode,reauthSeconds}`.
+Its ID, revision and mode must match the trusted installed provider declaration; reauthorization policy is explicit and nullable.
+Every installed additional provider needs its metadata entry, including an explicitly disabled registration.
+Configuration publication and role startup use the same complete registration inventory, including the separately configured Slack registration.
+Uninstalled declarations, duplicate IDs, mismatched versions/modes or enabled database rows that differ from the installed inventory reject before readiness.
+No configuration field loads executable code or changes Slack's empty capability list.
+`test/installed-providers.test.ts` exercises the production configuration/application path with a test-only non-Slack ordinary capability and explicit Job, using independently constructed API/worker applications and their separate pools.
+
 ## Protected operator setup
 
 Registry credentials and shared-connection operator credentials are separate high-entropy roles.
