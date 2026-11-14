@@ -603,11 +603,19 @@ test("Job registration rejects validation semantics that cannot survive retained
 test("canonical browse uses owner-filtered cross-app pages and continuations bound to owner and filters", async () => {
   const { jobCollectionSchema } = await import("../src/public/schemas.js");
   const f = await jobsFixture();
+  const app = await createHttpApp({
+    db: f.db,
+    core: f.core,
+    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+  });
+  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
   try {
     const first = await f.jobs.admit(f.alice.access, command("page-one"));
     const second = await f.jobs.admit({ ...f.alice.access, appId: "two" }, command("page-two"));
     const page = jobCollectionSchema.parse(
-      await f.jobs.list({ ...f.alice.access, appId: "two" }, { limit: 1 }),
+      await fetch(`${origin}/v1/apps/two/jobs?limit=1`, {
+        headers: { authorization: `Bearer ${f.alice.token}` },
+      }).then((response) => response.json()),
     );
     assert.equal(page.items.length, 1);
     assert.ok(page.next);
@@ -626,7 +634,41 @@ test("canonical browse uses owner-filtered cross-app pages and continuations bou
       code: "invalid-continuation",
     });
     assert.deepEqual((await f.jobs.list(f.bob.access)).items, []);
+    const invalid = await fetch(`${origin}/v1/apps/one/jobs?limit=101`, {
+      headers: { authorization: `Bearer ${f.alice.token}` },
+    });
+    assert.equal(invalid.status, 400);
+    await invalid.text();
   } finally {
+    await app.close();
+    await f.close();
+  }
+});
+
+test("unsupported JavaScript result values fail explicitly rather than being silently dropped", async () => {
+  const { z } = await import("zod");
+  const f = await jobsFixture([
+    {
+      ...jobDeclaration,
+      resultSchema: z.unknown(),
+      handler: async () => ({
+        kind: "complete",
+        result: { value: "known", unsupported: undefined },
+      }),
+    },
+  ]);
+  const worker = new JobsWorker(f.jobs, workerOptions);
+  try {
+    const job = await f.jobs.admit(f.alice.access, command("unsupported-json"));
+    await worker.start();
+    const outcome = await eventually(
+      () => f.jobs.get(f.alice.access, job.job.id),
+      (j) => j.state === "failed",
+    );
+    assert.equal(outcome.error!.code, "invalid-outcome");
+    assert.equal(outcome.result.availability, "none");
+  } finally {
+    await worker.close();
     await f.close();
   }
 });

@@ -3,6 +3,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import canonicalize from "canonicalize";
+import { z } from "zod";
 import { type SecretBinding, SecretBox } from "../security/encryption.js";
 
 const box = new SecretBox(workerData.keyId, new Map(workerData.keys));
@@ -17,6 +18,7 @@ function json(value: unknown): string {
   return result;
 }
 function validate(value: unknown, schema: object): unknown {
+  z.json().parse(value);
   const run = ajv.compile(schema);
   try {
     if (!run(value)) throw new Error("Payload failed its declared schema");

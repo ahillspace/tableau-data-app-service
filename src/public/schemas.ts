@@ -75,6 +75,14 @@ export const jobCollectionSchema = z.strictObject({
   next: z.string().min(1).max(2048).optional(),
 });
 export type JobCollection = z.infer<typeof jobCollectionSchema>;
+export const jobListQuerySchema = z.strictObject({
+  appId: opaqueId.optional(),
+  state: jobViewSchema.shape.state.optional(),
+  capability: opaqueId.optional(),
+  next: z.string().max(2048).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type JobListQuery = z.infer<typeof jobListQuerySchema>;
 export const siteInputSchema = z.strictObject({ deploymentId: opaqueId, siteId: opaqueId });
 export const siteViewSchema = siteInputSchema.extend({
   id: opaqueId,

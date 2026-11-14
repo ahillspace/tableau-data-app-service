@@ -3,7 +3,7 @@ import { z } from "zod";
 import { bearer } from "../access/service.js";
 import type { AccessContext, ApiExtension, CoreServices } from "../core-ports.js";
 import { ServiceError } from "../http/errors.js";
-import { jobViewSchema, opaqueId } from "../public/schemas.js";
+import { jobListQuerySchema, opaqueId } from "../public/schemas.js";
 import type { JobsService } from "./service.js";
 
 export function jobsApi(jobs: JobsService, options: { cleanupMs: number }): ApiExtension {
@@ -85,15 +85,7 @@ export function jobsApi(jobs: JobsService, options: { cleanupMs: number }): ApiE
           },
         );
         scope.get("/v1/apps/:app/jobs", async (request) => {
-          const query = z
-            .strictObject({
-              appId: opaqueId.optional(),
-              state: jobViewSchema.shape.state.optional(),
-              capability: opaqueId.optional(),
-              next: z.string().max(2048).optional(),
-              limit: z.coerce.number().int().min(1).max(100).optional(),
-            })
-            .parse(request.query);
+          const query = jobListQuerySchema.parse(request.query);
           return jobs.list(await access(request), {
             ...(query.appId ? { appId: query.appId } : {}),
             ...(query.state ? { state: query.state } : {}),

@@ -869,7 +869,7 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
   validatedProgress(row: JobRow, value: unknown): { value: unknown } {
     const schema = this.declaration(row)?.progressSchema;
     if (!schema) throw new ServiceError(422, "progress-unsupported", "Progress is not declared");
-    const progress = schema.parse(value);
+    const progress = z.json().parse(schema.parse(value));
     if (Buffer.byteLength(JSON.stringify(progress)) > 16384)
       throw new ServiceError(422, "progress-too-large", "Progress exceeds its bound");
     return { value: progress };
@@ -1511,17 +1511,15 @@ export class JobsService implements BackgroundAuthorityPort, JobHintPort {
       if (filters.next.length > 2048)
         throw new ServiceError(400, "invalid-continuation", "Invalid continuation");
       try {
-        after = z.strictObject({ at: z.iso.datetime(), id: opaqueId, filter: z.string() }).parse(
-          JSON.parse(
-            this.options.core.secrets
-              .open(JSON.parse(Buffer.from(filters.next, "base64url").toString()), {
-                kind: "job-cursor",
-                id: access.ownerId,
-                revision: "1",
-              })
-              .toString(),
-          ),
-        );
+        const envelope = JSON.parse(Buffer.from(filters.next, "base64url").toString());
+        const plaintext = this.options.core.secrets.open(envelope, {
+          kind: "job-cursor",
+          id: access.ownerId,
+          revision: "1",
+        });
+        after = z
+          .strictObject({ at: z.iso.datetime(), id: opaqueId, filter: z.string() })
+          .parse(JSON.parse(plaintext.toString()));
       } catch {
         throw new ServiceError(400, "invalid-continuation", "Invalid continuation");
       }
