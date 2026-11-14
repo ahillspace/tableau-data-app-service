@@ -6,7 +6,6 @@ export function startWorkerHeartbeat(intervalMs: number): () => void {
   const send = () => process.send?.({ type: "worker:alive" });
   send();
   const timer = setInterval(send, intervalMs);
-  timer.unref();
   return () => clearInterval(timer);
 }
 export function requestWorkerTermination(reason: string): void {
