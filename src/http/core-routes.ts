@@ -266,14 +266,22 @@ export function registerCoreRoutes(
           void scope.dispose();
         });
         try {
+          // Router parameters are decoded. Only the matched route prefix is
+          // structural; native path data must retain its original encoding.
+          const target = request.raw.url ?? "";
+          const queryAt = target.indexOf("?");
+          const pathname = queryAt < 0 ? target : target.slice(0, queryAt);
+          const path = /^\/v1\/apps\/[^/]+\/proxy\/[^/]+\/[^/]+(\/.*)$/.exec(pathname)?.[1];
+          if (path === undefined)
+            throw new ServiceError(400, "invalid-path", "Invalid native path");
           const body = webBody(request.body);
           const response = await scope.context.request({
             endpoint: params.endpoint,
             method: z
               .enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
               .parse(control.method),
-            path: `/${params["*"]}`,
-            query: new URL(request.raw.url ?? "", "http://local.invalid").searchParams,
+            path,
+            query: new URLSearchParams(queryAt < 0 ? "" : target.slice(queryAt + 1)),
             headers: control.headers,
             ...(body ? { body } : {}),
           });

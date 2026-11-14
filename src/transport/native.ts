@@ -87,8 +87,10 @@ export function destination(
     !path.startsWith("/") ||
     path.startsWith("//") ||
     path.includes("\\") ||
+    /[?#]/.test(path) ||
     /[\x00-\x20\x7f]/.test(path) ||
-    /%(?:2f|5c|2e)/i.test(path)
+    /%(?:2f|5c|2e)/i.test(path) ||
+    path.split("/").some((part) => part === "." || part === "..")
   )
     throw new ServiceError(400, "invalid-path", "Invalid native path");
   const url = new URL(`${base.pathname.replace(/\/$/, "")}${path}`, base.origin);
@@ -98,9 +100,19 @@ export function destination(
     url.pathname.split("/").some((part) => part === "." || part === "..")
   )
     throw new ServiceError(400, "invalid-path", "Invalid native path");
+  let policyPath: string;
+  try {
+    // Compare custody exclusions after one deliberate decode, while forwarding
+    // the encoded URL. Encoded separators/dots were already rejected above.
+    policyPath = decodeURIComponent(url.pathname);
+  } catch {
+    throw new ServiceError(400, "invalid-path", "Invalid native path");
+  }
+  if (/[\x00-\x1f\x7f]/.test(policyPath))
+    throw new ServiceError(400, "invalid-path", "Invalid native path");
   if (
     (endpoint.blockedPaths ?? []).some(
-      (blocked) => url.pathname === blocked || url.pathname.startsWith(`${blocked}/`),
+      (blocked) => policyPath === blocked || policyPath.startsWith(`${blocked}/`),
     )
   )
     throw new ServiceError(
