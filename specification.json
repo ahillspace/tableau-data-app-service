@@ -1,96 +1,103 @@
 {
-  "description": "Sole current requirements, contracts and evidence inventory. Only these docs sources enter the offline HTML; archives never supply active requirements or defaults.",
+  "description": "Specification sources. Only these documents enter the offline view.",
   "documents": [
     {
       "id": "guide",
       "title": "Documentation index",
       "path": "docs/README.md",
-      "kind": "Documentation guide",
-      "description": "Current source owners and reproducible offline build."
+      "kind": "Guide",
+      "description": "Document owners and the offline build."
     },
     {
-      "id": "prd",
-      "title": "Product requirements and accepted policy",
+      "id": "product",
+      "title": "Product",
       "path": "docs/product.md",
-      "kind": "Requirements baseline",
-      "description": "Accepted scope, policy and observable journeys."
+      "kind": "Requirements",
+      "description": "Requirements, recommendations, assumptions and journeys."
     },
     {
       "id": "architecture",
-      "title": "Architecture and module ownership",
+      "title": "Architecture",
       "path": "docs/architecture.md",
       "kind": "Architecture",
-      "description": "Topology, trust, owner interfaces and extension boundaries."
+      "description": "Topology, trust boundaries and components."
     },
     {
       "id": "contracts",
       "title": "Shared contracts",
       "path": "docs/contracts.md",
       "kind": "Shared contracts",
-      "description": "Shared illustrative types and cross-component handoffs."
+      "description": "Types and rules shared across components."
     },
     {
-      "id": "access",
-      "title": "Access, connections and credentials",
-      "path": "docs/access-connections.md",
-      "kind": "Component contract",
-      "description": "Verified identity, sessions, audiences and credential lifecycle."
+      "id": "identity",
+      "title": "Identity",
+      "path": "docs/identity.md",
+      "kind": "Component",
+      "description": "Tableau sign-in, sessions, operators and app location."
     },
     {
-      "id": "providers",
-      "title": "Providers, transport and execution",
-      "path": "docs/providers-execution.md",
-      "kind": "Component contract",
-      "description": "Native transport, ordinary capabilities and optional durable Jobs."
+      "id": "connections",
+      "title": "Connections",
+      "path": "docs/connections.md",
+      "kind": "Component",
+      "description": "Definitions, connections and credentials."
+    },
+    {
+      "id": "routing",
+      "title": "Routing",
+      "path": "docs/routing.md",
+      "kind": "Component",
+      "description": "Native forwarding, streaming and destination checks."
+    },
+    {
+      "id": "jobs",
+      "title": "Jobs",
+      "path": "docs/jobs.md",
+      "kind": "Component",
+      "description": "Durable work."
     },
     {
       "id": "events",
-      "title": "Events, HTTP and browser SDK",
-      "path": "docs/events-http-sdk.md",
-      "kind": "Component contract",
-      "description": "Redis/SSE, source lifecycle, wire carriers and SDK."
+      "title": "Events and SDK",
+      "path": "docs/events-sdk.md",
+      "kind": "Component",
+      "description": "Live events and the browser SDK."
     },
     {
-      "id": "persistence",
+      "id": "operations",
       "title": "Persistence and operations",
-      "path": "docs/persistence-operations.md",
-      "kind": "Component contract",
-      "description": "State, snapshots, locks, resources, migration and rekey."
+      "path": "docs/operations.md",
+      "kind": "Operations",
+      "description": "Tables, TLS, keys and configuration."
     },
     {
       "id": "api",
-      "title": "API boundary inventory",
+      "title": "API",
       "path": "docs/api.md",
-      "kind": "Boundary map",
-      "description": "Current A01-A39 routes with retired surfaces excluded."
+      "kind": "API",
+      "description": "Every route."
     },
     {
       "id": "flows",
-      "title": "End-to-end data flows",
+      "title": "Flows",
       "path": "docs/flows.md",
-      "kind": "Journey map",
-      "description": "Authority, data and failure sequences linked to owning contracts."
+      "kind": "Flows",
+      "description": "End-to-end sequences."
     },
     {
       "id": "verification",
-      "title": "Verification and limitations",
+      "title": "Verification",
       "path": "docs/verification.md",
-      "kind": "Acceptance obligations",
-      "description": "Future proof obligations, evidence gates and limitations."
-    },
-    {
-      "id": "implementation",
-      "title": "Implementation status and evidence",
-      "path": "docs/implementation.md",
-      "kind": "Implementation evidence",
-      "description": "Observed local evidence, deferred risk and test coverage limits."
+      "kind": "Verification",
+      "description": "Gates and their status."
     },
     {
       "id": "running",
-      "title": "Setup and operation",
+      "title": "Running",
       "path": "docs/running.md",
-      "kind": "Operation guide",
-      "description": "Install, configuration, role commands, rekey and browser procedure."
+      "kind": "Operations guide",
+      "description": "Install, configure, run and operate."
     }
   ]
 }
