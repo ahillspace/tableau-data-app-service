@@ -16,6 +16,7 @@ The joined URL must stay on the chosen API host and under its base path; that is
 On the request, the router:
 
 - removes every `Tableau-Service-*` header, including the service bearer, which the SDK always sends as `Tableau-Service-Authorization`;
+- removes the service's own cookies from `Cookie`, keeping every other cookie the app sends;
 - removes hop-by-hop headers (`Connection` and the headers it names, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`) and sets `Host`;
 - places the credential the definition calls for, setting that one header or query parameter and leaving every other app header, including `Authorization` when the placement is elsewhere, as sent.
 

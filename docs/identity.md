@@ -106,6 +106,14 @@ A restore cookie exists only in the partition of a Tableau host where the viewer
 Any Data App shown under that same Tableau host can restore the viewer's session, including an app on another site of the same pod whose administrators allow the service's origin.
 This follows from [verify app location](#verify-app-location) not yet proving the calling app's site, and is reconsidered when it can.
 
+### Verify app location
+
+Restore and redeem both run one named step, "verify app location", before they issue a bearer.
+It decides what the service knows about where the calling app runs.
+In the first build it records the declared app ID, site content URL, workbook and view as attribution only and reports the location as unverified.
+The bearer's authority comes from the verified Tableau sign-in on a trusted site, never from the declared attribution.
+A later check, such as a Tableau-supported proof of the app's location, replaces this step's body without changing its callers or any other component.
+
 ## App registry
 
 The app ID is a label the Data App declares, limited only to a printable string of reasonable length.

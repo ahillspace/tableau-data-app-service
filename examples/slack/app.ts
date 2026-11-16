@@ -1,256 +1,242 @@
-import { type ConnectionView, type ProviderView, ServiceClient } from "../../src/sdk/index.js";
+/**
+ * A Slack Data App on the service SDK. It shows one shared bot definition and one personal user
+ * definition side by side: the same native calls, with the credential the definition names.
+ */
+import {
+  createService,
+  type Definition,
+  ServiceError,
+  type Subscription,
+} from "../../src/sdk/index.ts";
 
-declare const EXAMPLE_CONFIGURATION: { serviceOrigin: string; appId: string; deploymentId: string };
-const client = new ServiceClient(EXAMPLE_CONFIGURATION);
-function element<T extends HTMLElement>(id: string): T {
-  const value = document.getElementById(id);
-  if (!value) throw new Error(`Missing example control ${id}`);
-  return value as T;
+declare const EXAMPLE_CONFIGURATION: {
+  serviceOrigin: string;
+  appId: string;
+  botDefinition: string;
+  userDefinition: string;
+};
+
+const config = EXAMPLE_CONFIGURATION;
+const service = createService({ origin: config.serviceOrigin, appId: config.appId });
+
+const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const identity = element<HTMLParagraphElement>("identity");
+const signIn = element<HTMLButtonElement>("sign-in");
+const list = element<HTMLUListElement>("definitions");
+const definitionSelect = element<HTMLSelectElement>("definition");
+const method = element<HTMLSelectElement>("method");
+const path = element<HTMLInputElement>("path");
+const body = element<HTMLTextAreaElement>("body");
+const send = element<HTMLButtonElement>("send");
+const status = element<HTMLParagraphElement>("status");
+const output = element<HTMLPreElement>("response");
+const eventsToggle = element<HTMLButtonElement>("events");
+const eventLog = element<HTMLOListElement>("event-log");
+const tokenForm = element<HTMLFormElement>("token-form");
+const tokenInput = element<HTMLInputElement>("slack-token");
+
+let definitions: Definition[] = [];
+let subscription: Subscription | undefined;
+let tokenDefinition: string | undefined;
+
+function say(text: string): void {
+  status.textContent = text;
 }
-const status = element("status"),
-  identity = element("identity"),
-  output = element("response");
-const signIn = element<HTMLButtonElement>("sign-in"),
-  connect = element<HTMLButtonElement>("connect"),
-  reauthorize = element<HTMLButtonElement>("reauthorize");
-const selection = element<HTMLSelectElement>("connection"),
-  send = element<HTMLButtonElement>("send"),
-  cancel = element<HTMLButtonElement>("cancel");
-const token = element<HTMLInputElement>("slack-token"),
-  staticSetup = element<HTMLDetailsElement>("static-setup");
-let provider: ProviderView | undefined,
-  connections: ConnectionView[] = [],
-  signedIn = false,
-  busy = false,
-  request: AbortController | undefined,
-  tokenReplacement: ConnectionView | undefined;
-const selected = () => connections.find((connection) => connection.id === selection.value);
-function controls() {
-  signIn.disabled = busy;
-  connect.disabled = busy || !signedIn || !provider;
-  selection.disabled = busy || !connections.length;
-  reauthorize.disabled = busy || !selected()?.canManage;
-  send.disabled =
-    busy ||
-    !selected() ||
-    selected()?.state !== "active" ||
-    !!selected()?.connectorReauthRequired ||
-    !selected()?.readyEndpoints.includes("api");
-  cancel.disabled = !request;
+
+function describe(error: unknown): string {
+  if (error instanceof ServiceError) return `${error.message} (${error.code})`;
+  return error instanceof Error ? error.message : String(error);
 }
-function clearPrivateView() {
-  request?.abort();
-  request = undefined;
-  connections = [];
-  selection.replaceChildren(new Option("Connect an account to continue", ""));
-  output.textContent = "Your response will appear here.";
-  signedIn = false;
-  provider = undefined;
-  staticSetup.hidden = true;
-  controls();
+
+/** Runs an action, reporting failures; `sign-in-required` brings back the sign-in button. */
+async function attempt(action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === "sign-in-required") showSignedOut();
+    say(describe(error));
+  }
 }
-async function refresh(preferred?: string) {
-  const discovery = await client.discover();
-  provider = discovery.providers.find((entry) => entry.id === "slack");
-  connections = await client.connections({ provider: "slack" });
-  selection.replaceChildren(
-    ...connections.map(
-      (connection) =>
+
+function showSignedOut(): void {
+  identity.textContent = "Sign in with Tableau to use Slack from this view.";
+  signIn.hidden = false;
+  send.disabled = true;
+  eventsToggle.disabled = true;
+  list.replaceChildren();
+}
+
+async function showSignedIn(): Promise<void> {
+  const session = service.session;
+  identity.textContent = session
+    ? `Signed in as ${session.userName} on ${session.siteContentUrl}.`
+    : "Signed in.";
+  signIn.hidden = true;
+  await refresh();
+}
+
+const ours = (d: Definition) => d.id === config.botDefinition || d.id === config.userDefinition;
+
+async function refresh(): Promise<void> {
+  definitions = (await service.definitions()).filter(ours);
+  list.replaceChildren(...definitions.map(row));
+  definitionSelect.replaceChildren(
+    ...definitions.map(
+      (d) =>
         new Option(
-          `${connection.display.accountLabel ?? connection.display.label ?? "Slack"}${connection.state === "active" ? "" : ` - ${connection.state}`}`,
-          connection.id,
+          `${d.displayName} (${d.ownership})`,
+          d.id,
+          false,
+          d.id === definitionSelect.value,
         ),
     ),
   );
-  if (!connections.length) selection.add(new Option("Connect an account to continue", ""));
-  if (preferred && connections.some((connection) => connection.id === preferred))
-    selection.value = preferred;
-  staticSetup.hidden = !provider?.setupModes.includes("static");
-  identity.textContent = "Signed in with Tableau.";
-  signIn.textContent = "Use another Tableau account";
-  signedIn = true;
-  controls();
+  send.disabled = definitions.length === 0;
+  eventsToggle.disabled = definitions.length === 0;
+  if (!definitions.length) say("Neither Slack definition is available to your site.");
 }
-function message(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed";
-}
-async function action(work: () => Promise<void>) {
-  busy = true;
-  controls();
-  try {
-    await work();
-  } catch (error) {
-    status.textContent = message(error);
-  } finally {
-    busy = false;
-    controls();
-  }
-}
-signIn.addEventListener("click", () => {
-  clearPrivateView();
-  identity.textContent = "Signing in…";
-  // signIn preopens its popup synchronously inside this user gesture.
-  const pending = client.signIn();
-  void action(async () => {
-    await pending;
-    await refresh();
-    status.textContent = "Signed in. Choose or connect a Slack account.";
-  });
-});
-connect.addEventListener("click", () => {
-  tokenReplacement = undefined;
-  if (!provider?.setupModes.includes("oauth")) {
-    staticSetup.open = true;
-    token.focus();
-    return;
-  }
-  const pending = client.connect({ providerRegistrationId: "slack" });
-  void action(async () => {
-    const connection = await pending;
-    await refresh(connection.id);
-    status.textContent = "Slack connected.";
-  });
-});
-reauthorize.addEventListener("click", () => {
-  const connection = selected();
-  if (!connection) return;
-  tokenReplacement = connection;
-  if (!provider?.setupModes.includes("oauth")) {
-    staticSetup.open = true;
-    token.focus();
-    status.textContent = "Enter a token to reconnect this selected account.";
-    return;
-  }
-  const pending = client.connect({
-    providerRegistrationId: "slack",
-    replacement: {
-      connectionId: connection.id,
-      expectedAuthorityGeneration: connection.authorityGeneration,
-    },
-  });
-  void action(async () => {
-    const updated = await pending;
-    await refresh(updated.id);
-    status.textContent = "Slack account reconnected.";
-  });
-});
-selection.addEventListener("change", () => {
-  output.textContent = "Your response will appear here.";
-  controls();
-});
-element("connect-token").addEventListener("click", () => {
-  if (!element<HTMLFormElement>("token-form").reportValidity()) return;
-  const value = token.value;
-  token.value = "";
-  const replacement = tokenReplacement;
-  tokenReplacement = undefined;
-  void action(async () => {
-    const connection = await client.setupStatic({
-      providerRegistrationId: "slack",
-      inputs: { token: value, tokenMode: element<HTMLSelectElement>("token-mode").value },
-      ...(replacement
-        ? {
-            replacement: {
-              connectionId: replacement.id,
-              expectedAuthorityGeneration: replacement.authorityGeneration,
-            },
-          }
-        : {}),
-    });
-    staticSetup.open = false;
-    await refresh(connection.id);
-    status.textContent = "Slack connected.";
-  });
-});
-cancel.addEventListener("click", () => request?.abort());
-send.addEventListener("click", () => {
-  if (!element<HTMLFormElement>("request-form").reportValidity()) return;
-  const connection = selected();
-  if (!connection) return;
-  const controller = (request = new AbortController());
-  output.textContent = "";
-  status.textContent = "Sending native request…";
-  void action(async () => {
-    try {
-      const entered = element<HTMLInputElement>("path").value;
-      if (!entered.startsWith("/") || entered.startsWith("//"))
-        throw new Error("Enter a native Slack API path beginning with /.");
-      const path = new URL(entered, "https://native.invalid");
-      const body = element<HTMLTextAreaElement>("body").value;
-      const response = await client.request(
-        {
-          providerRegistrationId: "slack",
-          endpoint: "api",
-          connectionId: connection.id,
-          method: element<HTMLSelectElement>("method").value as "GET" | "POST" | "HEAD",
-          path: path.pathname,
-          query: path.searchParams,
-          ...(body
-            ? { body, headers: [["content-type", "application/x-www-form-urlencoded"]] }
-            : {}),
-        },
-        { signal: controller.signal },
+
+function row(definition: Definition): HTMLLIElement {
+  const item = document.createElement("li");
+  const title = document.createElement("strong");
+  title.textContent = definition.displayName;
+  const detail = document.createElement("span");
+  const account = definition.account
+    ? ` to ${definition.account.name ?? definition.account.id}`
+    : "";
+  const whose =
+    definition.ownership === "shared" ? "Shared for your site" : "Your own Slack account";
+  detail.textContent = `${whose}: ${definition.status.replace(/-/g, " ")}${account}`;
+  item.append(title, detail);
+  if (definition.ownership === "personal") {
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    if (definition.setup.oauth)
+      actions.append(
+        button(definition.status === "connected" ? "Reconnect" : "Connect", () =>
+          connect(definition.id),
+        ),
       );
-      output.textContent = `HTTP ${response.status}\n${[...response.headers].map(([key, value]) => `${key}: ${value}`).join("\n")}\n\n`;
-      status.textContent = "Response headers received. Reading body…";
-      if (response.body) {
-        const reader = response.body.getReader(),
-          decoder = new TextDecoder();
-        let count = 0;
-        try {
-          while (true) {
-            const next = await reader.read();
-            if (next.done) break;
-            const text = decoder.decode(next.value, { stream: true });
-            output.textContent += text.slice(0, Math.max(0, 40000 - count));
-            count += text.length;
-            if (count >= 40000) {
-              await reader.cancel();
-              status.textContent = "Preview reached 40,000 characters. Reading stopped.";
-              return;
-            }
-          }
-          output.textContent += decoder.decode();
-        } finally {
-          reader.releaseLock();
-        }
-      }
-      status.textContent = `Native response complete (HTTP ${response.status}).`;
-    } catch (error) {
-      status.textContent = controller.signal.aborted
-        ? "Reading stopped. The provider may already have processed the request."
-        : `Request or body read failed: ${message(error)}`;
-    } finally {
-      request = undefined;
-      controls();
-    }
-  });
-});
-window.addEventListener("pagehide", () => {
-  request?.abort();
-  client.close();
-});
-// Fetch controls also work in script-enabled opaque frames without native form navigation permission.
-for (const [formId, buttonId] of [
-  ["token-form", "connect-token"],
-  ["request-form", "send"],
-]) {
-  element(formId!).addEventListener("submit", (event) => event.preventDefault());
-  element(formId!).addEventListener("keydown", (event) => {
-    if ((event as KeyboardEvent).key === "Enter" && event.target instanceof HTMLInputElement) {
-      event.preventDefault();
-      element<HTMLButtonElement>(buttonId!).click();
-    }
+    if (definition.setup.credential)
+      actions.append(button("Use a token", () => useToken(definition.id), true));
+    if (definition.status !== "not-connected")
+      actions.append(button("Disconnect", () => disconnect(definition.id), true));
+    item.append(actions);
+  }
+  return item;
+}
+
+function button(label: string, onClick: () => void, secondary = false): HTMLButtonElement {
+  const control = document.createElement("button");
+  control.type = "button";
+  control.textContent = label;
+  if (secondary) control.className = "secondary";
+  control.addEventListener("click", onClick);
+  return control;
+}
+
+function connect(definitionId: string): void {
+  // The popup opens inside the click, before any await.
+  const connecting = service.connect(definitionId);
+  say("Finish connecting Slack in the window that opened.");
+  void attempt(async () => {
+    await connecting;
+    say("Slack is connected.");
+    await refresh();
   });
 }
-void action(async () => {
-  try {
-    await client.initialize();
+
+function useToken(definitionId: string): void {
+  tokenDefinition = definitionId;
+  tokenForm.hidden = false;
+  tokenInput.focus();
+}
+
+function closeTokenForm(): void {
+  tokenDefinition = undefined;
+  tokenInput.value = "";
+  tokenForm.hidden = true;
+}
+
+tokenForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const definitionId = tokenDefinition;
+  const token = tokenInput.value.trim();
+  // The token is cleared from the page at once; the service seals it and never returns it.
+  closeTokenForm();
+  if (!definitionId || !token) return;
+  void attempt(async () => {
+    await service.setCredential(definitionId, token);
+    say("Your Slack token is stored.");
     await refresh();
-    status.textContent = "Session restored.";
-  } catch (error) {
-    clearPrivateView();
-    identity.textContent = "Sign in with Tableau to continue.";
-    status.textContent = message(error);
+  });
+});
+element<HTMLButtonElement>("token-cancel").addEventListener("click", closeTokenForm);
+
+function disconnect(definitionId: string): void {
+  void attempt(async () => {
+    await service.disconnect(definitionId);
+    say("Disconnected.");
+    await refresh();
+  });
+}
+
+signIn.addEventListener("click", () => {
+  const signingIn = service.signIn();
+  say("Sign in with Tableau in the window that opened.");
+  void attempt(async () => {
+    await signingIn;
+    say("Ready.");
+    await showSignedIn();
+  });
+});
+
+send.addEventListener("click", () => {
+  const init: RequestInit = { method: method.value };
+  if (method.value === "POST") {
+    init.body = body.value;
+    init.headers = { "content-type": "application/json; charset=utf-8" };
   }
+  void attempt(async () => {
+    say("Sending…");
+    const response = await service.fetch(definitionSelect.value, path.value, init);
+    const text = method.value === "HEAD" ? "" : await response.text();
+    const headers = [...response.headers].map(([name, value]) => `${name}: ${value}`).join("\n");
+    output.textContent = `${response.status} ${response.statusText}\n${headers}\n\n${text}`;
+    say(`Slack answered ${response.status}.`);
+  });
+});
+
+eventsToggle.addEventListener("click", () => {
+  if (subscription) {
+    subscription.close();
+    subscription = undefined;
+    eventsToggle.textContent = "Listen for events";
+    return;
+  }
+  eventsToggle.textContent = "Stop listening";
+  subscription = service.events.subscribe(
+    definitions.map((d) => d.id),
+    (event) => note(`${event.definitionId}: ${event.type} in ${event.account}`),
+    {
+      onLoss: (reason) => note(`Events may have been missed (${reason}).`),
+      onEnd: (reason) => {
+        note(`The event stream ended (${reason}).`);
+        subscription = undefined;
+        eventsToggle.textContent = "Listen for events";
+      },
+    },
+  );
+});
+
+function note(text: string): void {
+  const item = document.createElement("li");
+  item.textContent = `${new Date().toLocaleTimeString()} ${text}`;
+  eventLog.prepend(item);
+  while (eventLog.children.length > 50) eventLog.lastElementChild?.remove();
+}
+
+void attempt(async () => {
+  if (await service.restore()) await showSignedIn();
+  else showSignedOut();
 });

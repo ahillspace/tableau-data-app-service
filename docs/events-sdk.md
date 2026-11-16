@@ -60,6 +60,7 @@ const stream = service.events.subscribe(["slack-bot"], onEvent);
 ```
 
 - `fetch` returns the provider's native `Response`; the SDK does not parse, wrap or retry it.
+- The SDK sends every service call with `redirect: "manual"`, so a provider redirect comes back to the app and the bearer never follows it; browsers expose such a response as an opaque redirect.
 - Service errors are thrown as `ServiceError` with the stable code and an `upstream` field that says whether the provider may have received the request.
 - When the bearer has expired, the SDK tries `restore` once; if that fails, calls throw `sign-in-required` and the app calls `signIn` from a user gesture.
 - `restore` and `signIn` read the page's declared attribution (site content URL, workbook and view) from the page URL and referrer, and sends it with the app ID.

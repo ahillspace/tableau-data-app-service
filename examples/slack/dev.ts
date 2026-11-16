@@ -5,8 +5,9 @@ import { build } from "esbuild";
 const directory = new URL("./", import.meta.url);
 const configuration = {
   serviceOrigin: process.env.SERVICE_ORIGIN ?? "http://127.0.0.1:3000",
-  appId: process.env.APP_ID ?? "example",
-  deploymentId: process.env.TABLEAU_DEPLOYMENT_ID ?? "tableau",
+  appId: process.env.APP_ID ?? "slack-example",
+  botDefinition: process.env.BOT_DEFINITION ?? "slack-bot",
+  userDefinition: process.env.USER_DEFINITION ?? "slack-user",
 };
 const bundle = await build({
   entryPoints: [new URL("app.ts", directory).pathname],

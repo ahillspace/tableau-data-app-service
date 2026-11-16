@@ -1,674 +1,622 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { sql } from "kysely";
-import { createHttpApp } from "../src/http/app.js";
-import { jobsApi } from "../src/jobs/api.js";
-import { JobsService } from "../src/jobs/service.js";
-import { JobsWorker } from "../src/jobs/worker.js";
-import { command, eventually, jobDeclaration, jobsFixture, workerOptions } from "./jobs-fixture.js";
+import { after, before, beforeEach, describe, test } from "node:test";
+import type {
+  JobHandlerDefinition,
+  JobRunContext,
+  JobStepResult,
+  ProviderType,
+} from "../src/connections/provider-types.ts";
+import { listSites } from "../src/identity/directory.ts";
+import type { Principal } from "../src/identity/types.ts";
+import { JobService } from "../src/jobs/service.ts";
+import type { JobLimits } from "../src/jobs/types.ts";
+import { JobWorker } from "../src/jobs/worker.ts";
+import type { Db } from "../src/persistence/database.ts";
+import { ServiceError } from "../src/platform/errors.ts";
+import { Log } from "../src/platform/log.ts";
+import { hashToken } from "../src/platform/secrets.ts";
+import { type ConnectionsHarness, connectionsHarness } from "./support/connections.ts";
+import { freshDatabase, testKeys } from "./support/db.ts";
+import {
+  appSignIn,
+  type IdentityHarness,
+  identityHarness,
+  tableauSignIn,
+} from "./support/identity.ts";
+import { TableauStandIn, type TableauUser } from "./support/tableau.ts";
 
-test("semantic admission commits once across pools; equal retained recovery bypasses selection and disabled execution; changed commands conflict", async () => {
-  const f = await jobsFixture();
+const alice: TableauUser = {
+  siteId: "site-a",
+  siteContentUrl: "alpha",
+  userId: "user-a",
+  userName: "alice@example.com",
+};
+const bob: TableauUser = {
+  siteId: "site-a",
+  siteContentUrl: "alpha",
+  userId: "user-b",
+  userName: "bob@example.com",
+};
+
+type Behavior = (ctx: JobRunContext) => Promise<JobStepResult>;
+
+/** Handlers whose behavior each test sets. */
+const behaviors = new Map<string, Behavior>();
+const cancels: string[] = [];
+function handler(name: string, extra: Partial<JobHandlerDefinition> = {}): JobHandlerDefinition {
+  return {
+    name,
+    retrySafe: false,
+    run: (ctx) =>
+      (behaviors.get(name) ?? (async () => ({ kind: "succeeded", result: ctx.input })))(ctx),
+    ...extra,
+  };
+}
+
+const tasks: ProviderType = {
+  name: "tasks",
+  oauth: "none",
+  staticCredential: true,
+  credentialless: false,
+  jobHandlers: [
+    handler("echo"),
+    handler("safe", { retrySafe: true }),
+    handler("flaky", { retries: { attempts: 2, backoffSeconds: 0 } }),
+    handler("small", { limits: { inputBytes: 64, resultBytes: 64, runtimeSeconds: 60 } }),
+    handler("remote", {
+      cancel: async (ctx) => {
+        cancels.push(ctx.externalTaskId);
+      },
+    }),
+  ],
+};
+
+async function code(promise: Promise<unknown>): Promise<string> {
   try {
-    const outcomes = await Promise.all([
-      f.jobs.admit(f.alice.access, command("same", {})),
-      f.jobs2.admit(f.alice.access, command("same", { value: "default" })),
-    ]);
-    assert.equal(outcomes.filter((o) => o.created).length, 1);
-    assert.equal(outcomes[0]!.job.id, outcomes[1]!.job.id);
-    assert.equal((await f.jobs.db.selectFrom("jobs").select("id").execute()).length, 1);
-    await assert.rejects(f.jobs.admit(f.alice.access, command("same", { value: "different" })), {
-      code: "submission-conflict",
-    });
-    await assert.rejects(
-      f.jobs.admit(f.alice.access, command("same", { value: "default" }, f.connection.id)),
-      { code: "submission-conflict" },
-    );
-    await f.connections.disconnect(f.alice.access, f.connection.id, 1);
-    const retired = new JobsService({ ...f.jobs.options, declarations: [] });
-    assert.equal((await retired.admit(f.alice.access, command("same", {}))).created, false);
-    await assert.rejects(f.jobs.get(f.bob.access, outcomes[0]!.job.id), { status: 404 });
-    await f.db
-      .updateTable("tableau_sites")
-      .set({ enabled: false })
-      .where("id", "=", "site-row")
-      .execute();
-    await assert.rejects(retired.admit(f.alice.access, command("same", {})), { status: 403 });
-  } finally {
-    await f.close();
+    await promise;
+  } catch (error) {
+    assert.ok(error instanceof ServiceError, String(error));
+    return error.code;
   }
-});
+  assert.fail("expected a ServiceError");
+}
 
-test("actual API worker journey retains encrypted result after disconnect and hides it from another owner", async () => {
-  const f = await jobsFixture();
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  const app = await createHttpApp({
-    db: f.db,
-    core: f.core,
-    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+const LIMITS: JobLimits = {
+  inputBytes: 4096,
+  resultBytes: 4096,
+  runtimeSeconds: 3600,
+  resultRetentionSeconds: 7 * 86400,
+  recordRetentionSeconds: 30 * 86400,
+};
+
+describe("jobs", () => {
+  let tableau: TableauStandIn;
+  let db: Db;
+  let closeDb: (() => Promise<void>) | undefined;
+  let h: IdentityHarness;
+  let c: ConnectionsHarness;
+  let jobs: JobService;
+  let lines: string[];
+  let a: Principal;
+  let b: Principal;
+
+  const worker = (concurrency = 1) =>
+    new JobWorker({
+      db,
+      connections: c.connections,
+      jobs,
+      clock: h.clock,
+      log: new Log((line) => lines.push(line)),
+      concurrency,
+      leaseMs: 30_000,
+      renewMs: 50,
+      pollMs: 20,
+    });
+
+  /** Claims and runs the next due Job on a worker. */
+  async function step(w: JobWorker): Promise<string | undefined> {
+    const claimed = await w.claim();
+    if (!claimed) return undefined;
+    await w.execute(claimed);
+    return claimed.id;
+  }
+
+  const submit = (p: Principal, handlerName: string, input: unknown, key: string) =>
+    jobs.submit(p, { handler: handlerName, definitionId: "work", input, submissionKey: key });
+
+  before(async () => {
+    tableau = await new TableauStandIn().start();
   });
-  await app.listen({ host: "127.0.0.1", port: 0 });
-  try {
-    const root = app.listeningOrigin;
-    const created = await fetch(`${root}/v1/apps/one/jobs`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${f.alice.token}`, "content-type": "application/json" },
-      body: command("http"),
-    });
-    assert.equal(created.status, 202);
-    const job = (await created.json()) as { id: string };
-    await worker.start();
-    await eventually(
-      () => f.jobs.get(f.alice.access, job.id),
-      (j) => j.state === "succeeded",
-    );
-    const stored = await f.jobs.db
-      .selectFrom("job_payloads")
-      .selectAll()
-      .where("job_id", "=", job.id)
-      .execute();
-    assert.deepEqual(
-      stored.map((p) => p.kind),
-      ["result"],
-    );
-    assert.equal(stored[0]!.body.includes(Buffer.from("hello")), false);
-    await f.connections.disconnect(f.alice.access, f.connection.id, 1);
-    const result = await fetch(`${root}/v1/apps/two/jobs/${job.id}/result`, {
-      headers: { authorization: `Bearer ${f.alice.token}` },
-    });
-    assert.equal(result.status, 200);
-    assert.deepEqual(await result.json(), { value: "hello" });
-    assert.equal((await f.jobs.get({ ...f.alice.access, appId: "two" }, job.id)).appId, "one");
-    assert.equal(
-      (
-        await fetch(`${root}/v1/apps/two/jobs/${job.id}`, {
-          headers: { authorization: `Bearer ${f.bob.token}` },
-        })
-      ).status,
-      404,
-    );
-    await f.jobs.db
-      .updateTable("job_payloads")
-      .set({ body: Buffer.from("corrupt") })
-      .where("job_id", "=", job.id)
-      .execute();
-    await assert.rejects(f.jobs.result(f.alice.access, job.id), { code: "invalid-job-payload" });
-  } finally {
-    await worker.close();
-    await app.close();
-    await f.close();
-  }
-});
-
-test("two worker incarnations claim once and expired initial claims never invoke again", async () => {
-  const f = await jobsFixture();
-  try {
-    const admitted = await f.jobs.admit(f.alice.access, command("claim"));
-    const hint = (await f.jobs.row(admitted.job.id))!;
-    const claims = await Promise.all([
-      f.jobs.claim(hint, "execute", "first", 100),
-      f.jobs2.claim(hint, "execute", "second", 100),
-    ]);
-    assert.equal(claims.filter(Boolean).length, 1);
-    await f.jobs.db
-      .updateTable("jobs")
-      .set({ lease_until: sql<Date>`clock_timestamp()` })
-      .where("id", "=", hint.id)
-      .execute();
-    await f.jobs2.controls(10, 1000);
-    const current = await f.jobs.row(hint.id);
-    assert.equal(current!.state, "failed");
-    assert.equal(current!.error!.code, "interrupted");
-    assert.equal(await f.jobs.claim(current!, "execute", "replacement", 100), null);
-  } finally {
-    await f.close();
-  }
-});
-
-test("publication rechecks database wall time after a lock wait and rejects deadline/lease equality", async () => {
-  const f = await jobsFixture();
-  try {
-    for (const field of ["lease_until", "deadline"] as const) {
-      const job = await f.jobs.admit(f.alice.access, command(field));
-      const claim = (await f.jobs.claim((await f.jobs.row(job.job.id))!, "execute", "old", 1000))!;
-      const prepared = await f.jobs.prepareResult(claim, { value: "late" });
-      let unlock!: () => void;
-      let locked!: () => void;
-      const acquired = new Promise<void>((resolve) => (locked = resolve));
-      const held = new Promise<void>((resolve) => (unlock = resolve));
-      const lock = f.jobs2.db.transaction().execute(async (tx) => {
-        await tx.selectFrom("jobs").select("id").where("id", "=", claim.id).forUpdate().execute();
-        await tx
-          .updateTable("jobs")
-          .set({ [field]: sql<Date>`clock_timestamp()` })
-          .where("id", "=", claim.id)
-          .execute();
-        locked();
-        await held;
-      });
-      await acquired;
-      const publication = f.jobs.publish(
-        claim,
-        { token: claim.claim_token!, incarnation: "old" },
-        { kind: "complete", result: { value: "late" } },
-        { result: prepared },
-        1000,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      unlock();
-      await lock;
-      assert.equal(await publication, false);
-      await f.jobs.controls(10, 1000);
-      assert.equal((await f.jobs.get(f.alice.access, claim.id)).state, "failed");
+  after(async () => {
+    await h.close();
+    await closeDb?.();
+    await tableau.close();
+  });
+  beforeEach(async () => {
+    behaviors.clear();
+    cancels.length = 0;
+    if (closeDb) {
+      await h.close();
+      await closeDb();
     }
-  } finally {
-    await f.close();
-  }
-});
-
-test("queued cancel races start atomically; saturated execution still settles control without claiming more work", async () => {
-  let release!: () => void;
-  const stopped = new Promise<void>((resolve) => (release = resolve));
-  const f = await jobsFixture([
-    {
-      ...jobDeclaration,
-      handler: async (input) => {
-        await stopped;
-        return { kind: "complete", result: input };
-      },
-    },
-  ]);
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  try {
-    const first = await f.jobs.admit(f.alice.access, command("busy"));
-    const second = await f.jobs.admit(f.alice.access, command("queued"));
-    await worker.start();
-    await eventually(
-      () => f.jobs.get(f.alice.access, first.job.id),
-      (j) => j.state === "running",
-    );
-    assert.equal(worker.activeExecutions, 1);
-    const hint = (await f.jobs.row(second.job.id))!;
-    await Promise.all([
-      f.jobs.cancel(f.alice.access, second.job.id, 1000),
-      f.jobs2.claim(hint, "execute", "racer", 1000),
-    ]);
-    await f.jobs.controls(20, 1000);
-    assert.equal((await f.jobs.get(f.alice.access, second.job.id)).state, "cancelled");
-    await f.jobs.cancel(f.alice.access, first.job.id, 1000);
-    await f.jobs.controls(20, 1000);
-    assert.equal((await f.jobs.get(f.alice.access, first.job.id)).state, "cancelled");
-    assert.equal(worker.activeExecutions, 1); // Terminal metadata is not stopped code.
-    release();
-    await eventually(
-      async () => worker.activeExecutions,
-      (n) => n === 0,
-    );
-    assert.equal((await f.jobs.get(f.alice.access, first.job.id)).state, "cancelled");
-  } finally {
-    release();
-    await worker.close();
-    await f.close();
-  }
-});
-
-test("only explicitly returned settled failures retry finitely, keeping their original deadline", async () => {
-  let calls = 0;
-  const f = await jobsFixture([
-    {
-      ...jobDeclaration,
-      retry: { delaysMs: [5] },
-      handler: async () => {
-        calls++;
-        return {
-          kind: "failed",
-          error: { code: "settled", message: "Provider explicitly rejected" },
-          retryable: true,
-        };
-      },
-    },
-  ]);
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  try {
-    const job = await f.jobs.admit(f.alice.access, command("retry"));
-    await worker.start();
-    const row = await eventually(
-      () => f.jobs.row(job.job.id),
-      (j) => j?.state === "failed",
-    );
-    assert.equal(calls, 2);
-    assert.equal(row!.attempts, 2);
-    assert.equal(row!.deadline!.getTime() - row!.started_at!.getTime(), 86400000);
-  } finally {
-    await worker.close();
-    await f.close();
-  }
-  let uncertain = 0;
-  const g = await jobsFixture([
-    {
-      ...jobDeclaration,
-      retry: { delaysMs: [1] },
-      handler: async () => {
-        uncertain++;
-        throw new Error("after send");
-      },
-    },
-  ]);
-  const w = new JobsWorker(g.jobs, workerOptions);
-  try {
-    const job = await g.jobs.admit(g.alice.access, command("unknown"));
-    await w.start();
-    await eventually(
-      () => g.jobs.get(g.alice.access, job.job.id),
-      (j) => j.state === "failed",
-    );
-    assert.equal(uncertain, 1);
-  } finally {
-    await w.close();
-    await g.close();
-  }
-});
-
-test("result and metadata expiry are fixed; cleanup deletes bodies and ends retained-key deduplication", async () => {
-  const f = await jobsFixture();
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  try {
-    const limited = new JobsService({
-      ...f.jobs.options,
-      limits: { resultRetentionMs: 200, metadataRetentionMs: 500 },
+    ({ db, close: closeDb } = await freshDatabase());
+    h = await identityHarness(db, tableau);
+    c = connectionsHarness(db, {
+      keys: testKeys(),
+      outbound: h.outbound,
+      clock: h.clock,
+      presets: [tasks],
     });
-    const job = await limited.admit(f.alice.access, command("retained"));
-    await worker.start();
-    await eventually(
-      () => limited.get(f.alice.access, job.job.id),
-      (j) => j.state === "succeeded",
-    );
-    const row = (await limited.row(job.job.id))!;
-    const expiry = row.result_expires_at!.getTime();
-    await limited.result(f.alice.access, job.job.id);
-    assert.equal((await limited.row(job.job.id))!.result_expires_at!.getTime(), expiry);
-    await new Promise((resolve) => setTimeout(resolve, 210));
-    await assert.rejects(limited.result(f.alice.access, job.job.id), { status: 410 });
-    await limited.retain(20);
-    assert.equal(
-      (
-        await limited.db
-          .selectFrom("job_payloads")
-          .select("kind")
-          .where("job_id", "=", job.job.id)
-          .execute()
-      ).length,
-      0,
-    );
-    assert.equal((await limited.admit(f.alice.access, command("retained"))).created, false);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await limited.retain(20);
-    assert.equal((await limited.admit(f.alice.access, command("retained"))).created, true);
-  } finally {
-    await worker.close();
-    await f.close();
-  }
-});
-
-test("freshness-only start blockage stays queued and same-account reauthorization resumes the immutable selection", async () => {
-  const f = await jobsFixture();
-  try {
-    const job = await f.jobs.admit(f.alice.access, command("freshness"));
-    await f.db
-      .updateTable("provider_registrations")
-      .set({ reauth_seconds: 1 })
-      .where("id", "=", "fixture")
-      .execute();
-    await f.db
-      .updateTable("connections")
-      .set({
-        last_connector_reauth_at: new Date(Date.now() - 2000),
-        state: "reauthorization-required",
-      })
-      .where("id", "=", f.connection.id)
-      .execute();
-    assert.equal(
-      await f.jobs.claim((await f.jobs.row(job.job.id))!, "execute", "before-reauth", 1000),
-      null,
-    );
-    const blocked = (await f.jobs.row(job.job.id))!;
-    assert.equal(blocked.state, "queued");
-    assert.equal(blocked.blocked_reason, "reauthorization-required");
-    await f.db
-      .updateTable("connections")
-      .set({ last_connector_reauth_at: new Date(), state: "active" })
-      .where("id", "=", f.connection.id)
-      .execute();
-    await f.jobs.db
-      .updateTable("jobs")
-      .set({ due_at: sql<Date>`clock_timestamp()` })
-      .where("id", "=", job.job.id)
-      .execute();
-    const claimed = await f.jobs.claim(
-      (await f.jobs.row(job.job.id))!,
-      "execute",
-      "after-reauth",
-      1000,
-    );
-    assert.ok(claimed);
-    assert.equal(claimed.connection_id, f.connection.id);
-    assert.equal(claimed.authority_generation, 1);
-  } finally {
-    await f.close();
-  }
-});
-
-test("an eligible original success wins cancellation without scheduling remote rollback", async () => {
-  const f = await jobsFixture([
-    {
-      ...jobDeclaration,
-      external: {
-        contextSchema: jobDeclaration.inputSchema,
-        contextLimitBytes: 1000,
-        cancel: async () => "confirmed",
-      },
-    },
-  ]);
-  try {
-    const job = await f.jobs.admit(f.alice.access, command("success-wins"));
-    const claim = (await f.jobs.claim((await f.jobs.row(job.job.id))!, "execute", "winner", 1000))!;
-    await f.jobs.cancel(f.alice.access, claim.id, 1000);
-    const result = await f.jobs.prepareResult(claim, { value: "done" });
-    assert.equal(
-      await f.jobs.publish(
-        claim,
-        { token: claim.claim_token!, incarnation: "winner" },
-        { kind: "complete", result: { value: "done" } },
-        { result },
-        1000,
-      ),
-      true,
-    );
-    const final = await f.jobs.cancel(f.alice.access, claim.id, 1000);
-    assert.equal(final.state, "succeeded");
-    assert.equal(final.cancellation.requested, true);
-    assert.equal(final.cancellation.remote, "not-requested");
-    assert.equal((await f.jobs.cleanupCandidates(10)).length, 0);
-  } finally {
-    await f.close();
-  }
-});
-
-test("equal recovery uses retained limits and comparison capacity before allocating new Job payload resources", async () => {
-  const f = await jobsFixture();
-  try {
-    const raw = command("recovery-budget");
-    const job = await f.jobs.admit(f.alice.access, raw);
-    const limited = new JobsService({
-      ...f.jobs.options,
-      limits: { inputBytes: 1, resultBytes: 1, executionSeconds: 1 },
+    lines = [];
+    jobs = new JobService({
+      db,
+      connections: c.connections,
+      limits: LIMITS,
+      publicOrigin: "https://service.test",
+      clock: h.clock,
+      log: new Log((line) => lines.push(line)),
     });
-    assert.equal(
-      (await limited.admit(f.alice.access, command("recovery-budget"))).job.id,
-      job.job.id,
-    );
-    await assert.rejects(limited.admit(f.alice.access, command("new-over-reduced-limit")), {
-      code: "invalid-job-payload",
+    const siteId = ((await listSites(db))[0] as { id: string }).id;
+    await c.definitions.create("test", {
+      id: "work",
+      displayName: "Work",
+      type: "tasks",
+      ownership: "personal",
+      apiHosts: ["https://work.example"],
+      audience: [siteId],
     });
-    const release = f.payloads.reserve(f.payloads.workingBytes - raw.length * 8 - 1);
+    a = (await appSignIn(h, (await tableauSignIn(h, tableau, alice)).cookie)).principal;
+    b = (await appSignIn(h, (await tableauSignIn(h, tableau, bob)).cookie)).principal;
+    await c.connections.setPersonalCredential(a, "work", "alice-key");
+  });
+
+  test("V20 admission is idempotent per submission key and committed before it answers", async () => {
+    assert.equal(await code(submit(b, "echo", 1, "k1")), "not-connected");
+    assert.equal(await code(submit(a, "missing", 1, "k1")), "handler-not-found");
+
+    const first = await submit(a, "echo", { b: 1, a: [1, 2] }, "k1");
+    assert.equal(first.created, true);
+    assert.equal(first.job.state, "queued");
+    // Committed: a separate pool sees it at once.
+    const { db: other, close } = await (async () => {
+      const { openDatabase } = await import("../src/persistence/database.ts");
+      const { caCert } = await import("./support/db.ts");
+      const url = new URL(process.env.TDAS_TEST_PG as string);
+      const name = (
+        await db
+          .selectNoFrom((eb) => eb.fn<string>("current_database", []).as("n"))
+          .executeTakeFirstOrThrow()
+      ).n;
+      url.pathname = `/${name}`;
+      const opened = openDatabase({
+        url: url.href,
+        caCert: caCert(),
+        applicationName: "tdas-other",
+      });
+      return { db: opened.db, close: () => opened.db.destroy() };
+    })();
+    assert.ok(
+      await other.selectFrom("jobs").select("id").where("id", "=", first.job.id).executeTakeFirst(),
+    );
+    await close();
+
+    // Same key and the same input in another key order is the same Job.
+    const again = await submit(a, "echo", { a: [1, 2], b: 1 }, "k1");
+    assert.equal(again.created, false);
+    assert.equal(again.job.id, first.job.id);
+    assert.equal(
+      await code(submit(a, "echo", { a: [2, 1], b: 1 }, "k1")),
+      "submission-key-conflict",
+    );
+
+    // Concurrent submissions with one key admit one Job.
+    const raced = await Promise.all(Array.from({ length: 8 }, () => submit(a, "echo", "x", "k2")));
+    assert.equal(new Set(raced.map((r) => r.job.id)).size, 1);
+    assert.equal(raced.filter((r) => r.created).length, 1);
+
+    // Another owner's key space is separate, and another owner cannot read the Job.
+    await c.connections.setPersonalCredential(b, "work", "bob-key");
+    const bobs = await submit(b, "echo", "x", "k2");
+    assert.notEqual(bobs.job.id, raced[0]?.job.id);
+    assert.equal(await code(jobs.get(b, first.job.id)), "job-not-found");
+    assert.deepEqual((await jobs.listOwn(a)).map((j) => j.submissionKey).sort(), ["k1", "k2"]);
+
+    // With the database gone, admission fails instead of answering accepted.
+    await db.destroy();
+    await assert.rejects(submit(a, "echo", "y", "k3"));
+    closeDb = undefined;
+    ({ db, close: closeDb } = await freshDatabase());
+  });
+
+  test("a Job runs with the owner's current connection, reports progress and keeps its result after disconnect", async () => {
+    behaviors.set("echo", async (ctx) => {
+      const lease = await ctx.checkout();
+      const request = { target: "/x", headers: [] as [string, string][] };
+      lease.apply(request);
+      await ctx.progress({ done: 1 });
+      return { kind: "succeeded", result: { input: ctx.input, auth: request.headers[0]?.[1] } };
+    });
+    const { job } = await submit(a, "echo", "hello", "run-1");
+    const w = worker();
+    assert.equal(await step(w), job.id);
+    const done = await jobs.get(a, job.id);
+    assert.equal(done.state, "succeeded");
+    assert.deepEqual(done.progress, { done: 1 });
+    assert.equal(done.result?.available, true);
+    assert.deepEqual(await jobs.result(a, job.id), { input: "hello", auth: "Bearer alice-key" });
+    await c.connections.disconnectOwn(a, "work");
+    assert.deepEqual(await jobs.result(a, job.id), { input: "hello", auth: "Bearer alice-key" });
+
+    // A queued Job whose owner disconnected fails with not-connected when it runs.
+    await c.connections.setPersonalCredential(a, "work", "alice-key");
+    const second = await submit(a, "echo", "again", "run-2");
+    await c.connections.disconnectOwn(a, "work");
+    await step(w);
+    const failed = await jobs.get(a, second.job.id);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.error?.code, "not-connected");
+    assert.equal(await code(jobs.result(a, second.job.id)), "job-has-no-result");
+  });
+
+  test("V21 a crashed worker's Job is interrupted, and replayed only when the handler declares it safe", async () => {
+    const unsafe = await submit(a, "echo", 1, "crash-1");
+    const safe = await submit(a, "safe", 1, "crash-2");
+    const crashed = worker();
+    // The worker claims both and dies before finishing either.
+    assert.ok(await crashed.claim());
+    assert.ok(await crashed.claim());
+
+    const survivor = worker();
+    await survivor.sweep();
+    assert.equal((await jobs.get(a, unsafe.job.id)).state, "running");
+    h.clock.offsetMs += 31_000;
+    await survivor.sweep();
+    const interrupted = await jobs.get(a, unsafe.job.id);
+    assert.equal(interrupted.state, "interrupted");
+    assert.equal(interrupted.remoteEffectsUnknown, true);
+    assert.equal(interrupted.error?.code, "interrupted");
+    assert.equal((await jobs.get(a, safe.job.id)).state, "queued");
+    assert.equal(await step(survivor), safe.job.id);
+    const replayed = await jobs.get(a, safe.job.id);
+    assert.equal(replayed.state, "succeeded");
+    assert.equal(replayed.attempt, 2);
+    // Nothing runs the unsafe Job again.
+    assert.equal(await step(survivor), undefined);
+
+    // The crashed worker's late ending cannot overwrite what the survivor decided.
+    const stale = await db
+      .selectFrom("jobs")
+      .select("state")
+      .where("id", "=", unsafe.job.id)
+      .executeTakeFirstOrThrow();
+    assert.equal(stale.state, "interrupted");
+  });
+
+  test("settled failures retry only when the handler opts in", async () => {
+    let calls = 0;
+    behaviors.set("flaky", async () => {
+      calls++;
+      return calls < 3
+        ? { kind: "failed", code: "busy", message: "try later" }
+        : { kind: "succeeded", result: calls };
+    });
+    behaviors.set("echo", async () => ({ kind: "failed", code: "busy", message: "no" }));
+    const flaky = await submit(a, "flaky", 1, "f1");
+    const plain = await submit(a, "echo", 1, "f2");
+    const w = worker();
+    while (await step(w)) {}
+    assert.equal((await jobs.get(a, flaky.job.id)).state, "succeeded");
+    assert.equal(calls, 3);
+    const failed = await jobs.get(a, plain.job.id);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.attempt, 1);
+  });
+
+  test("V22 a waiting Job releases its slot and resumes once on a verified callback", async () => {
+    let issued: { url: string; verifier: string } | undefined;
+    behaviors.set("remote", async (ctx) => {
+      if (ctx.resume !== undefined)
+        return { kind: "succeeded", result: { resumedWith: ctx.resume } };
+      issued = await ctx.callback();
+      return { kind: "wait", externalTaskId: "task-9" };
+    });
+    const waiting = await submit(a, "remote", 1, "w1");
+    const other = await submit(a, "echo", 2, "w2");
+    const w = worker(1);
+    w.start();
     try {
-      assert.equal((await f.jobs.admit(f.alice.access, command("recovery-budget"))).created, false);
+      for (let i = 0; i < 100 && (await jobs.get(a, other.job.id)).state !== "succeeded"; i++)
+        await new Promise((r) => setTimeout(r, 20));
+      // The waiting Job gave up its only slot, so the second Job ran.
+      assert.equal((await jobs.get(a, other.job.id)).state, "succeeded");
+      const parked = await jobs.get(a, waiting.job.id);
+      assert.equal(parked.state, "waiting");
+      assert.equal(parked.externalTaskId, "task-9");
+      assert.equal(w.active, 0);
+      assert.ok(issued);
+      assert.equal(issued.url, `https://service.test/v1/jobs/callbacks/${waiting.job.id}`);
+
+      assert.equal(
+        await code(jobs.callback(waiting.job.id, "wrong", { ok: true })),
+        "job-callback-invalid",
+      );
+      assert.equal(
+        await code(jobs.callback(waiting.job.id, undefined, { ok: true })),
+        "job-callback-invalid",
+      );
+      await jobs.callback(waiting.job.id, issued.verifier, { ok: true });
+      // The verifier is single use.
+      assert.equal(
+        await code(jobs.callback(waiting.job.id, issued.verifier, { ok: true })),
+        "job-callback-invalid",
+      );
+      for (let i = 0; i < 100 && (await jobs.get(a, waiting.job.id)).state !== "succeeded"; i++)
+        await new Promise((r) => setTimeout(r, 20));
+      assert.deepEqual(await jobs.result(a, waiting.job.id), { resumedWith: { ok: true } });
+      assert.equal(
+        await code(jobs.callback(waiting.job.id, issued.verifier, {})),
+        "job-callback-invalid",
+      );
+      assert.ok(lines.some((l) => l.includes("job callback rejected")));
+      assert.ok(!lines.some((l) => l.includes(issued?.verifier as string)));
     } finally {
-      release();
+      await w.stop();
     }
-  } finally {
-    await f.close();
-  }
-});
-
-test("current disclosure is rechecked after outside-lock decryption before an HTTP result is released", async () => {
-  const f = await jobsFixture();
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  const app = await createHttpApp({
-    db: f.db,
-    core: f.core,
-    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
   });
-  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
-  try {
-    const job = await f.jobs.admit(f.alice.access, command("revocation-race"));
-    await worker.start();
-    await eventually(
-      () => f.jobs.get(f.alice.access, job.job.id),
-      (j) => j.state === "succeeded",
-    );
-    const open = f.payloads.open.bind(f.payloads);
-    f.payloads.open = async (...args) => {
-      const value = await open(...args);
-      await f.db
-        .updateTable("tableau_sites")
-        .set({ enabled: false })
-        .where("id", "=", "site-row")
-        .execute();
-      return value;
-    };
-    const result = await fetch(`${origin}/v1/apps/one/jobs/${job.job.id}/result`, {
-      headers: { authorization: `Bearer ${f.alice.token}` },
-    });
-    assert.equal(result.status, 403);
-    assert.equal((await result.text()).includes("hello"), false);
-  } finally {
-    await worker.close();
-    await app.close();
-    await f.close();
-  }
-});
 
-test("HTTP admission authenticates before waiting for a large body to finish", async () => {
-  const { request } = await import("node:http");
-  const f = await jobsFixture();
-  const app = await createHttpApp({
-    db: f.db,
-    core: f.core,
-    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
-  });
-  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const req = request(
-        `${origin}/v1/apps/one/jobs`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", "transfer-encoding": "chunked" },
-        },
-        (response) => {
-          assert.equal(response.statusCode, 401);
-          response.resume();
-          req.destroy();
-          resolve();
-        },
+  test("a callback that arrives before the wait is recorded still resumes the Job", async () => {
+    behaviors.set("remote", async (ctx) => {
+      if (ctx.resume !== undefined) return { kind: "succeeded", result: ctx.resume };
+      const { verifier } = await ctx.callback();
+      await jobs.callback(
+        (await db.selectFrom("jobs").select("id").executeTakeFirstOrThrow()).id,
+        verifier,
+        "early",
       );
-      req.setTimeout(1000, () => {
-        req.destroy();
-        reject(new Error("API waited for unauthenticated body completion"));
-      });
-      req.on("error", (error) => {
-        if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") reject(error);
-      });
-      req.write('{"input":"');
+      return { kind: "wait", externalTaskId: "t" };
     });
-    assert.equal((await f.jobs.db.selectFrom("jobs").select("id").execute()).length, 0);
-  } finally {
-    await app.close();
-    await f.close();
-  }
-});
+    const { job } = await submit(a, "remote", 1, "early");
+    const w = worker();
+    await step(w);
+    assert.equal((await jobs.get(a, job.id)).state, "queued");
+    await step(w);
+    assert.equal(await jobs.result(a, job.id), "early");
+  });
 
-test("overlapping local wakeups cannot claim beyond actual available execution capacity", async () => {
-  let releaseHandler!: () => void;
-  const running = new Promise<void>((resolve) => (releaseHandler = resolve));
-  const f = await jobsFixture([
-    {
-      ...jobDeclaration,
-      handler: async (input) => {
-        await running;
-        return { kind: "complete", result: input };
-      },
-    },
-  ]);
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  let releaseClaim!: () => void;
-  let signalClaim!: () => void;
-  const commitBoundary = new Promise<void>((resolve) => (signalClaim = resolve));
-  const waitBoundary = new Promise<void>((resolve) => (releaseClaim = resolve));
-  try {
-    await f.jobs.admit(f.alice.access, command("local-one"));
-    await f.jobs.admit(f.alice.access, command("local-two"));
-    const original = f.jobs.claim.bind(f.jobs);
-    let held = false;
-    f.jobs.claim = async (...args) => {
-      const row = await original(...args);
-      if (row && !held) {
-        held = true;
-        signalClaim();
-        await waitBoundary;
+  test("a callback body survives a worker crash after the claim, and a null body still resumes", async () => {
+    let seen: unknown[] = [];
+    behaviors.set("safe", async (ctx) => {
+      if (ctx.resume !== undefined) {
+        seen.push(ctx.resume);
+        return { kind: "succeeded", result: { got: ctx.resume } };
       }
-      return row;
-    };
-    const first = worker.scan();
-    await commitBoundary;
-    const overlapping = worker.scan();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    releaseClaim();
-    await Promise.all([first, overlapping]);
-    assert.equal(worker.activeExecutions, 1);
-    assert.equal(
-      (await f.jobs.db.selectFrom("jobs").select("id").where("state", "=", "queued").execute())
-        .length,
-      1,
-    );
-  } finally {
-    releaseClaim?.();
-    releaseHandler();
-    await worker.close();
-    await f.close();
-  }
-});
+      await ctx.callback();
+      return { kind: "wait", externalTaskId: "t" };
+    });
+    const { job } = await submit(a, "safe", 1, "resume-crash");
+    const w = worker();
+    await step(w);
+    assert.equal((await jobs.get(a, job.id)).state, "waiting");
+    // Issue a verifier the test can use, as the handler's external task would.
+    const verifier = "v-crash";
+    await db
+      .updateTable("jobs")
+      .set({ callback_verifier_hash: hashToken(verifier) })
+      .where("id", "=", job.id)
+      .execute();
+    await jobs.callback(job.id, verifier, null);
 
-test("physical payload capacity is reserved before claim while cancellation controls remain available", async () => {
-  const f = await jobsFixture();
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  let release = () => {};
-  try {
-    const first = await f.jobs.admit(f.alice.access, command("memory-cancel"));
-    const second = await f.jobs.admit(f.alice.access, command("memory-wait"));
-    release = f.payloads.reserve(f.payloads.workingBytes);
-    await worker.scan();
-    assert.equal((await f.jobs.row(second.job.id))!.attempts, 0);
-    assert.equal(worker.activeExecutions, 0);
-    await f.jobs.cancel(f.alice.access, first.job.id, 1000);
-    await worker.scan();
-    assert.equal((await f.jobs.get(f.alice.access, first.job.id)).state, "cancelled");
-    release();
-    await worker.scan();
-    await eventually(
-      () => f.jobs.get(f.alice.access, second.job.id),
-      (j) => j.state === "succeeded",
-    );
-  } finally {
-    release();
-    await worker.close();
-    await f.close();
-  }
-});
-
-test("Job registration rejects validation semantics that cannot survive retained comparison", async () => {
-  const { z } = await import("zod");
-  const f = await jobsFixture();
-  try {
-    for (const inputSchema of [
-      z.string().refine((value) => value !== "rejected"),
-      z.object({ value: z.string() }),
-      z.coerce.number(),
-      z.string().trim(),
-      z.union([z.strictObject({ value: z.string().default("x") }), z.number()]),
-    ])
-      assert.throws(
-        () =>
-          new JobsService({
-            ...f.jobs.options,
-            declarations: [{ ...jobDeclaration, inputSchema }],
-          }),
-      );
-  } finally {
-    await f.close();
-  }
-});
-
-test("canonical browse uses owner-filtered cross-app pages and continuations bound to owner and filters", async () => {
-  const { jobCollectionSchema } = await import("../src/public/schemas.js");
-  const f = await jobsFixture();
-  const app = await createHttpApp({
-    db: f.db,
-    core: f.core,
-    extensions: [jobsApi(f.jobs, { cleanupMs: 1000 })],
+    // The worker claims the resumed attempt and dies before it commits anything.
+    const crashed = worker();
+    assert.ok(await crashed.claim());
+    h.clock.offsetMs += 31_000;
+    await w.sweep();
+    assert.equal((await jobs.get(a, job.id)).state, "queued");
+    seen = [];
+    await step(w);
+    assert.deepEqual(seen, [null]);
+    assert.deepEqual(await jobs.result(a, job.id), { got: null });
   });
-  const origin = await app.listen({ host: "127.0.0.1", port: 0 });
-  try {
-    const first = await f.jobs.admit(f.alice.access, command("page-one"));
-    const second = await f.jobs.admit({ ...f.alice.access, appId: "two" }, command("page-two"));
-    const page = jobCollectionSchema.parse(
-      await fetch(`${origin}/v1/apps/two/jobs?limit=1`, {
-        headers: { authorization: `Bearer ${f.alice.token}` },
-      }).then((response) => response.json()),
-    );
-    assert.equal(page.items.length, 1);
-    assert.ok(page.next);
-    const next = jobCollectionSchema.parse(
-      await f.jobs.list(f.alice.access, { limit: 1, next: page.next }),
-    );
-    assert.equal(next.items.length, 1);
-    assert.deepEqual(
-      new Set([...page.items, ...next.items].map((j) => j.id)),
-      new Set([first.job.id, second.job.id]),
-    );
-    await assert.rejects(f.jobs.list(f.bob.access, { next: page.next }), {
-      code: "invalid-continuation",
-    });
-    await assert.rejects(f.jobs.list(f.alice.access, { next: page.next, appId: "one" }), {
-      code: "invalid-continuation",
-    });
-    assert.deepEqual((await f.jobs.list(f.bob.access)).items, []);
-    const invalid = await fetch(`${origin}/v1/apps/one/jobs?limit=101`, {
-      headers: { authorization: `Bearer ${f.alice.token}` },
-    });
-    assert.equal(invalid.status, 400);
-    await invalid.text();
-  } finally {
-    await app.close();
-    await f.close();
-  }
-});
 
-test("unsupported JavaScript result values fail explicitly rather than being silently dropped", async () => {
-  const { z } = await import("zod");
-  const f = await jobsFixture([
-    {
-      ...jobDeclaration,
-      resultSchema: z.unknown(),
-      handler: async () => ({
-        kind: "complete",
-        result: { value: "known", unsupported: undefined },
-      }),
-    },
-  ]);
-  const worker = new JobsWorker(f.jobs, workerOptions);
-  try {
-    const job = await f.jobs.admit(f.alice.access, command("unsupported-json"));
-    await worker.start();
-    const outcome = await eventually(
-      () => f.jobs.get(f.alice.access, job.job.id),
-      (j) => j.state === "failed",
+  test("a stale claim cannot write over a newer claim of the same Job by the same worker", async () => {
+    let runs = 0;
+    behaviors.set("safe", async () => {
+      runs++;
+      return { kind: "succeeded", result: runs };
+    });
+    const { job } = await submit(a, "safe", 1, "fence");
+    const w = worker();
+    const first = await w.claim();
+    assert.ok(first);
+    h.clock.offsetMs += 31_000;
+    await w.sweep();
+    const second = await w.claim();
+    assert.ok(second);
+    assert.notEqual(first.lease, second.lease);
+    // The first claim finishes late; its ending is fenced out.
+    await w.execute(first);
+    assert.equal((await jobs.get(a, job.id)).state, "running");
+    await w.execute(second);
+    assert.equal(await jobs.result(a, job.id), 2);
+  });
+
+  test("a cancel that arrives while a running Job asks to wait ends it and stops the external task", async () => {
+    behaviors.set("remote", async () => {
+      await jobs.cancelOwn(
+        a,
+        (await db.selectFrom("jobs").select("id").executeTakeFirstOrThrow()).id,
+      );
+      return { kind: "wait", externalTaskId: "racing-task" };
+    });
+    const { job } = await submit(a, "remote", 1, "race");
+    const w = worker();
+    await step(w);
+    const ended = await jobs.get(a, job.id);
+    assert.equal(ended.state, "cancelled");
+    assert.deepEqual(cancels, ["racing-task"]);
+    assert.equal(ended.remoteEffectsUnknown, false);
+
+    // A waiting Job left with a cancel request is ended by the sweep, never claimed.
+    behaviors.set("remote", async () => ({ kind: "wait", externalTaskId: "left" }));
+    const left = await submit(a, "remote", 2, "race-2");
+    await step(w);
+    await db
+      .updateTable("jobs")
+      .set({ cancel_requested: true, run_after: new Date(0) })
+      .where("id", "=", left.job.id)
+      .execute();
+    await w.sweep();
+    assert.equal((await jobs.get(a, left.job.id)).state, "cancelled");
+    assert.deepEqual(cancels, ["racing-task", "left"]);
+    assert.equal(await step(w), undefined);
+  });
+
+  test("waiting Jobs check back at their own time, and cancel asks the handler to stop the task", async () => {
+    let checks = 0;
+    behaviors.set("remote", async () => {
+      checks++;
+      return {
+        kind: "wait",
+        externalTaskId: `t${checks}`,
+        checkAt: new Date(h.clock.now().getTime() + 60_000),
+      };
+    });
+    const { job } = await submit(a, "remote", 1, "poll");
+    const w = worker();
+    await step(w);
+    assert.equal(await step(w), undefined);
+    h.clock.offsetMs += 61_000;
+    await w.sweep();
+    assert.equal(await step(w), job.id);
+    assert.equal(checks, 2);
+    const cancelled = await jobs.cancelOwn(a, job.id);
+    assert.equal(cancelled.state, "cancelled");
+    assert.deepEqual(cancels, ["t2"]);
+    assert.equal((await jobs.get(a, job.id)).remoteEffectsUnknown, false);
+  });
+
+  test("cancelling a Job queued to check its external task stops that task", async () => {
+    behaviors.set("remote", async () => ({
+      kind: "wait",
+      externalTaskId: "checked",
+      checkAt: new Date(h.clock.now().getTime() + 60_000),
+    }));
+    const { job } = await submit(a, "remote", 1, "queued-check");
+    const w = worker();
+    await step(w);
+    h.clock.offsetMs += 61_000;
+    await w.sweep();
+    assert.equal((await jobs.get(a, job.id)).state, "queued");
+    const cancelled = await jobs.cancelOwn(a, job.id);
+    assert.equal(cancelled.state, "cancelled");
+    assert.deepEqual(cancels, ["checked"]);
+    assert.equal(cancelled.remoteEffectsUnknown, false);
+  });
+
+  test("cancelling a queued Job ends it, and a running Job ends cancelled when its handler returns", async () => {
+    const queued = await submit(a, "echo", 1, "c1");
+    assert.equal((await jobs.cancelOwn(a, queued.job.id)).state, "cancelled");
+    assert.equal(await code(jobs.cancelOwn(b, queued.job.id)), "job-not-found");
+
+    let started!: () => void;
+    const running = new Promise<void>((r) => {
+      started = r;
+    });
+    behaviors.set("echo", async (ctx) => {
+      started();
+      await new Promise<void>((resolve) =>
+        ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return { kind: "cancelled", remoteEffectsUnknown: false };
+    });
+    const { job } = await submit(a, "echo", 2, "c2");
+    const w = worker();
+    w.start();
+    try {
+      await running;
+      assert.equal((await jobs.cancelOwn(a, job.id)).state, "running");
+      for (let i = 0; i < 100 && (await jobs.get(a, job.id)).state === "running"; i++)
+        await new Promise((r) => setTimeout(r, 20));
+      const ended = await jobs.get(a, job.id);
+      assert.equal(ended.state, "cancelled");
+      assert.equal(ended.remoteEffectsUnknown, false);
+    } finally {
+      await w.stop();
+    }
+  });
+
+  test("V23 caps and retention windows are enforced", async () => {
+    assert.equal(await code(submit(a, "small", "x".repeat(80), "cap-1")), "input-too-large");
+    assert.equal(await code(submit(a, "echo", "x".repeat(5000), "cap-2")), "input-too-large");
+    behaviors.set("small", async () => ({ kind: "succeeded", result: "y".repeat(100) }));
+    const big = await submit(a, "small", "ok", "cap-3");
+    const w = worker();
+    await step(w);
+    const tooLarge = await jobs.get(a, big.job.id);
+    assert.equal(tooLarge.state, "failed");
+    assert.equal(tooLarge.error?.code, "result-too-large");
+
+    // The runtime cap runs from first start and includes waits.
+    behaviors.set("small", async (ctx) =>
+      ctx.resume === undefined
+        ? { kind: "wait", externalTaskId: "slow" }
+        : { kind: "succeeded", result: 1 },
     );
-    assert.equal(outcome.error!.code, "invalid-outcome");
-    assert.equal(outcome.result.availability, "none");
-  } finally {
-    await worker.close();
-    await f.close();
-  }
+    const slow = await submit(a, "small", "ok", "cap-4");
+    await step(w);
+    h.clock.offsetMs += 61_000;
+    await w.sweep();
+    const exceeded = await jobs.get(a, slow.job.id);
+    assert.equal(exceeded.state, "failed");
+    assert.equal(exceeded.error?.code, "runtime-exceeded");
+
+    // A running handler is aborted at its deadline.
+    behaviors.set("small", async (ctx) => {
+      await new Promise<void>((resolve) =>
+        ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return { kind: "succeeded", result: "late" };
+    });
+    const hung = await submit(a, "small", "ok", "cap-5");
+    const claimed = await w.claim();
+    assert.ok(claimed);
+    claimed.deadline_at = new Date(h.clock.now().getTime() + 50);
+    await w.execute(claimed);
+    assert.equal((await jobs.get(a, hung.job.id)).error?.code, "runtime-exceeded");
+
+    // Results expire after their window; the record stays and still answers its submission key.
+    const kept = await submit(a, "echo", "keep", "ret-1");
+    await step(w);
+    assert.equal(await jobs.result(a, kept.job.id), "keep");
+    h.clock.offsetMs += 7 * 86400_000 + 1000;
+    assert.equal(await code(jobs.result(a, kept.job.id)), "result-expired");
+    assert.equal((await jobs.get(a, kept.job.id)).result?.available, false);
+    const cleaned = await w.cleanup();
+    assert.ok(cleaned.results >= 1);
+    assert.equal(cleaned.records, 0);
+    const repeat = await submit(a, "echo", "keep", "ret-1");
+    assert.equal(repeat.job.id, kept.job.id);
+    assert.equal(repeat.created, false);
+    assert.equal(await code(jobs.result(a, kept.job.id)), "result-expired");
+
+    h.clock.offsetMs += 23 * 86400_000;
+    const purged = await w.cleanup();
+    assert.ok(purged.records >= 1);
+    assert.equal(await code(jobs.get(a, kept.job.id)), "job-not-found");
+  });
+
+  test("operators list and cancel every Job", async () => {
+    await c.connections.setPersonalCredential(b, "work", "bob-key");
+    await submit(a, "echo", 1, "o1");
+    const bobs = await submit(b, "echo", 1, "o2");
+    assert.equal((await jobs.list({})).length, 2);
+    const op = { ...a, kind: "operator" as const };
+    assert.equal((await jobs.cancelAny(op, bobs.job.id)).state, "cancelled");
+    const audit = await db
+      .selectFrom("audit")
+      .select(["action", "target"])
+      .where("action", "=", "job.cancel")
+      .execute();
+    assert.deepEqual(audit, [{ action: "job.cancel", target: bobs.job.id }]);
+  });
 });

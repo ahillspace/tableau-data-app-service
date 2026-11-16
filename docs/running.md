@@ -1,7 +1,6 @@
 # Running
 
 How to install, configure and operate an installation.
-The commands here describe the intended tooling; they work once the build is done.
 
 ## Requirements
 
@@ -41,6 +40,8 @@ node dist/main.js migrate
 node dist/main.js api
 node dist/main.js worker
 ```
+
+Each role reads the host settings from its environment; `node --env-file=.env dist/main.js api` loads them from a file.
 
 ## Operate
 

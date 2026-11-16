@@ -9,8 +9,19 @@ Built with TypeScript on Node 26, Fastify, Kysely and Postgres, with Redis only 
 
 ## Status
 
-The specification is in review.
-The application has not been built.
+The service is built against the specification, and every automated gate in [verification](docs/verification.md) passes.
+The live gates against Tableau Cloud and a real Slack workspace have not been run.
+
+## Quick start
+
+```sh
+npm ci
+npm run build
+npm test
+```
+
+Copy [.env.example](.env.example) and write a bootstrap file as [running](docs/running.md) describes, then run the `migrate`, `api` and `worker` roles.
+The browser SDK is built to `dist/sdk/index.js`, and [examples/slack](examples/slack/README.md) is a Data App that uses it.
 
 ## Documentation
 

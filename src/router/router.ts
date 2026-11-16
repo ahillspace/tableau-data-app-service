@@ -1,0 +1,206 @@
+import type { Readable } from "node:stream";
+import type { ConnectionService } from "../connections/service.ts";
+import type { ConnectionDefinition, OutgoingRequest } from "../connections/types.ts";
+import { normalizeApiHost } from "../connections/validation.ts";
+import { SERVICE_COOKIE_PREFIX } from "../http/cookies.ts";
+import type { Principal } from "../identity/types.ts";
+import { invalid, notFound } from "../platform/errors.ts";
+import type { Log } from "../platform/log.ts";
+import type { Outbound } from "../platform/outbound.ts";
+
+/**
+ * Headers that describe one connection, not the exchange. Removed in both directions.
+ * `Expect` is included because the transport sends bodies without a 100-continue handshake.
+ */
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "host",
+  "expect",
+]);
+
+export const HOST_HEADER = "tableau-service-host";
+
+export type NativeRequest = {
+  principal: Principal;
+  definitionId: string;
+  method: string;
+  /** Everything after `/v1/native/{definitionId}`, path and query, exactly as the app sent it. */
+  target: string;
+  /** Raw header pairs as received. */
+  headers: [string, string][];
+  body: Readable | null;
+  signal: AbortSignal;
+};
+
+export type NativeResponse = { status: number; headers: [string, string][]; body: Readable };
+
+function hopByHop(headers: [string, string][]): Set<string> {
+  const named = new Set(HOP_BY_HOP);
+  for (const [name, value] of headers)
+    if (name.toLowerCase() === "connection")
+      for (const token of value.split(",")) named.add(token.trim().toLowerCase());
+  return named;
+}
+
+/** A Cookie header without the service's own cookies, or undefined when nothing else is left. */
+function withoutServiceCookies(value: string): string | undefined {
+  const kept = value
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => pair && !pair.startsWith(SERVICE_COOKIE_PREFIX));
+  return kept.length ? kept.join("; ") : undefined;
+}
+
+/**
+ * Request headers as the provider receives them: the app's, minus the service's own headers and
+ * cookies and hop-by-hop headers. Every other cookie the app sends passes through.
+ */
+export function forwardableRequestHeaders(headers: [string, string][]): [string, string][] {
+  const drop = hopByHop(headers);
+  const forwarded: [string, string][] = [];
+  for (const [name, value] of headers) {
+    const lower = name.toLowerCase();
+    if (drop.has(lower) || lower.startsWith("proxy-") || lower.startsWith("tableau-service-"))
+      continue;
+    if (lower === "cookie") {
+      const kept = withoutServiceCookies(value);
+      if (kept !== undefined) forwarded.push([name, kept]);
+      continue;
+    }
+    forwarded.push([name, value]);
+  }
+  return forwarded;
+}
+
+/** Response headers as the app receives them: the provider's, minus hop-by-hop and the provider's CORS answer. */
+export function forwardableResponseHeaders(headers: [string, string][]): [string, string][] {
+  const drop = hopByHop(headers);
+  return headers.filter(([name]) => {
+    const lower = name.toLowerCase();
+    return !drop.has(lower) && !lower.startsWith("proxy-") && !lower.startsWith("access-control-");
+  });
+}
+
+/**
+ * Picks the API host and builds the raw request target. The app's path is kept byte for byte;
+ * the only rule is that the URL it names stays on the chosen host and under its base path.
+ */
+export function destination(
+  definition: ConnectionDefinition,
+  target: string,
+  requestedHost: string | undefined,
+): { origin: string; target: string; url: URL } {
+  let host = definition.apiHosts[0] as string;
+  if (requestedHost !== undefined) {
+    const normalized = normalizeApiHost(requestedHost.trim());
+    if (!normalized || !definition.apiHosts.includes(normalized))
+      throw invalid(
+        [{ path: "Tableau-Service-Host", rule: "one-of-api-hosts" }],
+        "The requested host is not one of the definition's API hosts",
+      );
+    host = normalized;
+  }
+  const base = new URL(host);
+  const basePath = base.pathname.replace(/\/$/, "");
+  if (target !== "" && !target.startsWith("/") && !target.startsWith("?"))
+    throw invalid(
+      [{ path: "path", rule: "under-api-host" }],
+      "The path must stay under the API host",
+    );
+  const raw = `${basePath}${target}` || "/";
+  let url: URL;
+  try {
+    url = new URL(raw.startsWith("/") ? raw : `/${raw}`, base.origin);
+  } catch {
+    throw invalid(
+      [{ path: "path", rule: "under-api-host" }],
+      "The path must stay under the API host",
+    );
+  }
+  const under =
+    url.pathname === basePath ||
+    url.pathname === `${basePath}/` ||
+    url.pathname.startsWith(`${basePath}/`) ||
+    basePath === "";
+  if (url.origin !== base.origin || !under)
+    throw invalid(
+      [{ path: "path", rule: "under-api-host" }],
+      "The path must stay under the API host",
+    );
+  return { origin: base.origin, target: raw.startsWith("/") ? raw : `/${raw}`, url };
+}
+
+/** Forwards a Data App's native request with the definition's credential and streams the answer back. */
+export class NativeRouter {
+  readonly #connections: ConnectionService;
+  readonly #outbound: Outbound;
+  readonly #log: Log;
+
+  constructor(options: { connections: ConnectionService; outbound: Outbound; log: Log }) {
+    this.#connections = options.connections;
+    this.#outbound = options.outbound;
+    this.#log = options.log;
+  }
+
+  /** Sends the request once. Never retries; a transport failure says whether the provider may have received it. */
+  async forward(request: NativeRequest): Promise<NativeResponse> {
+    const lease = await this.#connections.checkout(
+      request.principal,
+      request.definitionId,
+      request.signal,
+    );
+    const requested = request.headers.find(([n]) => n.toLowerCase() === HOST_HEADER)?.[1];
+    const chosen = destination(lease.definition, request.target, requested);
+    const outgoing: OutgoingRequest = {
+      target: chosen.target,
+      headers: forwardableRequestHeaders(request.headers),
+    };
+    lease.apply(outgoing);
+    outgoing.headers.push(["host", chosen.url.host]);
+    const response = await this.#outbound.request(chosen.url, {
+      method: request.method,
+      rawTarget: outgoing.target,
+      headers: outgoing.headers,
+      body: request.body,
+      signal: request.signal,
+      privateHosts: lease.definition.privateHosts,
+    });
+    this.#log.info("native request", {
+      definitionId: request.definitionId,
+      method: request.method,
+      host: chosen.url.host,
+      status: response.status,
+    });
+    return {
+      status: response.status,
+      headers: forwardableResponseHeaders(response.headers),
+      body: response.body,
+    };
+  }
+
+  /** Runs a preset capability with the same checkout and transport as native requests. */
+  async capability(
+    principal: Principal,
+    definitionId: string,
+    name: string,
+    input: unknown,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const definition = await this.#connections.definitions.get(definitionId);
+    const type = definition ? this.#connections.definitions.types.get(definition.type) : undefined;
+    const capability = type?.capabilities?.find((c) => c.name === name);
+    if (!definition || !capability) throw notFound("capability-not-found", "No such capability");
+    const lease = await this.#connections.checkout(principal, definitionId, signal);
+    return await capability.run({
+      ...this.#connections.presetContext(lease.definition, signal),
+      lease,
+      principal,
+      input,
+    });
+  }
+}
