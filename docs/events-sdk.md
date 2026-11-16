@@ -11,7 +11,8 @@ With events off, the service creates no Redis client and needs no Redis, and the
 
 ### Event sources
 
-An event source is preset code that receives provider deliveries at `POST /v1/events/ingest/{definitionId}`, verifies them, and turns each into an event.
+An event source is [preset](presets.md) code that receives provider deliveries at `POST /v1/events/ingest/{definitionId}`, verifies them, and turns each into an event.
+A source that needs one verifies deliveries with the definition's sealed signing secret, and a delivery that fails verification is refused before anything is published.
 The ingest route reads the body as raw bytes, because provider signatures cover the exact bytes.
 An event carries an ID, its definition ID, an event type, the provider account it concerns, the provider's payload, and a receive time.
 An event on a definition reaches every stream subscribed to that definition whose identity's site is in the definition's audience.
@@ -47,14 +48,6 @@ A Redis failure stops event fan-out, and streams report `possible-loss` with `fa
 API readiness reports the event bus, so a replica without Redis reads as not ready while events are on.
 Native requests, Jobs, sign-in and the operator API do not depend on Redis.
 
-### Slack event source
-
-The Slack preset's source verifies Slack's `X-Slack-Signature` with the definition's sealed signing secret and rejects deliveries more than five minutes old, with `event-signature-invalid` and status 401.
-It answers Slack's URL verification challenge.
-It acknowledges before fan-out, inside Slack's three-second window.
-The provider account is the event's team, or its enterprise when no team is present.
-The source works the same on bot and user definitions, and each definition that receives events needs its own signing secret and its own Request URL in the Slack app.
-
 ## Browser SDK
 
 The SDK is one ES module with no runtime dependencies, built to `dist/sdk/index.js` and loaded by the Data App.
@@ -66,13 +59,13 @@ const service = createService({ origin: "https://service.example", appId: "sales
 
 await service.restore();                      // on load; no prompt; false if sign-in is needed
 await service.signIn();                       // first sign-in; call from a user gesture
-const res = await service.fetch("slack-user", "/chat.postMessage", { method: "POST", body });
+const res = await service.fetch("crm", "/v2/contacts", { method: "POST", body });
 const defs = await service.definitions();     // ownership, setup options, connection status
-await service.connect("slack-user");          // OAuth popup; user gesture
+await service.connect("crm");                 // OAuth popup; user gesture
 await service.setCredential("my-api", key);   // static personal credential
-await service.disconnect("slack-user");
+await service.disconnect("crm");
 const job = await service.jobs.submit("handler", input, { definition: "my-api", key });
-const sub = service.events.subscribe(["slack-bot"], onEvent, { onLoss, onEnd });
+const sub = service.events.subscribe(["chat"], onEvent, { onLoss, onEnd });
 ```
 
 ### Surface

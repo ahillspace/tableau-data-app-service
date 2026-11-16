@@ -35,8 +35,9 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 
 - Once a provider is connected, its native API is available to Data Apps through the service.
   The service does not gate requests by capability or scope.
-- Code defines provider types: generic OAuth 2.0 (`oauth2`), a static token or API key (`static`), no credential (`none`), and the Slack preset.
+- Code defines provider types: generic OAuth 2.0 (`oauth2`), a static token or API key (`static`), no credential (`none`), and [presets](presets.md) written for one provider.
   Any provider that a generic type can describe is connected with no code.
+- A preset can add provider-specific defaults, token handling, account naming, revocation, capabilities, Job handlers and an event source.
 - A connection definition is data: an instance of a provider type with its API hosts, endpoints, client ID, sealed client secret, scopes, ownership mode, audience and optional reauthorization interval.
 - Ownership mode is either **shared**, where an operator connects one account that the definition's audience uses, or **personal**, where each viewer connects their own account.
 - A definition's audience is a set of trusted sites.
@@ -52,16 +53,6 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - A Data App can send a personal static token or API key through the SDK, however the app obtained it.
   The service seals and stores it, and never returns it.
 - One OAuth callback route serves every definition, keyed by the authorization `state`.
-
-### Slack preset
-
-- Slack is a preset with a token mode of `bot` or `user`.
-- One Slack app can back a shared bot definition and a personal user definition at the same time, because one Slack install returns both tokens.
-- A Slack definition without a client ID takes static tokens only.
-- The preset includes a Slack Events API source that verifies Slack's request signature with a sealed signing secret.
-- The preset accepts organization-wide Enterprise Grid installs that return an enterprise without a team.
-- Disconnecting a Slack connection asks Slack to revoke the token.
-- The example Data App in `examples/slack` uses a shared bot definition and a personal user definition side by side.
 
 ### Identity and operators
 

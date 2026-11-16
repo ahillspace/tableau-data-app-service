@@ -10,7 +10,7 @@ Built with TypeScript on Node 26, Fastify, Kysely and Postgres, with Redis only 
 ## Status
 
 Every automated check in [verification](docs/verification.md) passes against real Postgres and Redis.
-The service has not yet been run against a live Tableau Cloud site or a real Slack workspace; [verification](docs/verification.md#known-limitations) lists what that leaves unproven.
+The service has not yet been run against a live Tableau Cloud site or real provider accounts; [verification](docs/verification.md#known-limitations) lists what that leaves unproven.
 
 ## Quick start
 
@@ -21,7 +21,7 @@ npm test
 ```
 
 Copy [.env.example](.env.example) and write a bootstrap file as [running](docs/running.md) describes, then run the `migrate`, `api` and `worker` roles.
-The browser SDK is built to `dist/sdk/index.js`, and [examples/slack](examples/slack/README.md) is a Data App that uses it.
+The browser SDK is built to `dist/sdk/index.js`, and [examples](examples/) holds Data Apps that use it.
 
 ## Documentation
 

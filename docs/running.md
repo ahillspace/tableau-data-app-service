@@ -61,12 +61,12 @@ A definition file's `audience` takes record IDs, which `tdas sites list` shows.
 tdas login --service https://service.example
 tdas whoami
 tdas sites list                                     # trusted site record IDs for audiences
-tdas definitions create slack-bot.json
-tdas definitions secret slack-bot clientSecret      # opens a one-time secret link
-tdas definitions connect slack-bot                  # shared OAuth connect
-tdas definitions update slack-bot --audience add example-site
-tdas definitions redefine slack-bot slack-bot.json  # ends existing connections
-tdas definitions retire slack-bot                   # ends existing connections
+tdas definitions create crm.json
+tdas definitions secret crm clientSecret      # opens a one-time secret link
+tdas definitions connect crm                  # shared OAuth connect
+tdas definitions update crm --audience add example-site
+tdas definitions redefine crm crm.json  # ends existing connections
+tdas definitions retire crm                   # ends existing connections
 tdas sites add cloud-west other-site
 tdas operators add cloud-west other-site someone@example.com
 tdas apps

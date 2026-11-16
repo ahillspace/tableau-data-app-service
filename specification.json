@@ -44,6 +44,13 @@
       "description": "Definitions, connections and credentials."
     },
     {
+      "id": "presets",
+      "title": "Presets",
+      "path": "docs/presets.md",
+      "kind": "Component",
+      "description": "Preset connections and capabilities, and the presets installed."
+    },
+    {
       "id": "routing",
       "title": "Routing",
       "path": "docs/routing.md",

@@ -36,23 +36,23 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 | V22 | Waiting Jobs release their slot and resume on a verified callback. | `test/jobs.test.ts`, `test/http.test.ts` |
 | V23 | Job caps and retention windows are enforced; a success committed at or after the runtime deadline is not published, and a cancel recorded before an attempt's commit wins over its outcome, including an attempt that worker shutdown interrupts or lease recovery settles, and a success whose result cannot be stored. | `test/jobs.test.ts` |
 | V24 | With events off, no Redis client is created; with Redis down, everything except events works. | `test/events.test.ts` |
-| V25 | Slack event signatures and ages are verified; stale or forged deliveries are refused. | `test/slack.test.ts`, `test/events.test.ts` |
+| V25 | Event source signatures and ages are verified; stale or forged deliveries are refused. | `test/slack.test.ts`, `test/events.test.ts` |
 | V26 | No log line or error contains a secret value. | `test/platform.test.ts`, `test/roles.test.ts`, `test/http.test.ts` |
 | V27 | The SDK minifies to under 15 KiB. | `test/sdk.test.ts` |
 
 ## Not verified live
 
-These have not yet been run against a deployed installation with a published Tableau Cloud Data App and a real Slack workspace:
+These have not yet been run against a deployed installation with a published Tableau Cloud Data App and real provider accounts:
 
 - First use, then a silent return visit, a new tab and a second Data App on Tableau Cloud.
 - The same journeys from Tableau Desktop.
 - The restore cookie in a Cloud Data App frame, partitioned by the Tableau host, across two sites on one pod and a site on another pod.
-- Shared Slack bot calls and personal Slack user calls from one Slack app.
-- An organization-wide Enterprise Grid install.
+- Shared and personal calls to the same provider from one Data App.
+- Each installed preset against its provider, including its event source.
 - Adding, redefining and retiring a definition with no redeploy.
 - CLI sign-in and operator recovery.
 - A Job that outlives the page.
-- Slack events reaching a Data App.
+- Provider events reaching a Data App.
 - Verified TLS to a hosted Postgres.
 - The test suite on Linux; it has been run on macOS.
 

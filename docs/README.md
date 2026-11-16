@@ -10,6 +10,7 @@ These documents describe the service as it is built.
 | [Shared contracts](contracts.md) | Types and rules shared across components. |
 | [Identity](identity.md) | Tableau sign-in, sessions, app sign-in, verify app location, operators and bootstrap. |
 | [Connections](connections.md) | Provider types, connection definitions, connections, credentials and setup. |
+| [Presets](presets.md) | What a preset can add and the presets installed. |
 | [Routing](routing.md) | Native request forwarding, streaming and destination checks. |
 | [Jobs](jobs.md) | Durable work. |
 | [Events and SDK](events-sdk.md) | Live events and the browser SDK. |

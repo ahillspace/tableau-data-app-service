@@ -18,7 +18,7 @@ Every type places its credential the way the definition says: an `Authorization`
 
 A preset is a provider type with provider-specific defaults and behavior filled in.
 A preset may also register optional capabilities, Job handlers and an event source.
-The one preset is `slack`, registered in `src/presets/index.ts`.
+Presets are registered in `src/presets/index.ts`; [presets](presets.md) lists what a preset can add and the presets installed.
 
 ## Connection definitions
 
@@ -37,7 +37,7 @@ It names everything the service needs to connect to and call one provider.
 | `clientSecret` | OAuth client secret, sealed; absent for public clients. | In place, through a secret link. |
 | `tokenAuthentication` | How the client secret is sent to the token endpoint: `basic` (the default) or `post`. | Redefine. |
 | `scopes` | Scopes requested at authorization. | In place; applies to new authorizations. |
-| `presetOptions` | Preset fields, such as Slack's `tokenMode`. | Redefine. |
+| `presetOptions` | Fields the preset defines. | Redefine. |
 | `credentialPlacement` | Where the router puts the credential. | Redefine. |
 | `audience` | Trusted site IDs whose users may use the definition. | In place. |
 | `reauthorizationInterval` | Optional maximum time between explicit authorizations. | In place. |
@@ -160,17 +160,6 @@ The value never passes through the operator tool, chat or a terminal.
 An owner disconnects their own personal connection; an operator disconnects any connection.
 Disconnecting deletes the sealed credential and, when the preset supports it, asks the provider to revoke the grant.
 A failed revocation is recorded and does not keep the credential.
-
-## Slack preset
-
-- `type: slack`, `presetOptions.tokenMode`: `bot` or `user`.
-- API host `https://slack.com/api`; OAuth endpoints `https://slack.com/oauth/v2/authorize` and `https://slack.com/api/oauth.v2.access`.
-- Bot mode requests `scope` and stores the bot token; user mode requests `user_scope` and stores the installing user's token.
-- One Slack app can back a shared bot definition and a personal user definition, since one install returns both tokens.
-- The account recorded is the workspace, or the enterprise for an organization-wide Enterprise Grid install that returns no team.
-- Static credentials are accepted in either mode, and `auth.test` names the workspace for display.
-- Token rotation is supported when the Slack app enables it.
-- An optional sealed signing secret enables the [Slack event source](events-sdk.md#slack-event-source).
 
 ## Failure and recovery
 

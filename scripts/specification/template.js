@@ -65,7 +65,7 @@
     const summary = clear($("gate-summary"));
     summary.append(
       el("p", {}, el("strong", { text: `${v.checks.length} automated checks` }), el("span", { class: "muted", text: " run with npm test against real Postgres and Redis." })),
-      el("p", {}, el("strong", { text: `${v.unverified.length} items` }), el("span", { class: "muted", text: " not yet verified against live Tableau Cloud and Slack." })),
+      el("p", {}, el("strong", { text: `${v.unverified.length} items` }), el("span", { class: "muted", text: " not yet verified against live Tableau Cloud and real providers." })),
       el("p", {}, el("strong", { text: `${v.limitations.length} known limitations.` })),
     );
     summary.append(el("p", {}, el("a", { href: "#verification", text: "Open the verification view" })));

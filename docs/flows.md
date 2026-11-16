@@ -24,17 +24,17 @@ See [app sign-in](identity.md#app-sign-in).
 
 ## Shared provider call
 
-1. App calls `service.fetch("slack-bot", "/chat.postMessage", …)` (SDK).
-2. `/v1/native/slack-bot/chat.postMessage` authenticates the bearer (Identity).
+1. App calls `service.fetch("crm", "/v2/contacts", …)` (SDK).
+2. `/v1/native/crm/v2/contacts` authenticates the bearer (Identity).
 3. Checkout finds the shared connection, checks the site is in the audience, and refreshes if needed (Connections).
 4. The router places the token, checks the destination at socket time and streams the request and response (Router).
 5. SDK returns the native `Response` to the app (SDK).
 
 ## Personal OAuth connection
 
-1. Viewer clicks connect; the SDK calls `POST /v1/definitions/slack-user/connect` and opens `/connect/{transactionId}` (Connections).
-2. The page checks the sign-in cookie identity matches and redirects to Slack (Connections).
-3. Slack redirects to `/v1/oauth/callback`; the service checks the sign-in cookie again, exchanges the code, checks the generation and seals the token (Connections).
+1. Viewer clicks connect; the SDK calls `POST /v1/definitions/{id}/connect` and opens `/connect/{transactionId}` (Connections).
+2. The page checks the sign-in cookie identity matches and redirects to the provider (Connections).
+3. The provider redirects to `/v1/oauth/callback`; the service checks the sign-in cookie again, exchanges the code, checks the generation and seals the token (Connections).
 4. The page tells the opener and closes; the app calls the provider as the viewer (Connections).
 
 ## Add a provider
@@ -60,8 +60,8 @@ See [app sign-in](identity.md#app-sign-in).
 
 ## Live events
 
-1. App opens `service.events.subscribe(["slack-bot"], …)` (Events).
-2. Slack posts to `/v1/events/ingest/slack-bot`; the source verifies the signature and acknowledges (Events).
+1. App opens `service.events.subscribe(["chat"], …)` (Events).
+2. The provider posts to `/v1/events/ingest/chat`; the preset's event source verifies the delivery and acknowledges (Events).
 3. The receiving replica publishes to Redis; every replica delivers to matching streams (Events).
 
 ## Operator CLI sign-in

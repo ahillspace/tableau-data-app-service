@@ -70,7 +70,7 @@ The router protects the credentials it holds and the network it runs in.
 A preset may register capabilities: named operations, written in code, that run inside an API request with the same checkout and transport as native requests.
 They are called at `/v1/capabilities/{definitionId}/{name}`.
 They exist for preset convenience; every native endpoint stays reachable through the router.
-The Slack preset registers none.
+The [installed presets](presets.md#installed-presets) list the capabilities each registers.
 
 ## Failure and recovery
 
