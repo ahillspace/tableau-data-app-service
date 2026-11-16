@@ -5,27 +5,35 @@
 <title>Slack Data App</title>
 <link rel="stylesheet" href="/style.css">
 <main>
-  <header><p class="eyebrow">Data App example</p><h1>Slack, in your view.</h1><p>Sign in with Tableau, connect Slack, and make a native API request.</p></header>
+  <header><p class="eyebrow">Data App example</p><h1>Slack, in your view.</h1><p>Sign in with Tableau, then call Slack as the shared workspace bot or as yourself.</p></header>
   <section aria-labelledby="account-heading">
-    <h2 id="account-heading">Your connection</h2>
+    <h2 id="account-heading">Slack definitions</h2>
     <p id="identity">Checking your session…</p>
-    <div class="actions"><button id="sign-in" type="button">Sign in with Tableau</button><button id="connect" type="button" disabled>Connect Slack</button></div>
-    <label for="connection">Slack account</label><select id="connection" disabled><option value="">Connect an account to continue</option></select>
-    <button id="reauthorize" class="secondary" type="button" disabled>Reconnect selected account</button>
-    <details id="static-setup" hidden><summary>Connect with an existing Slack token</summary>
-      <form id="token-form"><label for="slack-token">Slack token</label><input id="slack-token" type="password" autocomplete="off" spellcheck="false" required><label for="token-mode">Token account</label><select id="token-mode"><option value="bot">Bot</option><option value="user">User</option></select><button id="connect-token" type="button">Connect token</button></form>
-    </details>
+    <div class="actions"><button id="sign-in" type="button" hidden>Sign in with Tableau</button></div>
+    <ul id="definitions" class="definitions"></ul>
+    <form id="token-form" hidden>
+      <label for="slack-token">Slack token for your own account</label>
+      <input id="slack-token" type="password" autocomplete="off" spellcheck="false" required>
+      <div class="actions"><button type="submit">Store token</button><button id="token-cancel" class="secondary" type="button">Cancel</button></div>
+    </form>
   </section>
   <section aria-labelledby="request-heading">
     <h2 id="request-heading">Native request</h2>
     <form id="request-form">
+      <label for="definition">Definition</label><select id="definition"></select>
       <div class="request"><label>Method<select id="method"><option>GET</option><option>POST</option><option>HEAD</option></select></label>
       <label class="path">Slack API path<input id="path" value="/auth.test" autocomplete="off" spellcheck="false" required></label></div>
-      <label for="body">Body (optional)</label><textarea id="body" rows="3" spellcheck="false" placeholder="Raw native request body"></textarea>
-      <div class="actions"><button id="send" type="button" disabled>Send request</button><button id="cancel" class="secondary" type="button" disabled>Stop reading</button></div>
+      <label for="body">Body (POST)</label><textarea id="body" rows="3" spellcheck="false" placeholder='{"channel":"C123","text":"Hello from Tableau"}'></textarea>
+      <div class="actions"><button id="send" type="button" disabled>Send request</button></div>
     </form>
     <p id="status" role="status" aria-live="polite">Ready.</p>
-    <pre id="response" tabindex="0" aria-label="Native response">Your response will appear here.</pre>
+    <pre id="response" tabindex="0" aria-label="Native response">Slack's response will appear here.</pre>
+  </section>
+  <section aria-labelledby="events-heading">
+    <h2 id="events-heading">Live events</h2>
+    <p>Events reach this view for both definitions while it is open; nothing missed is replayed.</p>
+    <div class="actions"><button id="events" type="button" disabled>Listen for events</button></div>
+    <ol id="event-log" class="event-log"></ol>
   </section>
 </main>
 <script type="module" src="/app.js"></script>

@@ -1,0 +1,10 @@
+{
+  "id": "slack-bot",
+  "displayName": "Slack (workspace bot)",
+  "type": "slack",
+  "ownership": "shared",
+  "presetOptions": { "tokenMode": "bot" },
+  "clientId": "REPLACE_WITH_SLACK_CLIENT_ID",
+  "scopes": ["chat:write", "channels:read", "channels:history"],
+  "audience": ["REPLACE_WITH_TRUSTED_SITE"]
+}

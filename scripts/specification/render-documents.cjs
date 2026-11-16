@@ -28,7 +28,7 @@ for (const source of sources) {
       counts.set(base, count + 1);
       const anchor = base + (count ? '-' + count : '');
       const id = 'doc-' + source.id + '-' + anchor;
-      source.headings.push({title, anchor, id});
+      source.headings.push({title, anchor, id, depth: token.depth});
       const depth = Math.min(token.depth + 1, 6);
       return `<h${depth} id="${escape(id)}">${this.parser.parseInline(token.tokens)}</h${depth}>\n`;
     },
@@ -44,7 +44,7 @@ for (const source of sources) {
         if (allowedNonSpec(destPath)) return `<span class="muted" title="Repository maintenance or history reference: ${escape(destPath)}">${label}</span>`;
         throw new Error(`${source.path}: required document missing from specification.json: ${destPath}`);
       }
-      return `<a href="#sources" data-source="${escape(dest.id)}" data-anchor="${escape(decodeURIComponent(fragment))}">${label}</a>`;
+      return `<a href="#documents/${escape(dest.id)}${fragment ? '/' + escape(decodeURIComponent(fragment)) : ''}" data-source="${escape(dest.id)}" data-anchor="${escape(decodeURIComponent(fragment))}">${label}</a>`;
     },
     html(token) { return escape(token.text); },
     table(token) {

@@ -1,159 +1,121 @@
 import type { RedisClientType } from "redis";
-import { opaqueId } from "../public/schemas.js";
-import { decodeEnvelope, type EventLimits, eventBudgets, type LiveEnvelope } from "./protocol.js";
+import type { Log } from "../platform/log.ts";
+import type { EventBus, LossReason, ServiceEvent } from "./types.ts";
 
-export type RedisEventsOptions = {
-  channelScope: string;
-  publishUrl: string;
-  subscribeUrl: string;
-  commandTimeoutMs: number;
-};
-export class RedisEvents {
+const CHANNEL = "tableau-data-app-service:events:v1";
+const COMMAND_TIMEOUT_MS = 5_000;
+
+/**
+ * Redis publish and subscribe fan-out. The `redis` module is imported only when this bus starts,
+ * so an installation with events off never loads it or opens a connection.
+ */
+export class RedisEventBus implements EventBus {
+  readonly #url: string;
+  readonly #log: Log;
   #publisher: RedisClientType | undefined;
   #subscriber: RedisClientType | undefined;
   #subscribed = false;
-  #closed = false;
-  #pendingBytes = 0;
-  #receivedBytes = 0;
-  #queue: string[] = [];
-  #draining = false;
-  #healthy = false;
-  readonly channel: string;
-  readonly counters = { dropped: 0, ambiguousPublishes: 0, invalid: 0 };
+  #subscribing: Promise<void> | undefined;
+  #wasReady = false;
+  #handlers: { onEvent(event: ServiceEvent): void; onLoss(reason: LossReason): void } | undefined;
 
-  constructor(
-    readonly options: RedisEventsOptions,
-    readonly limits: EventLimits,
-    readonly receive: (event: LiveEnvelope) => Promise<void>,
-    readonly availability: (ready: boolean) => void,
-  ) {
-    opaqueId.parse(options.channelScope);
-    this.channel = `integration:${options.channelScope}:live:v1`;
-    eventBudgets(limits);
-    if (!Number.isSafeInteger(options.commandTimeoutMs) || options.commandTimeoutMs < 1)
-      throw new TypeError("Invalid Redis command timeout");
-    for (const value of [options.publishUrl, options.subscribeUrl]) {
-      const url = new URL(value);
-      if (
-        url.protocol !== "rediss:" &&
-        !(url.protocol === "redis:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-      )
-        throw new TypeError("Redis requires verified TLS outside loopback");
-    }
+  constructor(options: { url: string; log: Log }) {
+    this.#url = options.url;
+    this.#log = options.log;
   }
+
   get ready(): boolean {
-    return this.#healthy;
+    return (
+      this.#subscribed && Boolean(this.#subscriber?.isReady) && Boolean(this.#publisher?.isReady)
+    );
   }
-  #state(): void {
-    const ready =
-      !this.#closed &&
-      this.#subscribed &&
-      !!this.#subscriber?.isReady &&
-      !!this.#publisher?.isReady;
-    if (ready !== this.#healthy) {
-      this.#healthy = ready;
-      this.availability(ready);
-    }
-    if (!ready) {
-      this.#queue = [];
-      this.#receivedBytes = 0;
-    }
-  }
-  async start(): Promise<void> {
-    // Disabled extension never calls this function or imports/constructs a Redis client.
+
+  async start(handlers: {
+    onEvent(event: ServiceEvent): void;
+    onLoss(reason: LossReason): void;
+  }): Promise<void> {
+    this.#handlers = handlers;
     const { createClient } = await import("redis");
-    const make = (url: string) =>
+    const make = () =>
       createClient({
-        url,
+        url: this.#url,
         disableOfflineQueue: true,
-        commandsQueueMaxLength: 16,
         socket: {
-          connectTimeout: this.options.commandTimeoutMs,
-          reconnectStrategy: (retries) =>
-            Math.min(2000, 100 * 2 ** Math.min(retries, 4)) + Math.floor(Math.random() * 100),
+          connectTimeout: COMMAND_TIMEOUT_MS,
+          reconnectStrategy: (retries: number) => Math.min(2_000, 100 * 2 ** Math.min(retries, 4)),
         },
-      });
-    this.#publisher = make(this.options.publishUrl) as RedisClientType;
-    this.#subscriber = make(this.options.subscribeUrl) as RedisClientType;
+      }) as RedisClientType;
+    this.#publisher = make();
+    this.#subscriber = make();
     for (const client of [this.#publisher, this.#subscriber]) {
-      client.on("error", () => {
-        this.#healthy = false;
-        this.availability(false);
-        this.#queue = [];
-        this.#receivedBytes = 0;
+      client.on("error", (error: unknown) => {
+        this.#log.warn("redis error", { error });
+        this.#changed();
       });
-      client.on("reconnecting", () => this.#state());
-      client.on("ready", () => this.#state());
-      client.on("end", () => this.#state());
+      client.on("end", () => this.#changed());
+      client.on("ready", () => {
+        // node-redis resubscribes after a reconnect; this covers a subscribe that never succeeded.
+        void this.#subscribe()
+          .catch((error: unknown) => this.#log.warn("redis subscribe failed", { error }))
+          .finally(() => this.#changed());
+      });
     }
-    // Reconnect is future-only; node-redis awaits exact-channel resubscription before ready.
+    // connect() keeps retrying while Redis is unreachable, so startup does not wait for it: the
+    // ready handlers subscribe and report readiness, and events resume whenever Redis is back.
+    for (const client of [this.#publisher, this.#subscriber])
+      client.connect().catch((error: unknown) => this.#log.warn("redis connect failed", { error }));
+  }
+
+  /** Single-flight: the ready handler and start may both ask, and a second listener would duplicate events. */
+  async #subscribe(): Promise<void> {
+    if (this.#subscribed || !this.#subscriber?.isReady) return;
+    this.#subscribing ??= this.#listen().finally(() => {
+      this.#subscribing = undefined;
+    });
+    await this.#subscribing;
+  }
+
+  async #listen(): Promise<void> {
     const subscriber = this.#subscriber;
-    void subscriber
-      .connect()
-      .then(async () => {
-        if (this.#closed) return;
-        await subscriber.subscribe(this.channel, (raw) => this.#receive(raw));
-        this.#subscribed = true;
-        this.#state();
-      })
-      .catch(() => this.#state());
-    void this.#publisher.connect().catch(() => this.#state());
-  }
-  #receive(raw: string): void {
-    const bytes = Buffer.byteLength(raw);
-    if (
-      bytes > eventBudgets(this.limits).envelopeBytes ||
-      this.#receivedBytes + bytes > this.limits.subscriberBytes
-    ) {
-      this.counters.dropped++;
-      this.#queue = [];
-      this.#receivedBytes = 0;
-      this.availability(false); // A loss boundary closes/clears all page-local queues, never replays them.
-      return;
-    }
-    this.#receivedBytes += bytes;
-    this.#queue.push(raw);
-    if (!this.#draining) void this.#drain();
-  }
-  async #drain(): Promise<void> {
-    this.#draining = true;
-    try {
-      while (!this.#closed && this.#queue.length) {
-        const raw = this.#queue.shift()!;
-        try {
-          await this.receive(decodeEnvelope(raw, this.limits));
-        } catch {
-          this.counters.invalid++;
-        } finally {
-          this.#receivedBytes = Math.max(0, this.#receivedBytes - Buffer.byteLength(raw));
-        }
+    if (!subscriber) return;
+    await subscriber.subscribe(CHANNEL, (message) => {
+      let event: ServiceEvent;
+      try {
+        event = JSON.parse(message) as ServiceEvent;
+      } catch {
+        this.#log.warn("redis event unreadable");
+        return;
       }
-    } finally {
-      this.#draining = false;
-    }
+      this.#handlers?.onEvent(event);
+    });
+    this.#subscribed = true;
   }
-  async publish(event: LiveEnvelope): Promise<void> {
-    const raw = JSON.stringify(event);
-    decodeEnvelope(raw, this.limits);
-    const bytes = Buffer.byteLength(raw);
-    if (!this.ready || !this.#publisher || this.#pendingBytes + bytes > this.limits.publisherBytes)
-      throw new Error("Event forwarding unavailable");
-    this.#pendingBytes += bytes;
-    try {
-      // No offline queue or retry: loss of the response can mean the event was already published.
-      await this.#publisher
-        .withCommandOptions({ abortSignal: AbortSignal.timeout(this.options.commandTimeoutMs) })
-        .publish(this.channel, raw);
-    } catch (error) {
-      this.counters.ambiguousPublishes++;
-      throw error;
-    } finally {
-      this.#pendingBytes -= bytes;
-    }
+
+  /** Reports loss on every transition: down means fan-out stopped, up means events may have been missed. */
+  #changed(): void {
+    const ready = this.ready;
+    if (ready === this.#wasReady) return;
+    this.#wasReady = ready;
+    this.#log.info(ready ? "event fan-out ready" : "event fan-out unavailable");
+    this.#handlers?.onLoss(ready ? "fan-out-reconnected" : "fan-out-unavailable");
   }
+
+  async publish(event: ServiceEvent): Promise<void> {
+    if (!this.#publisher?.isReady) throw new Error("event fan-out is unavailable");
+    await this.#publisher.publish(CHANNEL, JSON.stringify(event));
+  }
+
   async close(): Promise<void> {
-    this.#closed = true;
-    for (const client of [this.#publisher, this.#subscriber]) if (client?.isOpen) client.destroy();
-    this.#state();
+    this.#handlers = undefined;
+    // A client still trying to reach Redis has nothing to flush, so it is destroyed instead.
+    await Promise.allSettled(
+      [this.#publisher, this.#subscriber].map(async (client) => {
+        if (client?.isReady) await client.close();
+        else client?.destroy();
+      }),
+    );
+    this.#publisher = undefined;
+    this.#subscriber = undefined;
+    this.#subscribed = false;
   }
 }

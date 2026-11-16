@@ -3,410 +3,176 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Tableau integration service - Current specification</title>
+    <title>Tableau Data App Service - Specification</title>
     <style>
       /*__STYLE__*/
     </style>
   </head>
   <body>
-    <a href="#view-overview" class="skip-link">Skip to review content</a>
+    <a href="#main" class="skip-link">Skip to content</a>
     <div class="shell">
       <aside class="rail">
-        <div>
-          <div class="brand">
-            <span class="brand-mark">[a]</span
-            ><span>Application<br />specification</span>
-          </div>
-          <p class="rail-subtitle eyebrow" style="margin-top:15px">
-            Tableau integration service
-          </p>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">tdas</span>
+          <span>Tableau Data App Service<br /><span class="muted">Specification</span></span>
         </div>
-        <nav aria-label="Review views">
-          <a href="#overview" data-view="overview" class="active"><span class="num">00</span>Overview &amp; requirements</a
-          ><a href="#system" data-view="system"
-            ><span class="num">01</span>System map</a
-          ><a href="#flows" data-view="flows"
-            ><span class="num">02</span>Data flows</a
-          ><a href="#modules" data-view="modules"
-            ><span class="num">03</span>Modules</a
-          ><a href="#api" data-view="api"
-            ><span class="num">04</span>API contracts</a
-          ><a href="#decisions" data-view="decisions"
-            ><span class="num">05</span>Policies &amp; gates</a
-          ><a href="#plan" data-view="plan"
-            ><span class="num">06</span>Implementation</a
-          ><a href="#sources" data-view="sources"
-            ><span class="num">07</span>Specification &amp; limits</a
-          >
+        <nav aria-label="Views" id="views">
+          <a href="#overview" data-view="overview"><span class="num">01</span>Overview</a>
+          <a href="#requirements" data-view="requirements"><span class="num">02</span>Requirements</a>
+          <a href="#architecture" data-view="architecture"><span class="num">03</span>Architecture</a>
+          <a href="#flows" data-view="flows"><span class="num">04</span>Flows</a>
+          <a href="#api" data-view="api"><span class="num">05</span>API</a>
+          <a href="#verification" data-view="verification"><span class="num">06</span>Verification</a>
+          <a href="#documents" data-view="documents"><span class="num">07</span>Documents</a>
         </nav>
-        <div class="rail-note">
-          REVISED SPECIFICATION<br /><br />Inspect a component.<br />Trace a request.<br />Review evidence.<br /><br />Accepted policy.<br />Local evidence recorded.
-        </div>
+        <p class="rail-foot muted" id="rail-foot"></p>
       </aside>
-      <main>
-        <div class="topbar">
-          <div class="breadcrumbs">
-            engineering / integration service / <span id="crumb">overview</span>
-          </div>
-          <div class="top-actions">
-            <span class="status accepted">Policy accepted</span
-            ><button id="print-button">Print summary</button>
-          </div>
-        </div>
-        <header class="heading">
-          <div>
-            <h1>Tableau integration backend</h1>
-            <p class="prose muted">
-              Read the product requirements, trace authority and data, and
-              inspect the complete contracts and verification requirements.
-            </p>
-          </div>
-          <div class="heading-meta">
-            CURRENT SPECIFICATION<br /><br />Local app implemented.<br />Live acceptance pending.
-          </div>
-        </header>
+      <main id="main" tabindex="-1">
         <section id="view-overview" class="view" aria-labelledby="overview-title">
-          <div class="view-head"><div><h2 id="overview-title">What this service does.</h2><p class="muted">The product overview, followed by the full product requirements.</p></div></div>
-          <article class="surface surface-body document-content product-overview" id="product-overview" data-ohp-ref="PRODUCT-OVERVIEW"></article>
-          <div class="overview-route" aria-label="Application request path"><span>Tableau Data App</span><span aria-hidden="true">→</span><span>Our service</span><span aria-hidden="true">→</span><span>Authorized provider</span></div>
-          <div class="callout"><h3>One specification, fully included.</h3><p>This document includes the current requirements, contracts, implementation evidence and verification criteria. Specified mechanisms and missing evidence are labeled. The printable summary is an overview; use this HTML for the full specification.</p><div class="linkrow"><a href="#sources">Browse the full specification →</a><a href="#sources" data-source-lens-link="limits">Inspect current limitations →</a><a href="#system">Explore the system map →</a></div></div>
-          <section class="surface surface-body" data-ohp-ref="PRODUCT-REQUIREMENTS"><div class="eyebrow">Full product requirements</div><nav id="prd-toc" class="document-toc" aria-label="Product requirements sections"></nav><div class="document-content" id="product-requirements"></div></section>
-        </section>
-        <section id="view-system" class="view" hidden aria-labelledby="system-title">
-          <div class="view-head">
-            <div>
-              <h2 id="system-title">Replicable API and worker, Postgres, optional Redis.</h2>
-              <p class="muted">
-                Select a component to inspect ownership, contracts and failure
-                boundaries.
-              </p>
+          <header class="view-head">
+            <p class="eyebrow">Overview</p>
+            <h1 id="overview-title">An authenticated router between Tableau Data Apps and the APIs they use.</h1>
+          </header>
+          <div class="status-strip" id="status-strip"></div>
+          <div class="grid two">
+            <article class="surface document-content" id="product-intro"></article>
+            <div class="stack">
+              <section class="surface" aria-labelledby="gates-title">
+                <h2 id="gates-title" class="eyebrow">Verification</h2>
+                <div id="gate-summary"></div>
+              </section>
+              <section class="surface" aria-labelledby="journeys-title">
+                <h2 id="journeys-title" class="eyebrow">Journeys</h2>
+                <dl class="pairs" id="journeys"></dl>
+              </section>
             </div>
-          </div>
-          <div class="legend" style="margin-bottom:16px">
-            <span class="status accepted">Accepted</span
-            ><span class="status proposed">Specified</span
-            ><span class="status open">Open</span
-            ><span class="status evidence-needed">Evidence-needed</span>
-          </div>
-          <div id="system-workspace" class="workspace-grid">
-            <div>
-              <div class="surface">
-                <div class="surface-head">
-                  <h3>System boundary</h3>
-                  <div class="system-lenses">
-                    <button data-system-lens="runtime" aria-pressed="true">
-                      Runtime</button
-                    ><button data-system-lens="trust" aria-pressed="false">
-                      Trust & data
-                    </button>
-                  </div>
-                </div>
-                <div id="runtime-lens">
-                  <div class="diagram-hint">
-                    Pan the map horizontally to inspect every boundary.
-                  </div>
-                  <div
-                    class="diagram-stage"
-                    id="system-diagram"
-                    tabindex="0"
-                    role="region"
-                    aria-label="System map, scroll horizontally for external providers"
-                  ></div>
-                  <div class="diagram-caption">
-                    Solid arrows identify interactions; dashed event paths are optional. Postgres owns durable work. Redis fans out lossy live events; an external watchdog handles blocked worker event loops.
-                  </div>
-                </div>
-                <div id="trust-lens" hidden></div>
-              </div>
-              <div id="system-summary"></div>
-              <div class="callout warning" data-ohp-ref="STREAMING-REQUIREMENT">
-                <h3>Native HTTP response streaming is accepted.</h3>
-                <p id="streaming-summary"></p>
-                <div class="linkrow">
-                  <a href="#flows" data-flow="F03"
-                    >Trace the streaming response →</a
-                  ><a href="#api" data-api="A18">Inspect proxy contract →</a>
-                </div>
-              </div>
-              <div id="system-decision"></div>
-            </div>
-            <aside
-              id="system-inspector"
-              class="surface inspector"
-              aria-live="polite"
-            ></aside>
           </div>
         </section>
-        <section
-          id="view-flows"
-          class="view"
-          hidden
-          aria-labelledby="flows-title"
-        >
-          <div class="view-head">
-            <div>
-              <h2 id="flows-title">
-                Follow data and authority, one step at a time.
-              </h2>
-              <p class="muted">
-                Every step separates its payload, authorization, state change
-                and interruption behavior.
-              </p>
-            </div>
-          </div>
+
+        <section id="view-requirements" class="view" hidden aria-labelledby="requirements-title">
+          <header class="view-head">
+            <p class="eyebrow">Product</p>
+            <h1 id="requirements-title">What the product owner requires, what the architecture recommends, and what is still unverified.</h1>
+          </header>
           <div class="toolbar">
-            <label for="flow-select" class="eyebrow">Scenario</label
-            ><select id="flow-select"></select
-            ><span id="flow-status" class="status proposed"
-              >Specified sequence</span
-            >
+            <label class="search"><span class="sr-only">Filter requirements</span><input id="requirement-filter" type="search" placeholder="Filter requirements, recommendations and assumptions" autocomplete="off" /></label>
           </div>
-          <div class="flow-layout">
-            <div
-              id="flow-steps"
-              class="step-list"
-              aria-label="Flow steps"
-            ></div>
-            <div class="surface">
-              <div class="surface-head">
-                <h3 id="flow-name"></h3>
-                <span id="flow-counter" class="eyebrow"></span>
-              </div>
-              <div id="flow-current" class="diagram-caption"></div>
-              <div class="diagram-hint">
-                Pan the map horizontally. Step details remain below.
-              </div>
-              <div
-                class="diagram-stage"
-                id="flow-diagram"
-                tabindex="0"
-                role="region"
-                aria-label="Flow map, scroll horizontally for external providers"
-              ></div>
-              <div id="step-detail" aria-live="polite"></div>
-            </div>
-          </div>
-          <div class="flow-controls">
-            <button id="previous-step">← Previous step</button
-            ><span>Use buttons or ← → while a step is focused.</span
-            ><button id="next-step">Next step →</button>
-          </div>
-          <aside
-            id="flow-inspector"
-            class="surface"
-            style="margin-top:16px"
-            hidden
-            aria-live="polite"
-          ></aside>
-          <div id="flow-decision"></div>
-          <div id="all-flows-print" class="print-only"></div>
-        </section>
-        <section
-          id="view-modules"
-          class="view"
-          hidden
-          aria-labelledby="modules-title"
-        >
-          <div class="view-head">
-            <div>
-              <h2 id="modules-title">Each responsibility has one owner.</h2>
-              <p class="muted">
-                Inspect a module without losing its place in the system.
-              </p>
-            </div>
-          </div>
-          <div class="toolbar">
-            <input
-              id="module-search"
-              type="search"
-              aria-label="Filter modules"
-              placeholder="Filter by module, owner, interface or invariant…"
-            />
-          </div>
-          <div class="workspace-grid">
-            <div>
-              <div
-                id="module-dependencies"
-                class="surface"
-                style="margin-bottom:16px"
-              ></div>
-              <div id="module-grid" class="module-grid"></div>
-            </div>
-            <aside
-              id="module-inspector"
-              class="surface inspector"
-              aria-live="polite"
-            ></aside>
+          <section class="surface" aria-labelledby="req-title">
+            <h2 id="req-title">Requirements</h2>
+            <div id="requirement-list"></div>
+          </section>
+          <section class="surface" aria-labelledby="rec-title">
+            <h2 id="rec-title">Recommendations</h2>
+            <div id="recommendation-list"></div>
+          </section>
+          <div class="grid two">
+            <section class="surface" aria-labelledby="assume-title">
+              <h2 id="assume-title">Unverified assumptions</h2>
+              <ul class="plain" id="assumption-list"></ul>
+            </section>
+            <section class="surface" aria-labelledby="exclude-title">
+              <h2 id="exclude-title">Exclusions</h2>
+              <ul class="bullets" id="exclusion-list"></ul>
+            </section>
           </div>
         </section>
+
+        <section id="view-architecture" class="view" hidden aria-labelledby="architecture-title">
+          <header class="view-head">
+            <p class="eyebrow">Architecture</p>
+            <h1 id="architecture-title">One codebase, API and worker roles, Postgres, and Redis only for events.</h1>
+          </header>
+          <div class="grid two wide-left">
+            <section class="surface" aria-labelledby="topology-title">
+              <h2 id="topology-title" class="eyebrow">Topology</h2>
+              <pre class="diagram" id="topology"></pre>
+              <ol class="direction" id="direction"></ol>
+            </section>
+            <section class="surface" aria-labelledby="roles-title">
+              <h2 id="roles-title" class="eyebrow">Roles</h2>
+              <dl class="pairs" id="roles"></dl>
+            </section>
+          </div>
+          <section aria-labelledby="components-title">
+            <h2 id="components-title" class="section-title">Components, in dependency order</h2>
+            <div class="grid two">
+              <div class="component-list" id="component-list" role="listbox" aria-label="Components"></div>
+              <article class="surface" id="component-detail" aria-live="polite"></article>
+            </div>
+          </section>
+          <section class="surface" aria-labelledby="trust-title">
+            <h2 id="trust-title">Trust boundaries</h2>
+            <div class="table-wrap"><table id="trust"></table></div>
+          </section>
+          <section class="surface" aria-labelledby="deps-title">
+            <h2 id="deps-title">Runtime dependencies</h2>
+            <div class="table-wrap"><table id="dependencies"></table></div>
+          </section>
+        </section>
+
+        <section id="view-flows" class="view" hidden aria-labelledby="flows-title">
+          <header class="view-head">
+            <p class="eyebrow">Flows</p>
+            <h1 id="flows-title">End-to-end sequences, each step with the component that owns it.</h1>
+          </header>
+          <div class="grid flows-grid">
+            <nav class="flow-list" id="flow-list" aria-label="Flows"></nav>
+            <article class="surface" id="flow-detail" aria-live="polite"></article>
+          </div>
+        </section>
+
         <section id="view-api" class="view" hidden aria-labelledby="api-title">
-          <div class="view-head">
-            <div>
-              <h2 id="api-title">Contracts at the boundary.</h2>
-              <p class="muted">
-                Route contracts make callers, authority, responses and execution
-                ownership explicit.
-              </p>
-            </div>
-          </div>
+          <header class="view-head">
+            <p class="eyebrow">API</p>
+            <h1 id="api-title">Every route, its authentication and its owner.</h1>
+            <p class="muted" id="api-preamble"></p>
+          </header>
           <div class="toolbar">
-            <input
-              id="api-search"
-              type="search"
-              aria-label="Search API contracts"
-              placeholder="Find a route, caller or owner…"
-            /><select id="api-filter" aria-label="Filter API family">
-              <option value="">All API families</option>
-            </select>
+            <label class="search"><span class="sr-only">Filter routes</span><input id="api-filter" type="search" placeholder="Filter routes" autocomplete="off" /></label>
+            <label><span class="sr-only">Group</span><select id="api-group"></select></label>
+            <span class="muted" id="api-count" aria-live="polite"></span>
           </div>
-          <div class="api-workspace">
-            <div class="table-wrap api-list">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Contract</th>
-                    <th>Caller / authority</th>
-                    <th>Owner</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="api-rows"></tbody>
-              </table>
-            </div>
-            <div id="api-detail" class="surface" aria-live="polite"></div>
-          </div>
-          <div id="api-decision"></div>
+          <div id="api-groups"></div>
         </section>
-        <section
-          id="view-decisions"
-          class="view"
-          hidden
-          aria-labelledby="decisions-title"
-        >
-          <div class="view-head">
-            <div>
-              <h2 id="decisions-title">Current policies and engineering gates.</h2>
-              <p class="muted">
-                Read current policy and the remaining engineering evidence.
-              </p>
-            </div>
-          </div>
-          <div class="callout warning" style="margin:0 0 18px">
-            <h3>Accepted policy and runtime proof are separate.</h3>
-            <p>
-              The current requirements are consolidated in the specification.
-              Remaining mechanisms and platform checks are engineering work.
-              Local implementation evidence is recorded; live compatibility remains unverified.
-            </p>
-          </div>
-          <nav
-            id="decision-jumps"
-            class="decision-jumps"
-            aria-label="Jump to decision"
-          ></nav>
-          <div id="decision-list" class="decisions-list"></div>
+
+        <section id="view-verification" class="view" hidden aria-labelledby="verification-title">
+          <header class="view-head">
+            <p class="eyebrow">Verification</p>
+            <h1 id="verification-title">Gates that must pass before each part is called done.</h1>
+          </header>
+          <div class="toolbar" role="group" aria-label="Filter gates by status" id="gate-filters"></div>
+          <section class="surface" aria-labelledby="auto-title">
+            <h2 id="auto-title">Automated gates</h2>
+            <div class="table-wrap"><table id="automated"></table></div>
+          </section>
+          <section class="surface" aria-labelledby="live-title">
+            <h2 id="live-title">Live gates</h2>
+            <div class="table-wrap"><table id="live"></table></div>
+          </section>
+          <section class="surface" aria-labelledby="limits-title">
+            <h2 id="limits-title">Known limitations</h2>
+            <ul class="bullets" id="limitations"></ul>
+          </section>
         </section>
-        <section
-          id="view-plan"
-          class="view"
-          hidden
-          aria-labelledby="plan-title"
-        >
-          <div class="view-head">
+
+        <section id="view-documents" class="view" hidden aria-labelledby="documents-title">
+          <header class="view-head">
+            <p class="eyebrow">Documents</p>
+            <h1 id="documents-title">The source documents, as written.</h1>
+          </header>
+          <div class="grid docs-grid">
+            <nav class="doc-list" id="doc-list" aria-label="Documents"></nav>
             <div>
-              <h2 id="plan-title">Implementation and its evidence.</h2>
-              <p class="muted">
-                Observed local surfaces and their remaining acceptance boundaries.
-              </p>
+              <nav class="doc-toc" id="doc-toc" aria-label="Sections in this document"></nav>
+              <article class="surface document-content" id="doc-body" tabindex="-1"></article>
+              <p class="muted doc-meta" id="doc-meta"></p>
             </div>
-          </div>
-          <div
-            id="plan-dependencies"
-            class="surface"
-            style="margin-bottom:18px"
-          ></div>
-          <div id="plan-list" class="plan-list"></div>
-        </section>
-        <section
-          id="view-sources"
-          class="view"
-          hidden
-          aria-labelledby="sources-title"
-        >
-          <div class="view-head">
-            <div>
-              <h2 id="sources-title">Read the complete current specification.</h2>
-              <p class="muted">
-                Every current source document is included in this standalone package.
-                Architecture acceptance, document review and runtime proof remain separate.
-              </p>
-            </div>
-          </div>
-          <div class="surface surface-body" style="margin-bottom:16px">
-            <div class="legend">
-              <span class="status accepted">Accepted</span
-              ><span class="status proposed">Specified</span
-              ><span class="status open">Open</span
-              ><span class="status evidence-needed">Evidence-needed</span>
-            </div>
-            <p class="prose muted" style="margin-top:12px">
-              Accepted identifies user requirements or recorded accepted
-              decisions. Specified identifies a documented mechanism, without certifying its implementation or live acceptance. Open
-              identifies an unfinished engineering contract. Evidence-needed identifies a
-              claim that requires implementation or platform observation.
-            </p>
-          </div>
-          <div
-            class="source-lens-controls toolbar"
-            role="group"
-            aria-label="Sources, limitations and evidence"
-          >
-            <button data-source-lens="snapshots" aria-pressed="true">
-              Current specification</button
-            ><button data-source-lens="limits" aria-pressed="false">
-              Current limitations</button
-            ><button data-source-lens="evidence" aria-pressed="false">
-              Evidence gates / E01-E05
-            </button>
-          </div>
-          <div id="source-snapshots" class="source-lens">
-            <nav id="document-index" class="document-index" aria-label="Current specification documents"></nav>
-            <div id="source-list" class="source-list"></div>
-          </div>
-          <div id="source-limits" class="source-lens" hidden>
-            <p class="prose muted" style="margin-bottom:16px">Accepted constraints, specified engineering settings and unverified support are distinguished below. Only settings selected by the owning contract supply implementation defaults. Discarded proposals are excluded.</p>
-            <div class="toolbar">
-              <input
-                id="limits-search"
-                type="search"
-                aria-label="Search current limitations"
-                placeholder="Find a constraint, status or user impact…"
-              />
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Current constraint / gap</th>
-                    <th>Status</th>
-                    <th>Impact / configuration</th>
-                    <th>Reason / verification</th>
-                  </tr>
-                </thead>
-                <tbody id="limits-rows"></tbody>
-              </table>
-            </div>
-          </div>
-          <div id="source-evidence" class="source-lens" hidden>
-            <div id="evidence-gates" class="plan-list"></div>
           </div>
         </section>
       </main>
     </div>
-    <section id="print-review" aria-label="Compact printable review"></section>
     <script>
-      const MODEL=/*__MODEL__*/;
+      const MODEL = /*__MODEL__*/;
     </script>
     <script>
       /*__SCRIPT__*/

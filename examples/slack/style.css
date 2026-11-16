@@ -151,3 +151,28 @@ pre {
     min-height: 44px;
   }
 }
+.definitions,
+.event-log {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.definitions li {
+  padding: 14px 0;
+  border-top: 1px solid #dce2d8;
+}
+.definitions li > span {
+  display: block;
+  color: #526057;
+  font-size: 0.875rem;
+  margin-top: 4px;
+}
+.definitions .actions {
+  margin: 10px 0 0;
+}
+.event-log li {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  padding: 6px 0;
+  border-top: 1px solid #eef1ec;
+}

@@ -1,544 +1,351 @@
-"use strict";
-const $ = (q, root = document) => root.querySelector(q),
-  $$ = (q, root = document) => [...root.querySelectorAll(q)];
-const esc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
-const badge = (s = "Specified") =>
-  `<span class="status ${s === "Specified" ? "proposed" : s.toLowerCase()}">${esc(s)}</span>`;
-const sourceLink = (id, label = "Inspect source") =>
-  `<a href="#sources" data-source="${esc(({system:"architecture", modules:"architecture", decisions:"architecture", plan:"implementation", limits:"verification"})[id] || id)}">${esc(label)} ↗</a>`;
-const detail = (label, value) =>
-  `<div class="detail"><div class="eyebrow">${esc(label)}</div><p>${esc(value)}</p></div>`;
-let currentView = "overview",
-  selectedComponent = MODEL.components[0]?.id,
-  flowIndex = 0,
-  selectedFlow = MODEL.flows[0]?.id;
-function showView(view, updateHash = true) {
-  if (!$(`#view-${view}`)) return;
-  currentView = view;
-  $$(".view").forEach((s) => (s.hidden = s.id !== `view-${view}`));
-  $$("[data-view]").forEach((a) => {
-    a.classList.toggle("active", a.dataset.view === view);
-    if (a.dataset.view === view) a.setAttribute("aria-current", "page");
-    else a.removeAttribute("aria-current");
-  });
-  $("#crumb").textContent = view;
-  if (updateHash && location.protocol !== "about:")
-    history.replaceState(null, "", `#${view}`);
-  window.scrollTo({ top: 0 });
-}
-function componentById(id) {
-  return [...MODEL.components, ...(MODEL.modules || [])].find(
-    (c) => c.id === id,
-  );
-}
-function renderDiagram(target, activeIds = [], activeEdge = null) {
-  const uid = target.replace(/[^a-zA-Z0-9_-]/g, "");
-  const nodes = MODEL.diagram.nodes;
-  const edges = MODEL.diagram.edges;
-  const selected = activeEdge ? null : selectedComponent;
-  const edgeMarkup = edges
-    .map((e) => {
-      const on = false;
-      return `<path class="diagram-edge ${e.optional ? "optional-edge" : ""} ${on ? "edge-active" : ""}" d="${esc(e.path)}" marker-end="url(#arrow-${uid}-${on ? "active" : "base"})"/><text x="${e.labelX}" y="${e.labelY}" fill="var(--${on ? "accent" : "dim"})" font-size="9" text-anchor="middle">${esc(e.label)}</text>`;
-    })
-    .join("");
-  let activeMarkup = "";
-  if (activeEdge) {
-    for (const edgePair of Array.isArray(activeEdge[0])
-      ? activeEdge
-      : [activeEdge]) {
-      const a = nodes.find((n) => n.id === edgePair[0]),
-        b = nodes.find((n) => n.id === edgePair[1]);
-      if (a && b) {
-        let x1, y1, x2, y2;
-        if (a.id === b.id) {
-          x1 = a.x + a.w;
-          y1 = a.y + 20;
-          x2 = x1;
-          y2 = a.y + a.h - 12;
-          activeMarkup += `<path class="diagram-edge edge-active" d="M${x1} ${y1} C${x1 + 45} ${y1},${x2 + 45} ${y2},${x2} ${y2}" marker-end="url(#arrow-${uid}-active)"/>`;
-        } else if (a.x === b.x) {
-          x1 = a.x + a.w / 2;
-          x2 = b.x + b.w / 2;
-          y1 = a.y < b.y ? a.y + a.h : a.y;
-          y2 = a.y < b.y ? b.y : b.y + b.h;
-          activeMarkup += `<path class="diagram-edge edge-active" d="M${x1} ${y1} L${x2} ${y2}" marker-end="url(#arrow-${uid}-active)"/>`;
-        } else {
-          x1 = a.x < b.x ? a.x + a.w : a.x;
-          y1 = a.y + a.h / 2;
-          x2 = a.x < b.x ? b.x : b.x + b.w;
-          y2 = b.y + b.h / 2;
-          const mid = (x1 + x2) / 2;
-          activeMarkup += `<path class="diagram-edge edge-active" d="M${x1} ${y1} C${mid} ${y1},${mid} ${y2},${x2} ${y2}" marker-end="url(#arrow-${uid}-active)"/>`;
-        }
-      }
+/* Offline specification viewer. Every value comes from MODEL, which build.py derives from docs/. */
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const VIEWS = ["overview", "requirements", "architecture", "flows", "api", "verification", "documents"];
+  const sources = new Map(MODEL.sources.map((s) => [s.id, s]));
+  const sourceByPath = new Map(MODEL.sources.map((s) => [s.path, s]));
+
+  function el(tag, attrs, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+      if (value === undefined || value === null || value === false) continue;
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value === true ? "" : value);
     }
+    for (const child of children.flat(Infinity)) {
+      if (child === undefined || child === null || child === false) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
   }
-  const nodeMarkup = nodes
-    .map((n) => {
-      const c = componentById(n.id);
-      return `<g class="component ${selected === n.id || activeIds.includes(n.id) ? "selected" : ""}" data-component="${esc(n.id)}" role="button" tabindex="0" aria-label="Inspect ${esc(c.name)}" data-ohp-ref="${target.toUpperCase()}-COMPONENT-${esc(n.id.toUpperCase())}"><rect class="component-box" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4"/><text x="${n.x + 13}" y="${n.y + 20}" font-size="8" fill="var(--dim)" letter-spacing="1">${esc(n.kind)}</text><text x="${n.x + 13}" y="${n.y + 42}" font-size="12" fill="var(--fg)" font-weight="600">${esc(c.shortName || c.name)}</text><text x="${n.x + 13}" y="${n.y + 60}" font-size="9" fill="var(--muted)">${esc(n.subtitle)}</text><circle cx="${n.x + n.w - 13}" cy="${n.y + 15}" r="3" fill="var(--${c.status === "Accepted" ? "ok" : c.status === "Evidence-needed" ? "risk" : c.status === "Open" ? "warn" : "accent"})"/></g>`;
-    })
-    .join("");
-  $(target).innerHTML =
-    `<svg class="architecture-diagram" viewBox="0 0 770 490" role="img" aria-label="Runtime architecture diagram. Components can be selected for details."><defs><marker id="arrow-${uid}-base" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="var(--strong)"/></marker><marker id="arrow-${uid}-active" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="var(--accent)"/></marker></defs><rect x="225" y="18" width="300" height="450" rx="5" fill="var(--soft)" stroke="var(--line)" stroke-dasharray="4 5"/><text x="241" y="37" font-size="9" fill="var(--accent)" letter-spacing="1.2">SHARED SERVICE / ONE CODEBASE</text>${edgeMarkup}${activeMarkup}${nodeMarkup}<text x="23" y="469" font-size="8" fill="var(--dim)">CLIENT / OPERATOR / HOST</text><text x="561" y="469" font-size="8" fill="var(--dim)">IDENTITY / PROVIDERS / EVENTS</text></svg>`;
-}
-function renderInspector(id, target = "#system-inspector") {
-  const c = componentById(id);
-  if (!c) return;
-  $(target).innerHTML =
-    `<div class="inspector-head"><div class="eyebrow">Component / ${esc(c.id)}</div><h3>${esc(c.name)}</h3>${badge(c.status)}</div><div class="inspector-body">${detail("Owner", c.owner)}${detail("Responsibility", c.responsibility)}${c.input ? detail("Input / output", c.input + " " + c.output) : ""}${c.state ? detail("Owned state", c.state) : ""}${detail("Interfaces", c.interfaces)}${detail("Invariant", c.invariant)}${detail("Failure / recovery", c.failure)}${detail("Extension path", c.extension)}${c.holds ? detail("Implementation holds", c.holds) : ""}${c.modules ? `<div class="detail"><div class="eyebrow">Module owners</div><div class="linkrow">${c.modules.map((m) => `<a href="#modules" data-component-link="${esc(m)}">${esc(m)} →</a>`).join("")}</div></div>` : ""}<div class="detail"><div class="eyebrow">Traceability</div><div class="linkrow">${sourceLink(c.source)}${c.api ? `<a href="#api" data-api="${esc(c.api)}">API contract →</a>` : ""}${(
-      c.decisions || [c.decision]
-    )
-      .filter(Boolean)
-      .map(
-        (d) => `<a href="#decisions" data-decision="${esc(d)}">${esc(d)} →</a>`,
-      )
-      .join("")}</div></div></div>`;
-}
-function selectComponent(id) {
-  selectedComponent = id;
-  renderModuleDependencies(id);
-  renderInspector(id);
-  renderInspector(id, "#module-inspector");
-  renderDiagram("#system-diagram");
-  $$(".module-card").forEach((card) =>
-    card.classList.toggle("selected", card.dataset.component === id),
-  );
-  if (currentView === "flows") {
-    renderFlow();
-    $("#flow-inspector").hidden = false;
-    renderInspector(id, "#flow-inspector");
-    $("#flow-inspector").scrollIntoView({ block: "nearest" });
-  }
-}
-function renderModuleDependencies(id) {
-  const c = componentById(id);
-  if (!c?.id?.startsWith("M")) return;
-  const peers = (ids) =>
-    ids?.length
-      ? ids
-          .map(
-            (id) =>
-              `<button data-component="${esc(id)}">${esc(id)}<small>${esc(componentById(id)?.name)}</small></button>`,
-          )
-          .join("")
-      : '<p class="muted">None shown</p>';
-  $("#module-dependencies").innerHTML =
-    `<div class="surface-head"><h3>Dependency direction / ${esc(c.id)}</h3><span class="eyebrow">Select a related owner</span></div><div class="dependency-lens"><div><div class="eyebrow">Called by</div>${peers(c.calledBy)}</div><div class="dependency-selected"><span class="muted">→</span><button data-component="${esc(c.id)}">${esc(c.id)}<small>${esc(c.name)}</small></button><span class="muted">→</span></div><div><div class="eyebrow">Depends on</div>${peers(c.dependsOn)}</div></div>`;
-}
-function renderModules() {
-  const q = $("#module-search").value.toLowerCase();
-  const found = (MODEL.modules || MODEL.components).filter((c) =>
-    JSON.stringify(c).toLowerCase().includes(q),
-  );
-  $("#module-grid").innerHTML = found.length
-    ? found
-        .map(
-          (c) =>
-            `<button class="module-card" data-component="${esc(c.id)}" data-ohp-ref="MODULE-${esc(c.id.toUpperCase())}">${badge(c.status)}<h3>${esc(c.name)}</h3><p>${esc(c.responsibility)}</p><div class="eyebrow">Owner / ${esc(c.owner)}</div></button>`,
-        )
-        .join("")
-    : '<p class="no-results">No modules match this filter.</p>';
-}
-function renderFlow() {
-  const f = MODEL.flows.find((f) => f.id === selectedFlow);
-  if (!f) return;
-  flowIndex = Math.max(0, Math.min(flowIndex, f.steps.length - 1));
-  const s = f.steps[flowIndex];
-  s.local = f.id === "F01" && flowIndex === 0;
-  $("#flow-name").textContent = f.name;
-  $("#flow-status").outerHTML =
-    `<span id="flow-status" class="status ${f.id === "F01" ? "evidence-needed" : "proposed"}">${f.id === "F01" ? "Engineering / evidence-needed" : "Specified sequence"}</span>`;
-  $("#flow-current").textContent = `${s.title} / ${s.route}`;
-  $("#flow-counter").textContent =
-    `${String(flowIndex + 1).padStart(2, "0")} / ${String(f.steps.length).padStart(2, "0")}`;
-  $("#flow-steps").innerHTML = f.steps
-    .map(
-      (s, i) =>
-        `<button class="step-button ${i === flowIndex ? "active" : ""}" data-step="${i}" aria-current="${i === flowIndex ? "step" : "false"}"><span class="step-number">${i + 1}</span><span>${esc(s.title)}<small>${esc(s.route || `${s.from} → ${s.to}`)}</small></span></button>`,
-    )
-    .join("");
-  renderDiagram(
-    "#flow-diagram",
-    s.local ? [s.from] : [...new Set((s.edges || [[s.from, s.to]]).flat())],
-    s.local ? [] : s.edges || [s.from, s.to],
-  );
-  $("#step-detail").innerHTML =
-    `<article class="step-detail" data-ohp-ref="FLOW-${esc(f.id.toUpperCase())}-${flowIndex + 1}"><div class="eyebrow">Step ${flowIndex + 1} / ${s.local ? "Local interaction" : esc(s.route)}</div><h3>${esc(s.title)}</h3>${badge(s.status)}<p class="muted" style="font-size:11px;margin:10px 0">${esc(s.route)} / ${esc(f.routes)}</p><div class="detail-grid">${detail("Data crossing the boundary", s.data)}${detail("Authority / durable effect", s.authority)}${detail("Failure / interruption", s.failure)}</div><div class="linkrow">${sourceLink(s.source || f.source)}${s.api ? `<a href="#api" data-api="${esc(s.api)}">API contract →</a>` : ""}</div></article>`;
-  $("#previous-step").disabled = flowIndex === 0;
-  $("#next-step").disabled = flowIndex === f.steps.length - 1;
-  $("#flow-decision").innerHTML = f.decision
-    ? decisionWidget(
-        MODEL.decisions.find((d) => d.id === f.decision),
-        "flow",
-      )
-    : "";
-}
-function renderApi() {
-  const q = $("#api-search").value.toLowerCase(),
-    family = $("#api-filter").value;
-  const rows = MODEL.apis.filter(
-    (a) =>
-      (!family || a.family === family) &&
-      JSON.stringify(a).toLowerCase().includes(q),
-  );
-  $("#api-rows").innerHTML = rows.length
-    ? rows
-        .map(
-          (a) =>
-            `<tr data-api-row="${esc(a.id)}" tabindex="0" aria-label="Inspect ${esc(a.name)}" aria-selected="false"><td><span class="method">${esc(a.method)}</span> <span class="route">${esc(a.route)}</span><small>${esc(a.name)}</small></td><td>${esc(a.caller)}<small>${esc(a.authority)}</small></td><td>${esc(a.owner)}</td><td>${badge(a.status)}</td></tr>`,
-        )
-        .join("")
-    : '<tr><td colspan="4" class="no-results">No API contracts match this filter.</td></tr>';
-}
-function selectApi(id) {
-  const a = MODEL.apis.find((a) => a.id === id);
-  if (!a) return;
-  $$("[data-api-row]").forEach((row) =>
-    row.setAttribute("aria-selected", String(row.dataset.apiRow === id)),
-  );
-  $("#api-detail").innerHTML =
-    `<div class="surface-head"><h3>${esc(a.name)}</h3>${badge(a.status)}</div><div class="surface-body" data-ohp-ref="API-${esc(a.id.toUpperCase())}"><p class="route"><span class="method">${esc(a.method)}</span> ${esc(a.route)}</p><div class="detail-grid" style="margin-top:18px">${detail("Caller / authority", `${a.caller}. ${a.authority}`)}${detail("Request", a.request)}${detail("Response / transport", a.response)}${detail("Errors / interruption", a.failure)}${detail("Engineering / evidence holds", a.holds)}</div><div class="linkrow">${sourceLink(a.source)}<a href="#modules" data-component-link="${esc(a.component)}">Inspect owner →</a></div></div>`;
-  $("#api-decision").innerHTML = a.decision
-    ? decisionWidget(
-        MODEL.decisions.find((d) => d.id === a.decision),
-        "api",
-      )
-    : "";
-}
-function decisionWidget(d, location) {
-  if (!d) return "";
-  const ref = `DECISION-${d.id.toUpperCase()}-${location.toUpperCase()}`;
-  return `<article class="surface decision-card" id="decision-${esc(d.id)}-${location}" data-ohp-ref="${esc(ref)}"><div class="decision-context">${badge(d.status)}<span class="eyebrow">${esc(d.id)} / ${esc(d.owner)}</span></div><h3>${esc(d.question)}</h3><p>${esc(d.context)}</p><div class="callout"><h3>${d.status === "Accepted" ? "Accepted policy" : "Engineering approach"}</h3><p>${esc(d.recommendation)}</p></div><div class="detail-grid">${detail("Remaining engineering / evidence", d.engineering)}</div><div class="linkrow">${sourceLink(d.source)}${d.flow ? `<a href="#flows" data-flow="${esc(d.flow)}">Related flow →</a>` : ""}</div></article>`;
-}
-function renderPlanDependencies(id) {
-  const phase = MODEL.phases.find((p) => p.id === id);
-  if (!phase) return;
-  $("#plan-dependencies").innerHTML =
-    `<div class="surface-head"><h3>Implementation evidence / ${esc(id)}</h3><span class="eyebrow">Select an area</span></div><nav class="surface-body linkrow" aria-label="Implementation areas">${MODEL.phases.map(p => `<a href="#phase-${esc(p.id)}">${esc(p.id)} / ${esc(p.title.slice(6))}</a>`).join("")}</nav>`;
-}
-function showSourceLens(lens) {
-  $$(".source-lens").forEach(
-    (panel) => (panel.hidden = panel.id !== `source-${lens}`),
-  );
-  $$("[data-source-lens]").forEach((b) =>
-    b.setAttribute("aria-pressed", String(b.dataset.sourceLens === lens)),
-  );
-}
-function renderLimitations() {
-  const q = $("#limits-search").value.toLowerCase();
-  const rows = MODEL.limitations.filter((row) =>
-    row.join(" ").toLowerCase().includes(q),
-  );
-  $("#limits-rows").innerHTML = rows.length
-    ? rows
-        .map((row) => {
-          const cells =
-            row.length === 5
-              ? row
-              : [row[0], row[1], "Behavioral gap", row[2], row[3]];
-          return `<tr data-ohp-ref="LIMIT-${esc(cells[0])}">${cells.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`;
-        })
-        .join("")
-    : '<tr><td colspan="5">No limitations match this search.</td></tr>';
-}
-function renderSources() {
-  $("#document-index").innerHTML = MODEL.sources.map(s => sourceLink(s.id, s.title)).join("");
-  $("#source-list").innerHTML = MODEL.sources.map(s =>
-    `<article class="surface source-row" id="source-doc-${esc(s.id)}" data-ohp-ref="SOURCE-${esc(s.id.toUpperCase())}"><div class="eyebrow">${esc(s.kind)}</div><h3>${esc(s.title)}</h3><p>${esc(s.description)}</p><details class="document-details"><summary>Read current document</summary><div class="document-content">${s.html}</div></details><details class="source-metadata"><summary>Source file and verification</summary><code>${esc(s.path)}</code><p>SHA-256 ${esc(s.sha256)}</p><details><summary>Original Markdown</summary><pre>${esc(s.content)}</pre></details></details></article>`
-  ).join("");
-}
-function renderOverview() {
-  const prd = MODEL.sources.find(s => s.id === "prd");
-  const inline = (html, prefix) => html.replaceAll(`id="doc-prd-`, `id="${prefix}-`);
-  // The introduction is an excerpt of the one product authority, not another source.
-  const intro = prd.html.slice(0, prd.html.indexOf('<h3'));
-  $("#product-overview").innerHTML = inline(intro, "overview-prd");
-  $("#product-requirements").innerHTML = inline(prd.html, "intro-prd");
-  $("#prd-toc").innerHTML = prd.headings.slice(1).map(h => `<a href="#intro-prd-${esc(h.anchor)}" data-scroll-id="intro-prd-${esc(h.anchor)}">${esc(h.title)}</a>`).join("");
-}
-function navigateLink(a) {
-  if (a.dataset.scrollId) {
-    document.getElementById(a.dataset.scrollId)?.scrollIntoView({block: "start"});
-    return;
-  }
-  if (a.dataset.sourceLensLink) showSourceLens(a.dataset.sourceLensLink);
-  if (a.dataset.source) showSourceLens("snapshots");
-  if (a.hash.startsWith("#decision-") || a.hash.startsWith("#phase-")) {
-    document
-      .getElementById(a.hash.slice(1))
-      ?.scrollIntoView({ block: "start" });
-    return;
-  }
-  if (a.dataset.flow) {
-    selectedFlow = a.dataset.flow;
-    flowIndex = 0;
-    $("#flow-select").value = selectedFlow;
-    renderFlow();
-  }
-  if (a.dataset.api) {
-    $("#api-search").value = "";
-    $("#api-filter").value = "";
-    renderApi();
-    selectApi(a.dataset.api);
-  }
-  if (a.dataset.componentLink) {
-    selectComponent(a.dataset.componentLink);
-  }
-  showView(a.hash.slice(1));
-  if (a.dataset.source) {
-    const el = $(`#source-doc-${a.dataset.source}`);
-    if (el) $(".document-details", el).open = true;
-    const target = a.dataset.anchor ? document.getElementById(`doc-${a.dataset.source}-${a.dataset.anchor}`) : el;
-    target?.scrollIntoView({ block: "start" });
-  }
-  if (a.dataset.decision) {
-    setTimeout(
-      () =>
-        $(`#decision-${a.dataset.decision}-queue`)?.scrollIntoView({
-          block: "center",
-        }),
-      20,
-    );
-  }
-}
-function renderPrintReview() {
-  const table = (heads, rows) =>
-    `<table><thead><tr>${heads.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  const page = (title, body) =>
-    `<section class="print-page"><div class="eyebrow">Tableau integration backend / current specification / ${esc(MODEL.date)}</div><h2>${title}</h2>${body}</section>`;
-  const firstSentence = (text) => text.split(/(?<=\.)\s+/)[0];
-  const apis = MODEL.apis.map((a) => [
-    `${a.id} ${a.method} ${a.route}`,
-    a.owner,
-    a.status,
-  ]);
-  const midpoint = Math.ceil(apis.length / 2);
-  const highLimits = MODEL.limitations.filter((r) =>
-    ["L01", "L02", "L13", "L14", "L19", "L24"].includes(r[0]),
-  );
-  $("#print-review").innerHTML =
-    page("0. What this service does", $("#product-overview").innerHTML.replace(/ id="[^"]*"/g, "") + `<p class="print-note">This is a compact summary. The standalone HTML includes the full PRD, all ${MODEL.sources.length} current source documents, contracts and verification criteria.</p>`) +
-    page(
-      "1. " + $("#system-title").textContent.trim().replace(/\.$/, ""),
-      `<p class="print-note">Accepted deployment shape; ordinary HTTP and explicit Jobs are separate. Revised documents and runtime remain unverified. No application or hosting verification is implied.</p>${$(
-        "#system-diagram",
-      )
-        .innerHTML.replaceAll("system-diagram", "print-system-diagram")
-        .replace(
-          / data-ohp-ref="[^"]*"/g,
-          "",
-        )}<p class="print-note">${esc(MODEL.streamingSummary)}</p><p class="print-note">API and worker exchange durable job state through Postgres. Entrusted authenticators stay private; intentional native provider-created credentials may be returned. Optional Redis events can be missed; durable Jobs and callbacks are independent.</p>`,
-    ) +
-    page(
-      "2. Seven journeys to verify",
-      table(
-        ["Journey", "Status and unresolved mechanism", "API routes", "Hold"],
-        MODEL.flows.map((f) => [f.name, f.statusNote, f.routes, f.decision]),
-      ) +
-        `<p class="print-note">The interactive HTML exposes every exact payload, authority/durable effect and failure boundary across ${MODEL.flows.reduce((n, f) => n + f.steps.length, 0)} steps. No ordinary business request is automatically replayed.</p>`,
-    ) +
-    page(
-      "3. Module ownership",
-      table(
-        ["Owner", "Responsibility", "Invariant", "Holds"],
-        MODEL.modules.map((m) => [
-          `${m.id} ${m.name}`,
-          m.responsibility,
-          m.invariant,
-          m.decisions.join(", "),
-        ]),
-      ) +
-        `<p class="print-note">Modules are code boundaries in one maintained codebase. Inputs/outputs, state, dependencies, recovery and extension interfaces remain inspectable in the HTML.</p>`,
-    ) +
-    page(
-      "4. API inventory / first half",
-      `<p class="print-note">Contract map; executable surfaces and remaining support limits are recorded in implementation status. Live Cloud/Server and media acceptance remain open.</p>${table(["Contract", "Owner", "State"], apis.slice(0, midpoint))}`,
-    ) +
-    page(
-      "4. API inventory / second half",
-      `${table(["Contract", "Owner", "State"], apis.slice(midpoint))}`,
-    ) +
-    page(
-      "5. Accepted policies and engineering work",
-      `<p class="print-note">These policies are settled; local application evidence and remaining live acceptance are recorded separately.</p><div class="print-columns">${[MODEL.decisions.slice(0, 4), MODEL.decisions.slice(4)].map((group) => `<div>${group.map((d) => `<article class="print-card">${badge(d.status)} <strong>${esc(d.id)}</strong><h3>${esc(d.question)}</h3><p>${esc(firstSentence(d.recommendation))}</p></article>`).join("")}</div>`).join("")}</div>`,
-    ) +
-    page(
-      "6. Implementation evidence inventory",
-      table(
-        ["Area", "Owner", "Observed evidence", "Surfaces"],
-        MODEL.phases.map((p) => [
-          p.title,
-          p.owners,
-          firstSentence(p.gate),
-          String(p.tasks.length),
-        ]),
-      ) +
-        `<p class="print-note">This is the observed local implementation inventory. The full source records the exact historical snapshot, five test coverage gaps, deferred login risk and remaining live Cloud/Server/Slack acceptance.</p>`,
-    ) +
-    page(
-      "7. Limits, evidence and source traceability",
-      `<div class="print-columns"><div><h3>Accepted caps and engineering limits</h3>${table(
-        ["ID / area", "Status"],
-        highLimits.map((r) => [r[0] + " " + r[1], r[2]]),
-      )}<p class="print-note">All ${MODEL.limitations.length} current limitation findings and treatments remain searchable in the HTML. Native streams have measured physical resource bounds; job input and result size policies remain separate.</p></div><div><h3>Evidence gates</h3>${MODEL.evidence.map((r) => `<article class="print-card"><strong>${esc(r[0])}</strong> ${esc(r[1])}</article>`).join("")}</div></div><h3>Complete current specification</h3><p class="print-note">All ${MODEL.sources.length} maintained source documents are embedded with working internal links and content hashes in the HTML. This print summary omits their full bodies. Historical decision records are excluded from current build guidance.</p>`,
-    );
-}
+  const clear = (node) => {
+    node.replaceChildren();
+    return node;
+  };
+  const fill = (node, ...children) => clear(node).append(el("div", { style: "display:contents" }, ...children));
 
-function init() {
-  renderSources();
+  function statusTone(status) {
+    const s = String(status || "").toLowerCase();
+    if (/^(passed|pass|approved|accepted|done|complete)/.test(s) || /\bpass(ed|es)?\b/.test(s)) return "ok";
+    if (/fail|reject|broken/.test(s)) return "risk";
+    if (/partial|blocked|draft|awaiting|in progress|progress/.test(s)) return "warn";
+    return "";
+  }
+  const badge = (text, tone) => el("span", { class: `badge ${tone ?? statusTone(text)}`, text });
+
+  function highlight(text, query) {
+    if (!query) return [text];
+    const out = [];
+    const lower = text.toLowerCase();
+    let at = 0;
+    for (let i = lower.indexOf(query); i !== -1; i = lower.indexOf(query, at)) {
+      out.push(text.slice(at, i), el("mark", { text: text.slice(i, i + query.length) }));
+      at = i + query.length;
+    }
+    out.push(text.slice(at));
+    return out;
+  }
+
+  function docLink(path, label) {
+    const [file, anchor] = String(path).split("#");
+    const source = sourceByPath.get(file);
+    if (!source) return el("span", { class: "muted", text: label || path });
+    return el("a", {
+      href: `#documents/${source.id}${anchor ? `/${anchor}` : ""}`,
+      text: label || source.title,
+    });
+  }
+
+  /* Overview */
+  function renderOverview() {
+    const status = MODEL.product.status;
+    const strip = clear($("status-strip"));
+    for (const [key, label] of [
+      ["design-status", "Design"],
+      ["implementation-status", "Implementation"],
+      ["user-acceptance", "User acceptance"],
+    ]) {
+      const value = status[key] || "not recorded";
+      strip.append(
+        el("div", { class: "status-card" }, el("p", { class: "eyebrow", text: label }), badge(value.replace(/\.$/, ""))),
+      );
+    }
+    const product = sources.get("product");
+    const intro = clear($("product-intro"));
+    if (product) {
+      const doc = new DOMParser().parseFromString(product.html, "text/html");
+      const nodes = [...doc.body.children];
+      const end = nodes.findIndex((n, i) => i > 0 && /^H[23]$/.test(n.tagName));
+      for (const node of nodes.slice(0, end === -1 ? 4 : end)) intro.append(document.importNode(node, true));
+      intro.append(el("p", {}, docLink(product.path, "Read the full product document")));
+    }
+    const summary = clear($("gate-summary"));
+    for (const [label, gates] of [
+      ["Automated", MODEL.verification.automated],
+      ["Live", MODEL.verification.live],
+    ]) {
+      const counts = {};
+      for (const g of gates) counts[g.status] = (counts[g.status] || 0) + 1;
+      const meter = el("div", { class: "meter", role: "img", "aria-label": `${label} gates: ${Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(", ")}` });
+      for (const [s, n] of Object.entries(counts))
+        meter.append(el("span", { class: statusTone(s) || "open", style: `width:${(100 * n) / gates.length}%` }));
+      summary.append(
+        el("p", {}, el("strong", { text: `${label} gates ` }), el("span", { class: "muted", text: Object.entries(counts).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(" - ") })),
+        meter,
+      );
+    }
+    summary.append(el("p", {}, el("a", { href: "#verification", text: "Open the verification view" })));
+    const journeys = clear($("journeys"));
+    for (const j of MODEL.product.journeys) journeys.append(el("dt", { text: j.name }), el("dd", { text: j.text }));
+    $("rail-foot").textContent = `${MODEL.sources.length} documents - ${MODEL.product.requirements.length} requirements - ${MODEL.api.routes.length} routes`;
+  }
+
+  /* Requirements */
+  function renderRequirements() {
+    const query = $("requirement-filter").value.trim().toLowerCase();
+    const match = (...texts) => !query || texts.some((t) => t.toLowerCase().includes(query));
+    const groups = new Map();
+    for (const r of MODEL.product.requirements) {
+      if (!match(r.id, r.text, r.group)) continue;
+      if (!groups.has(r.group)) groups.set(r.group, []);
+      groups.get(r.group).push(r);
+    }
+    const list = clear($("requirement-list"));
+    for (const [group, items] of groups)
+      list.append(
+        el("div", { class: "group" }, el("h3", { text: group }),
+          items.map((r) => el("div", { class: "item", id: `req-${r.id}` }, el("span", { class: "id", text: r.id }), el("span", { class: "text" }, highlight(r.text, query))))),
+      );
+    if (!groups.size) list.append(el("p", { class: "empty", text: "No requirement matches." }));
+    const recs = clear($("recommendation-list"));
+    let shown = 0;
+    for (const rec of MODEL.product.recommendations) {
+      const points = rec.points.filter((p) => match(p, rec.group));
+      if (!points.length) continue;
+      shown++;
+      recs.append(el("div", { class: "group" }, el("h3", { text: rec.group }), el("ul", { class: "bullets" }, points.map((p) => el("li", {}, highlight(p, query))))));
+    }
+    if (!shown) recs.append(el("p", { class: "empty", text: "No recommendation matches." }));
+    const assumptions = clear($("assumption-list"));
+    for (const a of MODEL.product.assumptions)
+      if (match(a.id, a.text)) assumptions.append(el("li", { class: "item" }, el("span", { class: "id", text: a.id }), el("span", { class: "text" }, highlight(a.text, query))));
+    const exclusions = clear($("exclusion-list"));
+    for (const x of MODEL.product.exclusions) if (match(x)) exclusions.append(el("li", {}, highlight(x, query)));
+  }
+
+  /* Architecture */
+  let selectedComponent = 0;
+  function componentFacts(c) {
+    return el("dl", { class: "facts" },
+      [["Owns", c.owns], ["Interface", c.interface], ["Invariants", c.invariants], ["Failure and recovery", c.failure], ["Extension path", c.extension]]
+        .filter(([, v]) => v)
+        .map(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
+  }
+  function componentArticle(c, index) {
+    return [
+      el("p", { class: "eyebrow", text: `Component ${index + 1} of ${MODEL.architecture.components.length}` }),
+      el("h2", { text: c.name }),
+      componentFacts(c),
+      c.detail ? el("p", { class: "doc-meta" }, "Detailed specification: ", docLink(c.detail)) : null,
+    ];
+  }
+  function renderArchitecture() {
+    const arch = MODEL.architecture;
+    $("topology").textContent = arch.topology;
+    const direction = clear($("direction"));
+    for (const d of arch.direction) direction.append(el("li", { text: d }));
+    const roles = clear($("roles"));
+    for (const r of arch.roles) roles.append(el("dt", { text: r.role }), el("dd", { text: r.runs }), el("dd", { class: "muted", text: `Scaling: ${r.scales}` }));
+    const list = clear($("component-list"));
+    arch.components.forEach((c, i) => {
+      list.append(
+        el("button", { type: "button", role: "option", "aria-selected": String(i === selectedComponent), onclick: () => selectComponent(i) },
+          el("span", {}, el("span", { class: "order", text: String(i + 1).padStart(2, "0") }), c.name),
+          el("small", { text: c.owns.split(/[;,.]/)[0] })),
+      );
+    });
+    fill($("component-detail"), componentArticle(arch.components[selectedComponent], selectedComponent));
+    table($("trust"), ["Boundary", "What crosses", "Relies on"], arch.trust.map((t) => [t.boundary, t.crosses, t.relies]));
+    table($("dependencies"), ["Package", "Used by", "Job"], arch.dependencies.map((d) => [el("code", { text: d.package }), d.usedBy, d.job]));
+  }
+  function selectComponent(i) {
+    selectedComponent = i;
+    renderArchitecture();
+    history.replaceState(null, "", `#architecture/${encodeURIComponent(MODEL.architecture.components[i].name)}`);
+  }
+  function table(node, headers, rows) {
+    clear(node).append(
+      el("thead", {}, el("tr", {}, headers.map((h) => el("th", { scope: "col", text: h })))),
+      el("tbody", {}, rows.map((row) => el("tr", {}, row.map((cell, i) => el("td", { class: i === 0 ? "" : "prose" }, cell))))),
+    );
+  }
+
+  /* Flows */
+  let selectedFlow = 0;
+  function flowArticle(flow, index) {
+    return [
+      el("p", { class: "eyebrow", text: `Flow ${index + 1} of ${MODEL.flows.length}` }),
+      el("h2", { text: flow.name }),
+      el("ol", { class: "steps" },
+        flow.steps.map((s) => el("li", {}, el("div", {}, el("div", { class: "text", text: s.text }),
+          s.owners.length ? el("div", { class: "owners" }, s.owners.map((o) => ownerChip(o))) : null)))),
+      flow.see ? el("p", { class: "doc-meta" }, "Detail: ", docLink(flow.see)) : null,
+    ];
+  }
+  function ownerChip(name) {
+    const index = MODEL.architecture.components.findIndex((c) => c.name === name);
+    if (index === -1) return el("span", { class: "chip", text: name });
+    return el("button", { type: "button", class: "chip", title: `Open the ${name} component`, onclick: () => { selectedComponent = index; go(`#architecture/${encodeURIComponent(name)}`); } }, name);
+  }
+  function renderFlows() {
+    const list = clear($("flow-list"));
+    MODEL.flows.forEach((f, i) =>
+      list.append(el("button", { type: "button", "aria-current": String(i === selectedFlow), onclick: () => { selectedFlow = i; renderFlows(); history.replaceState(null, "", `#flows/${i + 1}`); } },
+        el("span", { text: f.name }), el("small", { text: `${f.steps.length} steps` }))));
+    fill($("flow-detail"), flowArticle(MODEL.flows[selectedFlow], selectedFlow));
+  }
+
+  /* API */
+  function renderApiControls() {
+    const select = $("api-group");
+    select.append(el("option", { value: "", text: "All groups" }));
+    for (const g of [...new Set(MODEL.api.routes.map((r) => r.group))]) select.append(el("option", { value: g, text: g }));
+    $("api-preamble").textContent = MODEL.api.preamble;
+  }
+  function renderApi() {
+    const query = $("api-filter").value.trim().toLowerCase();
+    const group = $("api-group").value;
+    const routes = MODEL.api.routes.filter((r) => (!group || r.group === group) && (!query || [r.route, r.auth, r.owner, r.purpose, r.group].some((t) => t.toLowerCase().includes(query))));
+    const out = clear($("api-groups"));
+    const groups = new Map();
+    for (const r of routes) {
+      if (!groups.has(r.group)) groups.set(r.group, []);
+      groups.get(r.group).push(r);
+    }
+    for (const [name, items] of groups) {
+      const t = el("table", {});
+      clear(t).append(
+        el("thead", {}, el("tr", {}, ["Route", "Auth", "Owner", "Purpose"].map((h) => el("th", { scope: "col", text: h })))),
+        el("tbody", {}, items.map((r) => {
+          const [method, ...rest] = r.route.split(" ");
+          return el("tr", {},
+            el("td", { class: "route" }, el("span", { class: `method ${method.toLowerCase()}`, text: method }), highlight(rest.join(" "), query)),
+            el("td", { class: "prose" }, highlight(r.auth, query)),
+            el("td", {}, ownerChip(r.owner)),
+            el("td", { class: "prose" }, highlight(r.purpose, query)));
+        })),
+      );
+      out.append(el("section", { class: "surface api-group" }, el("h2", { text: name }), MODEL.api.notes[name] ? el("p", { text: MODEL.api.notes[name] }) : null, el("div", { class: "table-wrap" }, t)));
+    }
+    if (!groups.size) out.append(el("p", { class: "empty", text: "No route matches." }));
+    $("api-count").textContent = `${routes.length} of ${MODEL.api.routes.length} routes`;
+  }
+
+  /* Verification */
+  let gateFilter = "";
+  function renderVerification() {
+    const all = [...MODEL.verification.automated, ...MODEL.verification.live];
+    const filters = clear($("gate-filters"));
+    for (const s of ["", ...new Set(all.map((g) => g.status))]) {
+      const n = s ? all.filter((g) => g.status === s).length : all.length;
+      filters.append(el("button", { type: "button", class: "filter-button", "aria-pressed": String(gateFilter === s), onclick: () => { gateFilter = s; renderVerification(); } }, `${s || "All"} (${n})`));
+    }
+    // A table shows an Evidence column only when its gates record evidence.
+    const gateTable = (node, gates) => {
+      const evidence = gates.some((g) => g.evidence);
+      const shown = gates.filter((g) => !gateFilter || g.status === gateFilter);
+      table(node, ["Gate", "Shows", "Status", ...(evidence ? ["Evidence"] : [])],
+        shown.map((g) => [el("strong", { text: g.id }), g.shows, badge(g.status), ...(evidence ? [g.evidence] : [])]));
+    };
+    gateTable($("automated"), MODEL.verification.automated);
+    gateTable($("live"), MODEL.verification.live);
+    const limits = clear($("limitations"));
+    for (const l of MODEL.verification.limitations) limits.append(el("li", { text: l }));
+  }
+
+  /* Documents */
+  let selectedDoc = MODEL.sources[0].id;
+  function renderDocList() {
+    const list = clear($("doc-list"));
+    for (const s of MODEL.sources)
+      list.append(el("button", { type: "button", "aria-current": String(s.id === selectedDoc), onclick: () => go(`#documents/${s.id}`) },
+        el("span", { text: s.title }), el("small", { text: `${s.kind} - ${s.path}` })));
+  }
+  function showDocument(id, anchor) {
+    const source = sources.get(id) || MODEL.sources[0];
+    selectedDoc = source.id;
+    renderDocList();
+    const body = $("doc-body");
+    body.innerHTML = source.html;
+    const toc = clear($("doc-toc"));
+    for (const h of source.headings.filter((h) => h.depth === 2).slice(0, 40))
+      toc.append(el("button", { type: "button", onclick: () => go(`#documents/${source.id}/${h.anchor}`) }, h.title));
+    $("doc-meta").textContent = `${source.path} - sha256 ${source.sha256}`;
+    const target = anchor && source.headings.find((h) => h.anchor === anchor);
+    if (target) {
+      const node = document.getElementById(target.id);
+      node?.scrollIntoView({ block: "start" });
+      node?.classList.add("flash");
+      setTimeout(() => node?.classList.remove("flash"), 1500);
+    } else window.scrollTo(0, 0);
+  }
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest?.("a[data-source]");
+    if (!link) return;
+    event.preventDefault();
+    go(`#documents/${link.dataset.source}${link.dataset.anchor ? `/${link.dataset.anchor}` : ""}`);
+  });
+
+  /* Routing */
+  function go(hash) {
+    if (location.hash === hash) route();
+    else location.hash = hash;
+  }
+  function route() {
+    const [view, ...rest] = location.hash.slice(1).split("/").map(decodeURIComponent);
+    const active = VIEWS.includes(view) ? view : "overview";
+    for (const v of VIEWS) $(`view-${v}`).hidden = v !== active;
+    for (const a of document.querySelectorAll("#views a")) {
+      if (a.dataset.view === active) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    }
+    if (active === "architecture") {
+      const i = MODEL.architecture.components.findIndex((c) => c.name === rest[0]);
+      if (i !== -1) selectedComponent = i;
+      renderArchitecture();
+    } else if (active === "flows") {
+      const i = Number(rest[0]) - 1;
+      if (i >= 0 && i < MODEL.flows.length) selectedFlow = i;
+      renderFlows();
+    } else if (active === "documents") showDocument(rest[0] || selectedDoc, rest.slice(1).join("/"));
+    if (active !== "documents" || !rest[1]) {
+      window.scrollTo(0, 0);
+      $("main").focus({ preventScroll: true });
+    }
+    document.title = `${$(`view-${active}`).querySelector(".eyebrow").textContent} - Tableau Data App Service specification`;
+  }
+
+  /* Print shows every view, every component, every flow and every document. */
+  window.addEventListener("beforeprint", () => {
+    for (const v of VIEWS) $(`view-${v}`).hidden = false;
+    fill($("component-detail"), MODEL.architecture.components.map((c, i) => el("section", {}, componentArticle(c, i))));
+    fill($("flow-detail"), MODEL.flows.map((f, i) => el("section", {}, flowArticle(f, i))));
+    $("doc-body").innerHTML = MODEL.sources.map((s) => s.html).join("");
+    $("doc-meta").textContent = "";
+  });
+  window.addEventListener("afterprint", route);
+
   renderOverview();
-  renderLimitations();
-  $("#evidence-gates").innerHTML = MODEL.evidence
-    .map(
-      (row) =>
-        `<article class="surface surface-body" data-ohp-ref="EVIDENCE-${esc(row[0])}">${badge("Evidence-needed")}<h3 style="margin:10px 0">${esc(row[0])}</h3><p>${esc(row[1])}</p><p class="muted" style="margin-top:10px">${esc(row[2])}</p><div class="linkrow">${sourceLink("verification")}</div></article>`,
-    )
-    .join("");
-  $("#trust-lens").innerHTML =
-    `<div class="table-wrap"><table><thead><tr><th>Boundary / data</th><th>Producer → consumer</th><th>Enforcement</th><th>Persistence</th></tr></thead><tbody>${(MODEL.classifications || []).map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class="diagram-caption">${sourceLink("system", "Inspect trust and data classification source")}</div>`;
-  $("#flow-select").innerHTML = MODEL.flows
-    .map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`)
-    .join("");
-  $("#api-filter").innerHTML += [...new Set(MODEL.apis.map((a) => a.family))]
-    .map((f) => `<option>${esc(f)}</option>`)
-    .join("");
-  $("#decision-jumps").innerHTML = MODEL.decisions
-    .map((d) => `<a href="#decision-${esc(d.id)}-queue">${esc(d.id)}</a>`)
-    .join("");
-  $("#decision-list").innerHTML = MODEL.decisions
-    .map((d) => decisionWidget(d, "queue"))
-    .join("");
-  $("#plan-list").innerHTML = MODEL.phases
-    .map(
-      (p) =>
-        `<article class="surface plan-row" id="phase-${esc(p.id)}" data-ohp-ref="PLAN-${esc(p.id)}"><div class="plan-num">${esc(p.id)}</div><div>${badge(p.status)}<h3>${esc(p.title.slice(6))}</h3><div class="detail-grid">${detail("Owners", p.owners)}${detail("Remaining evidence", p.holds)}</div><details class="plan-tasks"><summary>Inspect ${p.tasks.length} implemented surface</summary><ul>${p.tasks.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></details><div class="plan-gate"><div class="eyebrow">Observed evidence</div><p>${esc(p.gate)}</p></div>${p.risk ? `<div class="callout warning"><h3>Risk boundary</h3><p>${esc(p.risk)}</p></div>` : ""}<div class="linkrow"><button data-plan-node="${esc(p.id)}">Inspect area</button>${sourceLink(p.source)}</div></div></article>`,
-    )
-    .join("");
-  renderPlanDependencies("B00");
-  $("#streaming-summary").textContent = MODEL.streamingSummary;
-  $("#system-summary").innerHTML =
-    `<div class="strip">${MODEL.summary.map((s) => `<div><div class="eyebrow">${esc(s.label)}</div><strong>${esc(s.title)}</strong><p>${esc(s.detail)}</p></div>`).join("")}</div>`;
-  $("#system-decision").innerHTML = MODEL.systemDecision
-    ? decisionWidget(
-        MODEL.decisions.find((d) => d.id === MODEL.systemDecision),
-        "system",
-      )
-    : "";
-  $("#all-flows-print").innerHTML = MODEL.flows
-    .map(
-      (f) =>
-        `<h3 style="margin-top:20px">${esc(f.name)}</h3>${f.steps.map((s, i) => `<div class="print-step"><strong>${i + 1}. ${esc(s.title)}</strong><p>${esc(s.route)} / ${esc(s.data)}</p><p>Authority / durable effect: ${esc(s.authority)}</p><p>Failure: ${esc(s.failure)}</p></div>`).join("")}`,
-    )
-    .join("");
-  renderDiagram("#system-diagram");
-  renderInspector(selectedComponent);
-  renderInspector(
-    MODEL.modules?.[0]?.id || selectedComponent,
-    "#module-inspector",
-  );
-  renderModules();
-  renderModuleDependencies(MODEL.modules?.[0]?.id);
+  renderRequirements();
+  renderApiControls();
   renderApi();
-  selectApi(MODEL.apis[0]?.id);
-  renderFlow();
-  renderPrintReview();
-  showView(location.hash.slice(1) || "overview", false);
-}
-document.addEventListener("click", (event) => {
-  const planNode = event.target.closest("[data-plan-node]");
-  if (planNode) {
-    renderPlanDependencies(planNode.dataset.planNode);
-    $("#plan-dependencies").scrollIntoView({ block: "nearest" });
-    return;
-  }
-  const sourceLens = event.target.closest("[data-source-lens]");
-  if (sourceLens) {
-    showSourceLens(sourceLens.dataset.sourceLens);
-    return;
-  }
-  const lens = event.target.closest("[data-system-lens]");
-  if (lens) {
-    $("#system-workspace").classList.toggle(
-      "trust-active",
-      lens.dataset.systemLens === "trust",
-    );
-    $("#system-inspector").hidden = lens.dataset.systemLens === "trust";
-    $("#runtime-lens").hidden = lens.dataset.systemLens !== "runtime";
-    $("#trust-lens").hidden = lens.dataset.systemLens !== "trust";
-    $$("[data-system-lens]").forEach((b) =>
-      b.setAttribute("aria-pressed", String(b === lens)),
-    );
-    return;
-  }
-  const component = event.target.closest("[data-component]");
-  if (component) {
-    selectComponent(component.dataset.component);
-    return;
-  }
-
-  const step = event.target.closest("[data-step]");
-  if (step) {
-    flowIndex = Number(step.dataset.step);
-    renderFlow();
-    return;
-  }
-  const api = event.target.closest("[data-api-row]");
-  if (api) {
-    selectApi(api.dataset.apiRow);
-    if (innerWidth < 1200)
-      $("#api-detail").scrollIntoView({ block: "start", behavior: "smooth" });
-    return;
-  }
-  const a = event.target.closest('a[href^="#"]');
-  if (a && !a.classList.contains("skip-link")) {
-    event.preventDefault();
-    navigateLink(a);
-  }
-});
-document.addEventListener("keydown", (event) => {
-  const c = event.target.closest("[data-component],[data-api-row]");
-  if (c && (event.key === "Enter" || event.key === " ")) {
-    event.preventDefault();
-    c.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  }
-  if (
-    event.target.closest("[data-step]") &&
-    ["ArrowLeft", "ArrowRight"].includes(event.key)
-  ) {
-    event.preventDefault();
-    flowIndex += event.key === "ArrowRight" ? 1 : -1;
-    renderFlow();
-    $("[data-step].active")?.focus();
-  }
-});
-$("#flow-select").addEventListener("change", (event) => {
-  selectedFlow = event.target.value;
-  flowIndex = 0;
-  renderFlow();
-});
-$("#previous-step").addEventListener("click", () => {
-  flowIndex--;
-  renderFlow();
-});
-$("#next-step").addEventListener("click", () => {
-  flowIndex++;
-  renderFlow();
-});
-$("#limits-search").addEventListener("input", renderLimitations);
-$("#module-search").addEventListener("input", renderModules);
-$("#api-search").addEventListener("input", renderApi);
-$("#api-filter").addEventListener("change", renderApi);
-$("#print-button").addEventListener("click", () => window.print());
-window.addEventListener("hashchange", () =>
-  showView(location.hash.slice(1), false),
-);
-init();
+  renderVerification();
+  $("requirement-filter").addEventListener("input", renderRequirements);
+  $("api-filter").addEventListener("input", renderApi);
+  $("api-group").addEventListener("change", renderApi);
+  window.addEventListener("hashchange", route);
+  route();
+})();
