@@ -1,8 +1,8 @@
-/* Offline specification viewer. Every value comes from MODEL, which build.py derives from docs/. */
+/* Offline documentation viewer. Every value comes from MODEL, which build.py derives from docs/. */
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const VIEWS = ["overview", "requirements", "architecture", "flows", "api", "verification", "documents"];
+  const VIEWS = ["overview", "capabilities", "architecture", "flows", "api", "verification", "documents"];
   const sources = new Map(MODEL.sources.map((s) => [s.id, s]));
   const sourceByPath = new Map(MODEL.sources.map((s) => [s.path, s]));
 
@@ -26,15 +26,6 @@
     return node;
   };
   const fill = (node, ...children) => clear(node).append(el("div", { style: "display:contents" }, ...children));
-
-  function statusTone(status) {
-    const s = String(status || "").toLowerCase();
-    if (/^(passed|pass|approved|accepted|done|complete)/.test(s) || /\bpass(ed|es)?\b/.test(s)) return "ok";
-    if (/fail|reject|broken/.test(s)) return "risk";
-    if (/partial|blocked|draft|awaiting|in progress|progress/.test(s)) return "warn";
-    return "";
-  }
-  const badge = (text, tone) => el("span", { class: `badge ${tone ?? statusTone(text)}`, text });
 
   function highlight(text, query) {
     if (!query) return [text];
@@ -61,18 +52,6 @@
 
   /* Overview */
   function renderOverview() {
-    const status = MODEL.product.status;
-    const strip = clear($("status-strip"));
-    for (const [key, label] of [
-      ["design-status", "Design"],
-      ["implementation-status", "Implementation"],
-      ["user-acceptance", "User acceptance"],
-    ]) {
-      const value = status[key] || "not recorded";
-      strip.append(
-        el("div", { class: "status-card" }, el("p", { class: "eyebrow", text: label }), badge(value.replace(/\.$/, ""))),
-      );
-    }
     const product = sources.get("product");
     const intro = clear($("product-intro"));
     if (product) {
@@ -82,56 +61,32 @@
       for (const node of nodes.slice(0, end === -1 ? 4 : end)) intro.append(document.importNode(node, true));
       intro.append(el("p", {}, docLink(product.path, "Read the full product document")));
     }
+    const v = MODEL.verification;
     const summary = clear($("gate-summary"));
-    for (const [label, gates] of [
-      ["Automated", MODEL.verification.automated],
-      ["Live", MODEL.verification.live],
-    ]) {
-      const counts = {};
-      for (const g of gates) counts[g.status] = (counts[g.status] || 0) + 1;
-      const meter = el("div", { class: "meter", role: "img", "aria-label": `${label} gates: ${Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(", ")}` });
-      for (const [s, n] of Object.entries(counts))
-        meter.append(el("span", { class: statusTone(s) || "open", style: `width:${(100 * n) / gates.length}%` }));
-      summary.append(
-        el("p", {}, el("strong", { text: `${label} gates ` }), el("span", { class: "muted", text: Object.entries(counts).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(" - ") })),
-        meter,
-      );
-    }
+    summary.append(
+      el("p", {}, el("strong", { text: `${v.checks.length} automated checks` }), el("span", { class: "muted", text: " run with npm test against real Postgres and Redis." })),
+      el("p", {}, el("strong", { text: `${v.unverified.length} items` }), el("span", { class: "muted", text: " not yet verified against live Tableau Cloud and Slack." })),
+      el("p", {}, el("strong", { text: `${v.limitations.length} known limitations.` })),
+    );
     summary.append(el("p", {}, el("a", { href: "#verification", text: "Open the verification view" })));
     const journeys = clear($("journeys"));
     for (const j of MODEL.product.journeys) journeys.append(el("dt", { text: j.name }), el("dd", { text: j.text }));
-    $("rail-foot").textContent = `${MODEL.sources.length} documents - ${MODEL.product.requirements.length} requirements - ${MODEL.api.routes.length} routes`;
+    $("rail-foot").textContent = `${MODEL.sources.length} documents - ${MODEL.verification.checks.length} checks - ${MODEL.api.routes.length} routes`;
   }
 
-  /* Requirements */
-  function renderRequirements() {
-    const query = $("requirement-filter").value.trim().toLowerCase();
+  /* What it does */
+  function renderCapabilities() {
+    const query = $("capability-filter").value.trim().toLowerCase();
     const match = (...texts) => !query || texts.some((t) => t.toLowerCase().includes(query));
-    const groups = new Map();
-    for (const r of MODEL.product.requirements) {
-      if (!match(r.id, r.text, r.group)) continue;
-      if (!groups.has(r.group)) groups.set(r.group, []);
-      groups.get(r.group).push(r);
-    }
-    const list = clear($("requirement-list"));
-    for (const [group, items] of groups)
-      list.append(
-        el("div", { class: "group" }, el("h3", { text: group }),
-          items.map((r) => el("div", { class: "item", id: `req-${r.id}` }, el("span", { class: "id", text: r.id }), el("span", { class: "text" }, highlight(r.text, query))))),
-      );
-    if (!groups.size) list.append(el("p", { class: "empty", text: "No requirement matches." }));
-    const recs = clear($("recommendation-list"));
+    const list = clear($("capability-list"));
     let shown = 0;
-    for (const rec of MODEL.product.recommendations) {
-      const points = rec.points.filter((p) => match(p, rec.group));
+    for (const c of MODEL.product.capabilities) {
+      const points = c.points.filter((p) => match(p, c.group));
       if (!points.length) continue;
       shown++;
-      recs.append(el("div", { class: "group" }, el("h3", { text: rec.group }), el("ul", { class: "bullets" }, points.map((p) => el("li", {}, highlight(p, query))))));
+      list.append(el("div", { class: "group" }, el("h3", { text: c.group }), el("ul", { class: "bullets" }, points.map((p) => el("li", {}, highlight(p, query))))));
     }
-    if (!shown) recs.append(el("p", { class: "empty", text: "No recommendation matches." }));
-    const assumptions = clear($("assumption-list"));
-    for (const a of MODEL.product.assumptions)
-      if (match(a.id, a.text)) assumptions.append(el("li", { class: "item" }, el("span", { class: "id", text: a.id }), el("span", { class: "text" }, highlight(a.text, query))));
+    if (!shown) list.append(el("p", { class: "empty", text: "Nothing matches." }));
     const exclusions = clear($("exclusion-list"));
     for (const x of MODEL.product.exclusions) if (match(x)) exclusions.append(el("li", {}, highlight(x, query)));
   }
@@ -149,7 +104,7 @@
       el("p", { class: "eyebrow", text: `Component ${index + 1} of ${MODEL.architecture.components.length}` }),
       el("h2", { text: c.name }),
       componentFacts(c),
-      c.detail ? el("p", { class: "doc-meta" }, "Detailed specification: ", docLink(c.detail)) : null,
+      c.detail ? el("p", { class: "doc-meta" }, "Detail: ", docLink(c.detail)) : null,
     ];
   }
   function renderArchitecture() {
@@ -245,25 +200,13 @@
   }
 
   /* Verification */
-  let gateFilter = "";
   function renderVerification() {
-    const all = [...MODEL.verification.automated, ...MODEL.verification.live];
-    const filters = clear($("gate-filters"));
-    for (const s of ["", ...new Set(all.map((g) => g.status))]) {
-      const n = s ? all.filter((g) => g.status === s).length : all.length;
-      filters.append(el("button", { type: "button", class: "filter-button", "aria-pressed": String(gateFilter === s), onclick: () => { gateFilter = s; renderVerification(); } }, `${s || "All"} (${n})`));
-    }
-    // A table shows an Evidence column only when its gates record evidence.
-    const gateTable = (node, gates) => {
-      const evidence = gates.some((g) => g.evidence);
-      const shown = gates.filter((g) => !gateFilter || g.status === gateFilter);
-      table(node, ["Gate", "Shows", "Status", ...(evidence ? ["Evidence"] : [])],
-        shown.map((g) => [el("strong", { text: g.id }), g.shows, badge(g.status), ...(evidence ? [g.evidence] : [])]));
-    };
-    gateTable($("automated"), MODEL.verification.automated);
-    gateTable($("live"), MODEL.verification.live);
+    const v = MODEL.verification;
+    table($("checks"), ["Check", "Shows", "Tests"], v.checks.map((c) => [el("strong", { text: c.id }), c.shows, c.tests]));
+    const unverified = clear($("unverified"));
+    for (const u of v.unverified) unverified.append(el("li", { text: u }));
     const limits = clear($("limitations"));
-    for (const l of MODEL.verification.limitations) limits.append(el("li", { text: l }));
+    for (const l of v.limitations) limits.append(el("li", { text: l }));
   }
 
   /* Documents */
@@ -325,7 +268,7 @@
       window.scrollTo(0, 0);
       $("main").focus({ preventScroll: true });
     }
-    document.title = `${$(`view-${active}`).querySelector(".eyebrow").textContent} - Tableau Data App Service specification`;
+    document.title = `${$(`view-${active}`).querySelector(".eyebrow").textContent} - Tableau Data App Service documentation`;
   }
 
   /* Print shows every view, every component, every flow and every document. */
@@ -339,11 +282,11 @@
   window.addEventListener("afterprint", route);
 
   renderOverview();
-  renderRequirements();
+  renderCapabilities();
   renderApiControls();
   renderApi();
   renderVerification();
-  $("requirement-filter").addEventListener("input", renderRequirements);
+  $("capability-filter").addEventListener("input", renderCapabilities);
   $("api-filter").addEventListener("input", renderApi);
   $("api-group").addEventListener("change", renderApi);
   window.addEventListener("hashchange", route);

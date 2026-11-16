@@ -1,9 +1,8 @@
 # Architecture
 
 This document describes the service's topology, trust boundaries and components.
-Each component has one owner, a narrow interface, the invariants it keeps, how it fails and recovers, and how it extends.
-[Product](product.md) owns requirements; this document owns structure.
-Shared types live in [contracts](contracts.md).
+Each component lists what it owns, its interface, the invariants it keeps, how it fails and recovers, and where it extends.
+Shared types are in [contracts](contracts.md).
 
 ## Topology
 
@@ -20,7 +19,7 @@ Shared types live in [contracts](contracts.md).
  │  (service origin)       ─┼────────┼─► sign-in session, provider connect          │
  └──────────────────────────┘        └──────┬───────────────────────┬───────────────┘
                                             │                       │
- Operator CLI / setup page ── bearer ──► operator API          Postgres (authoritative)
+ Operator CLI / tools ─── bearer ──► operator API          Postgres (authoritative)
                                             │                  Redis (events only, optional)
                                             ▼
                                   Provider APIs, Tableau sign-in and REST API
@@ -52,85 +51,85 @@ Components are listed in dependency order; a component depends only on component
 
 ### Platform
 
-- **Owns:** configuration loading, logging with secret redaction, clock, structured errors, process roles, shutdown.
-- **Interface:** `loadBootstrap()`, `log`, `ServiceError`, `clock.now()`.
-- **Invariants:** a secret value is never written to a log line or an error message; configuration errors name the field and the rule.
+- **Owns:** settings and bootstrap loading, structured logging with secret redaction, the clock, structured errors, outbound HTTP with destination checks.
+- **Interface:** `loadSettings()`, `loadBootstrap(path)`, `Log`, `ServiceError`, the `Clock` type, `Outbound`.
+- **Invariants:** a secret value is never written to a log line or an error message; configuration errors name every failing field and its rule.
 - **Failure:** invalid configuration stops startup before the process accepts traffic, with every failing field listed.
-- **Extension:** new bootstrap fields are added to one schema.
+- **Extension:** a new setting or bootstrap field is added to one schema.
 
 ### Persistence
 
-- **Owns:** the Postgres pool, migrations, transactions, and the installation revision.
-- **Interface:** `db` (Kysely), `transaction(fn)`, `revision.bump(tx)`, `revision.current()`.
-- **Invariants:** connections verify the server certificate; migrations run once, by one role, before either role serves.
-- **Failure:** a lost database connection fails the request in flight; nothing is retried that may have committed.
+- **Owns:** the Postgres pool, migrations, transactions, the installation revision and the audit log.
+- **Interface:** `openDatabase()`, `migrate(db)`, `assertSchemaCurrent(db)`, `transaction(db, fn)`, `bumpRevision(tx)`, `currentRevision(db)`, `writeAudit()`.
+- **Invariants:** connections verify the server certificate; migrations run only in the `migrate` role, and every other role refuses to start when the schema is behind.
+- **Failure:** a lost database connection fails the request in flight; nothing that may have committed is retried.
 - **Extension:** new tables arrive through new migrations owned by the component that owns the table.
 
 ### Sealing
 
-- **Owns:** authenticated encryption of every stored secret.
-- **Interface:** `seal(purpose, recordId, plaintext)`, `open(purpose, recordId, sealed)`.
+- **Owns:** authenticated encryption of every stored secret, and resealing under a new key.
+- **Interface:** `Sealer.seal(purpose, recordId, plaintext)`, `Sealer.open(purpose, recordId, sealed)`, `reseal(db, sealer)`.
 - **Invariants:** a sealed value opens only with the same purpose and record ID; each sealed value names its key ID.
 - **Failure:** a missing or wrong key fails closed and names the key ID, never the value.
-- **Extension:** key rotation adds a key ID; old values reseal through the maintenance command.
+- **Extension:** key rotation adds a key ID; `tdas-admin reseal` moves every value to the current key.
 
 ### Identity
 
 - **Owns:** deployments, trusted sites, verified Tableau sign-in, operators, sign-in sessions, app sessions and bearers, the app registry and the "verify app location" step.
-- **Interface:** `beginSignIn`, `completeSignIn`, `issueAppSession`, `authenticate(bearer)`, `isOperator(identity)`.
+- **Interface:** `beginTableauSignIn`, `completeTableauSignIn`, `startAppSignIn`, `issueCompletionCode`, `redeemAppSignIn`, `restore`, `authenticate(bearer)`, `authenticateOperator(bearer)`, `beginOperatorSignIn`, `approveOperatorSignIn`, `redeemOperatorCode`, `revokeSessions`, and the directory of sites and operators.
 - **Invariants:** an identity is a deployment, a site ID and a user ID; operator status comes only from the operators table; the last verified Tableau sign-in time is set only by a Tableau sign-in.
 - **Failure:** a Tableau outage fails new sign-ins and leaves existing bearers working until they expire.
-- **Extension:** a new deployment kind, such as Tableau Server, is a new deployment adapter.
+- **Extension:** a deployment kind is a `DeploymentAdapter` with `authorizationUrl` and `complete`; `tableau-cloud` is the one adapter.
 - **Detail:** [identity](identity.md).
 
 ### Connections
 
-- **Owns:** provider types, connection definitions and their generations, connections, sealed credentials, OAuth and static setup, token refresh, the generic OAuth callback.
-- **Interface:** `definitions.*` for operators, `connect`, `disconnect`, `checkout(identity, definitionId)` returning a credential lease.
-- **Invariants:** a credential is used only with the definition generation that issued it; a personal checkout never returns a shared connection; tokens are never returned to a caller.
-- **Failure:** a refresh failure marks the connection as needing reauthorization and fails the request honestly.
-- **Extension:** a provider preset is code that fills in a provider type and may add capabilities and an event source.
+- **Owns:** provider types, connection definitions and their generations, connections, sealed credentials, OAuth and static setup, secret links, token refresh, the OAuth callback and disconnect.
+- **Interface:** `DefinitionStore` (`create`, `patch`, `redefine`, `retire`) for operators, `listForApp`, `startConnect`, `beginConnect`, `completeConnect`, `setPersonalCredential`, `createSecretLink`, `disconnectOwn`, `disconnectAny`, `checkout(caller, definitionId, signal)` returning a credential lease.
+- **Invariants:** a credential is used only with the definition generation that issued it; a personal checkout never returns a shared connection; credentials are never returned to a caller.
+- **Failure:** a refresh the provider rejects because the grant is gone marks the connection `needs-authorization`; any other refresh failure fails the request and leaves the connection as it was.
+- **Extension:** a provider preset is a `ProviderType` in code that fills in defaults and may add capabilities, Job handlers and an event source.
 - **Detail:** [connections](connections.md).
 
 ### Router
 
-- **Owns:** native request forwarding, destination checks, streaming.
-- **Interface:** `route(identity, definitionId, request)` returning a streamed response.
-- **Invariants:** the service adds the credential and removes nothing else from the native exchange except hop-by-hop headers and its own bearer; requests are never retried.
-- **Failure:** an upstream failure returns its native status and body; a transport failure returns a service error that says whether the request may have reached the provider.
-- **Extension:** a preset may declare extra API hosts or a credential placement.
+- **Owns:** native request forwarding, capability calls, API host selection and streaming.
+- **Interface:** `NativeRouter.forward(request)` returning a streamed response, and `NativeRouter.capability(...)`.
+- **Invariants:** the router sets the credential and removes only hop-by-hop headers and the service's own headers and cookies; requests are never retried.
+- **Failure:** a provider's own error returns its native status and body; a transport failure returns a service error that says whether the request may have reached the provider.
+- **Extension:** a preset declares its API hosts, credential placement and capabilities.
 - **Detail:** [routing](routing.md).
 
 ### Jobs
 
 - **Owns:** Job admission, the durable queue, execution, external task waits, callbacks, results and retention.
-- **Interface:** `submit`, `get`, `list`, `cancel`, and a handler registry for presets.
-- **Invariants:** the Jobs table is the only queue; a submission key admits at most one Job per owner; an interrupted Job is never replayed unless its handler opts in.
-- **Failure:** a worker crash leaves its Jobs claimable after their lease expires, marked as interrupted.
-- **Extension:** a new handler is code registered under a provider preset.
+- **Interface:** `JobService` (`submit`, `get`, `listOwn`, `list`, `result`, `cancelOwn`, `cancelAny`, `callback`) and `JobWorker`; handlers come from provider types' `jobHandlers`.
+- **Invariants:** the Jobs table is the only queue; a submission key admits at most one Job per owner and handler; an attempt with an unknown outcome is never replayed unless its handler declares replay safe.
+- **Failure:** after a worker crash its leases expire, and each running Job is retried when its handler declares replay safe, and otherwise ends `interrupted`, or `cancelled` when a cancel was recorded.
+- **Extension:** a new handler is code in a provider type's `jobHandlers`.
 - **Detail:** [jobs](jobs.md).
 
 ### Events
 
-- **Owns:** event sources, verification of incoming events, Redis fan-out, server-sent event streams.
-- **Interface:** `ingest(sourceId, request)`, `subscribe(identity, filter)`.
-- **Invariants:** with events off no Redis client exists; an event reaches only subscribers allowed to use the definition it came from.
-- **Failure:** a Redis outage stops events and leaves every other component working.
-- **Extension:** a new event source is code registered under a provider preset.
+- **Owns:** event sources, verification of incoming deliveries, Redis fan-out, server-sent event streams.
+- **Interface:** `EventService.ingest(definitionId, delivery)`, `EventService.open(principal, definitionIds, sink)`.
+- **Invariants:** with events off no Redis client exists; an event reaches only streams whose identity's site is in the audience of the definition it came from.
+- **Failure:** a Redis outage stops event fan-out and leaves every other component serving.
+- **Extension:** a new event source is code in a provider type's `eventSource`.
 - **Detail:** [events and SDK](events-sdk.md).
 
 ### HTTP surface
 
-- **Owns:** Fastify routes, request parsing, error shapes, CORS, popup pages.
+- **Owns:** Fastify routes, request parsing, error shapes, CORS, cookies and service pages.
 - **Interface:** the routes in [API](api.md).
-- **Invariants:** API routes allow any origin, and only restore and redeem accept credentials; popup pages are served with no-store, no-referrer and a restrictive content security policy.
+- **Invariants:** API routes allow any origin, and only restore and redeem accept credentials; service pages are served with no-store, no-referrer and a restrictive content security policy.
 - **Failure:** every error uses one shape with a stable code.
 
 ### Browser SDK and CLI
 
-- **Owns:** the Data App SDK and the operator command-line tool.
+- **Owns:** the Data App SDK, the operator command-line tool `tdas` and the host command `tdas-admin`.
 - **Interface:** described in [events and SDK](events-sdk.md) and [running](running.md).
-- **Invariants:** the SDK keeps its bearer in memory only and stays small; the CLI stores its operator bearer in the host's credential store.
+- **Invariants:** the SDK keeps its bearer in memory only and stays small; `tdas` stores its operator bearer in the system credential store.
 
 ## Dependency direction
 
@@ -138,31 +137,31 @@ Platform and persistence sit at the bottom.
 Sealing depends on platform.
 Identity and connections depend on persistence and sealing.
 Router depends on identity and connections.
-Jobs and events depend on identity, connections and router.
+Jobs and events depend on identity and connections.
 The HTTP surface depends on every component and holds no business rules.
-Presets depend only on the provider type interface in connections, and register into router, Jobs and events.
+Presets depend only on the provider type interface in connections, and the router, Jobs and events read their capabilities, handlers and event sources from it.
 
 ## Roles
 
 | Role | Runs | Scales |
 | --- | --- | --- |
 | `api` | HTTP surface, router, sign-in, operator API, event ingest and streams. | Horizontally; no affinity is required. |
-| `worker` | Job execution, retention cleanup, expired session cleanup. | Horizontally; claims rows with `FOR UPDATE SKIP LOCKED`. |
+| `worker` | Job execution, lease recovery, retention cleanup, expired session cleanup, and its own health routes. | Horizontally; claims rows with `FOR UPDATE SKIP LOCKED`. |
 | `migrate` | Migrations, then exits. | Once per release. |
-| `admin` | Host-local commands, including operator recovery and key rotation. | On demand. |
+| `tdas-admin` | Host-local commands: operator recovery and resealing. A separate command, not a role of the service process. | On demand. |
 
 ## Dependencies
 
-Each runtime dependency has one job and is chosen because the job is security-sensitive or protocol-heavy enough that maintained code beats code written here.
+Each runtime dependency has one job, where the job is security-sensitive or protocol-heavy enough that maintained code beats code written here.
 
 | Package | Used by | Job |
 | --- | --- | --- |
 | `fastify` | HTTP surface | HTTP server, routing and streaming request bodies. |
 | `kysely` and `pg` | Persistence | Typed queries and the Postgres driver with verified TLS. |
-| `oauth4webapi` | Identity, connections | OAuth 2.0, PKCE and OpenID Connect validation. |
-| `undici` | Router, connections | Outgoing HTTP with streaming and a socket-time destination check. |
-| `ipaddr.js` | Router | Address range classification for destination checks. |
-| `zod` | Platform, connections | Validation of settings, bootstrap and definitions, on the server only. |
+| `oauth4webapi` | Identity | Tableau OAuth 2.0, PKCE and OpenID Connect validation. |
+| `undici` | Platform outbound | Outgoing HTTP for the router, connections and presets, with streaming and a socket-time destination check. |
+| `ipaddr.js` | Platform outbound | Address range classification for destination checks. |
+| `zod` | Platform, identity | Validation of settings, bootstrap and Tableau responses, on the server only. |
 | `canonicalize` | Jobs | Canonical JSON for submission key comparison. |
 | `redis` | Events | Publish and subscribe, loaded only when events are on. |
 | `@napi-rs/keyring` | CLI | Stores the operator bearer in the system credential store. |

@@ -227,53 +227,6 @@ main:focus {
   grid-template-columns: 250px minmax(0, 1fr);
   align-items: start;
 }
-.status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.status-card {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: var(--r);
-  padding: 10px 14px;
-  min-width: 200px;
-  flex: 1;
-}
-.status-card .eyebrow {
-  margin-bottom: 4px;
-}
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--line);
-  padding: 1px 7px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-  color: var(--muted);
-}
-.badge:before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 1px;
-  background: currentColor;
-}
-.badge.ok {
-  color: var(--ok);
-}
-.badge.warn {
-  color: var(--warn);
-}
-.badge.risk {
-  color: var(--risk);
-}
-.badge.info {
-  color: var(--accent);
-}
 .chip {
   display: inline-block;
   white-space: nowrap;
@@ -292,29 +245,6 @@ button.chip:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
-.meter {
-  display: flex;
-  height: 8px;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--raised);
-  margin: 8px 0 12px;
-}
-.meter span {
-  display: block;
-}
-.meter .ok {
-  background: var(--ok);
-}
-.meter .warn {
-  background: var(--warn);
-}
-.meter .risk {
-  background: var(--risk);
-}
-.meter .open {
-  background: var(--strong);
-}
 .pairs {
   margin: 0;
   display: grid;
@@ -330,7 +260,6 @@ button.chip:hover {
   font-family: var(--sans);
   font-size: 13px;
 }
-ul.plain,
 ul.bullets,
 ol.direction {
   margin: 0;
@@ -338,29 +267,6 @@ ol.direction {
   display: grid;
   gap: 8px;
   font-family: var(--sans);
-}
-ul.plain {
-  list-style: none;
-  padding-left: 0;
-}
-.item {
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 10px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
-.item:first-child {
-  border-top: 0;
-}
-.item .id {
-  color: var(--accent);
-  font-weight: 700;
-}
-.item .text {
-  font-family: var(--sans);
-  font-size: 13.5px;
-  line-height: 1.55;
 }
 .group {
   margin-top: 18px;
@@ -396,18 +302,6 @@ select {
 }
 select {
   width: auto;
-}
-.filter-button {
-  background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 6px 12px;
-  cursor: pointer;
-}
-.filter-button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--soft);
 }
 pre.diagram {
   margin: 0;
@@ -754,7 +648,6 @@ mark {
   }
   pre,
   table,
-  .item,
   ol.steps li {
     break-inside: avoid;
   }

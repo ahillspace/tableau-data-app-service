@@ -57,29 +57,18 @@ def tables(text):
     return result
 
 
-def items(text, pattern):
-    """Bulleted items whose text starts with an ID like R12 or A3, with continuation lines."""
-    found = []
-    for match in re.finditer(rf'^- ({pattern})\. (.*?)(?=^- |^#|^\n|\Z)', text, re.M | re.S):
-        found.append({'id': match.group(1), 'text': plain(match.group(2))})
-    return found
+def bullets(text):
+    return [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', text, re.M | re.S)]
 
 
 def product(text):
-    requirements = []
-    for group, body in subsections(section(text, 'Requirements'), 3):
-        for item in items(body, r'R\d+'):
-            requirements.append({**item, 'group': group})
-    if not requirements:
-        raise ShapeError('no requirements R1..Rn under "Requirements"')
-    recommendations = [{'group': group, 'points': [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', body, re.M | re.S)]}
-                       for group, body in subsections(section(text, 'Recommendations'), 3)]
-    assumptions = items(section(text, 'Unverified assumptions'), r'A\d+')
+    capabilities = [{'group': group, 'points': bullets(body)}
+                    for group, body in subsections(section(text, 'What it does'), 3)]
+    if not capabilities:
+        raise ShapeError('no groups under "What it does"')
     journeys = [{'name': plain(r['Journey']), 'text': plain(r['What happens'])} for r in tables(section(text, 'Viewer and operator journeys'))[0]]
-    exclusions = [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', section(text, 'Exclusions'), re.M | re.S)]
-    status = {k.lower().replace(' ', '-'): plain(v) for k, v in re.findall(r'^(Design status|Implementation status|User acceptance): (.+)$', text, re.M)}
-    return {'requirements': requirements, 'recommendations': recommendations, 'assumptions': assumptions,
-            'journeys': journeys, 'exclusions': exclusions, 'status': status}
+    exclusions = bullets(section(text, 'Not included'))
+    return {'capabilities': capabilities, 'journeys': journeys, 'exclusions': exclusions}
 
 
 def architecture(text):
@@ -141,12 +130,12 @@ def flows(text):
 
 
 def verification(text):
-    def gates(heading):
-        rows = tables(section(text, heading))[0]
-        return [{'id': plain(r['Gate']), 'shows': plain(r['Shows']), 'status': plain(r['Status']),
-                 'evidence': plain(r.get('Evidence', ''))} for r in rows]
-    limitations = [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', section(text, 'Known limitations'), re.M | re.S)]
-    return {'automated': gates('Automated gates'), 'live': gates('Live gates'), 'limitations': limitations}
+    checks = [{'id': plain(r['Check']), 'shows': plain(r['Shows']), 'tests': plain(r['Tests'])}
+              for r in tables(section(text, 'Automated tests'))[0]]
+    if not checks:
+        raise ShapeError('no checks under "Automated tests"')
+    return {'checks': checks, 'unverified': bullets(section(text, 'Not verified live')),
+            'limitations': bullets(section(text, 'Known limitations'))}
 
 
 PARSERS = {'docs/product.md': ('product', product), 'docs/architecture.md': ('architecture', architecture),

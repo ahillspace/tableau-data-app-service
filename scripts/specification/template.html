@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Tableau Data App Service - Specification</title>
+    <title>Tableau Data App Service - Documentation</title>
     <style>
       /*__STYLE__*/
     </style>
@@ -14,11 +14,11 @@
       <aside class="rail">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">tdas</span>
-          <span>Tableau Data App Service<br /><span class="muted">Specification</span></span>
+          <span>Tableau Data App Service<br /><span class="muted">Documentation</span></span>
         </div>
         <nav aria-label="Views" id="views">
           <a href="#overview" data-view="overview"><span class="num">01</span>Overview</a>
-          <a href="#requirements" data-view="requirements"><span class="num">02</span>Requirements</a>
+          <a href="#capabilities" data-view="capabilities"><span class="num">02</span>What it does</a>
           <a href="#architecture" data-view="architecture"><span class="num">03</span>Architecture</a>
           <a href="#flows" data-view="flows"><span class="num">04</span>Flows</a>
           <a href="#api" data-view="api"><span class="num">05</span>API</a>
@@ -33,7 +33,6 @@
             <p class="eyebrow">Overview</p>
             <h1 id="overview-title">An authenticated router between Tableau Data Apps and the APIs they use.</h1>
           </header>
-          <div class="status-strip" id="status-strip"></div>
           <div class="grid two">
             <article class="surface document-content" id="product-intro"></article>
             <div class="stack">
@@ -49,32 +48,22 @@
           </div>
         </section>
 
-        <section id="view-requirements" class="view" hidden aria-labelledby="requirements-title">
+        <section id="view-capabilities" class="view" hidden aria-labelledby="capabilities-title">
           <header class="view-head">
-            <p class="eyebrow">Product</p>
-            <h1 id="requirements-title">What the product owner requires, what the architecture recommends, and what is still unverified.</h1>
+            <p class="eyebrow">What it does</p>
+            <h1 id="capabilities-title">What the service does today, and what it does not include.</h1>
           </header>
           <div class="toolbar">
-            <label class="search"><span class="sr-only">Filter requirements</span><input id="requirement-filter" type="search" placeholder="Filter requirements, recommendations and assumptions" autocomplete="off" /></label>
+            <label class="search"><span class="sr-only">Filter capabilities</span><input id="capability-filter" type="search" placeholder="Filter what the service does" autocomplete="off" /></label>
           </div>
-          <section class="surface" aria-labelledby="req-title">
-            <h2 id="req-title">Requirements</h2>
-            <div id="requirement-list"></div>
+          <section class="surface" aria-labelledby="capability-title">
+            <h2 id="capability-title">Capabilities</h2>
+            <div id="capability-list"></div>
           </section>
-          <section class="surface" aria-labelledby="rec-title">
-            <h2 id="rec-title">Recommendations</h2>
-            <div id="recommendation-list"></div>
+          <section class="surface" aria-labelledby="exclude-title">
+            <h2 id="exclude-title">Not included</h2>
+            <ul class="bullets" id="exclusion-list"></ul>
           </section>
-          <div class="grid two">
-            <section class="surface" aria-labelledby="assume-title">
-              <h2 id="assume-title">Unverified assumptions</h2>
-              <ul class="plain" id="assumption-list"></ul>
-            </section>
-            <section class="surface" aria-labelledby="exclude-title">
-              <h2 id="exclude-title">Exclusions</h2>
-              <ul class="bullets" id="exclusion-list"></ul>
-            </section>
-          </div>
         </section>
 
         <section id="view-architecture" class="view" hidden aria-labelledby="architecture-title">
@@ -138,21 +127,22 @@
         <section id="view-verification" class="view" hidden aria-labelledby="verification-title">
           <header class="view-head">
             <p class="eyebrow">Verification</p>
-            <h1 id="verification-title">Gates that must pass before each part is called done.</h1>
+            <h1 id="verification-title">What the automated tests show, what is not yet verified live, and known limitations.</h1>
           </header>
-          <div class="toolbar" role="group" aria-label="Filter gates by status" id="gate-filters"></div>
           <section class="surface" aria-labelledby="auto-title">
-            <h2 id="auto-title">Automated gates</h2>
-            <div class="table-wrap"><table id="automated"></table></div>
+            <h2 id="auto-title">Automated tests</h2>
+            <div class="table-wrap"><table id="checks"></table></div>
           </section>
-          <section class="surface" aria-labelledby="live-title">
-            <h2 id="live-title">Live gates</h2>
-            <div class="table-wrap"><table id="live"></table></div>
-          </section>
-          <section class="surface" aria-labelledby="limits-title">
-            <h2 id="limits-title">Known limitations</h2>
-            <ul class="bullets" id="limitations"></ul>
-          </section>
+          <div class="grid two">
+            <section class="surface" aria-labelledby="unverified-title">
+              <h2 id="unverified-title">Not verified live</h2>
+              <ul class="bullets" id="unverified"></ul>
+            </section>
+            <section class="surface" aria-labelledby="limits-title">
+              <h2 id="limits-title">Known limitations</h2>
+              <ul class="bullets" id="limitations"></ul>
+            </section>
+          </div>
         </section>
 
         <section id="view-documents" class="view" hidden aria-labelledby="documents-title">

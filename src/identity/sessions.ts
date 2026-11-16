@@ -43,7 +43,7 @@ export function readAppDeclaration(input: { appId?: unknown; attribution?: unkno
 
 /**
  * Verify app location: decides what the service knows about where the calling app runs.
- * The first build records the declared attribution only and proves nothing about the app's site.
+ * It records the declared attribution only and proves nothing about the app's site.
  */
 export function verifyAppLocation(_attribution: Attribution): { verified: boolean } {
   return { verified: false };

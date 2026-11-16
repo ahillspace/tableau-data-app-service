@@ -16,7 +16,8 @@ The app code is the same for both; only the definition ID changes whose credenti
 ## Set up the service
 
 One Slack app can back both definitions, because one Slack install returns a bot token and a user token.
-As an operator, fill in the Slack client ID and a trusted site in [definitions/slack-bot.json](definitions/slack-bot.json) and [definitions/slack-user.json](definitions/slack-user.json), then create them with the `tdas` CLI.
+In the Slack app, add `{service origin}/v1/oauth/callback` as a redirect URL, and request the bot and user scopes the two definition files list.
+As an operator, fill in the Slack client ID in [definitions/slack-bot.json](definitions/slack-bot.json) and [definitions/slack-user.json](definitions/slack-user.json), and replace the audience placeholder with trusted site record IDs from `tdas sites list`, then create them with the `tdas` CLI.
 Type the Slack client secret on the one-time secret page each `secret` command opens.
 
 ```sh
@@ -28,7 +29,8 @@ tdas definitions connect slack-bot
 ```
 
 Users connect `slack-user` themselves from the example page.
-For live events, point the Slack app's event subscription at `/v1/events/ingest/slack-bot` on the service, and seal the Slack signing secret with `tdas definitions secret slack-bot signingSecret`.
+For live events, point the Slack app's event subscription Request URL at `{service origin}/v1/events/ingest/slack-bot`, and seal the Slack signing secret with `tdas definitions secret slack-bot signingSecret`.
+A Slack app has one Request URL, so events arrive on `slack-bot` only; the page also subscribes to `slack-user`, and that stream stays quiet unless a second Slack app delivers to `/v1/events/ingest/slack-user` with its own signing secret.
 Events delivered to one definition reach every open stream for it whose user's site is in its audience, for shared and personal definitions alike.
 See the [connections](../../docs/connections.md) and [running](../../docs/running.md) docs for every option.
 

@@ -1,19 +1,19 @@
 {
-  "description": "Specification sources. Only these documents enter the offline view.",
+  "description": "The documents that describe the service. Only these enter the offline view.",
   "documents": [
     {
       "id": "guide",
       "title": "Documentation index",
       "path": "docs/README.md",
       "kind": "Guide",
-      "description": "Document owners and the offline build."
+      "description": "What each document covers and how to rebuild the offline view."
     },
     {
       "id": "product",
       "title": "Product",
       "path": "docs/product.md",
-      "kind": "Requirements",
-      "description": "Requirements, recommendations, assumptions and journeys."
+      "kind": "Product",
+      "description": "What the service does, journeys and exclusions."
     },
     {
       "id": "architecture",
@@ -90,7 +90,7 @@
       "title": "Verification",
       "path": "docs/verification.md",
       "kind": "Verification",
-      "description": "Gates and their status."
+      "description": "Test coverage, what is not verified live, and known limitations."
     },
     {
       "id": "running",
