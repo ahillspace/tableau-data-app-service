@@ -295,6 +295,45 @@ describe("jobs", () => {
     assert.equal(stale.state, "interrupted");
   });
 
+  test("a cancel that commits while lease recovery waits for the row lock ends the Job cancelled", async () => {
+    for (const [name, key] of [
+      ["echo", "expire-unsafe"],
+      ["safe", "expire-safe"],
+    ] as const) {
+      const { job } = await submit(a, name, 1, key);
+      const crashed = worker();
+      assert.equal((await crashed.claim())?.id, job.id);
+      h.clock.offsetMs += 31_000;
+      const survivor = worker();
+      let sweeping: Promise<void> | undefined;
+      await db.transaction().execute(async (holder) => {
+        await sql`select id from jobs where id = ${job.id} for update`.execute(holder);
+        sweeping = survivor.sweep();
+        for (let i = 0; ; i++) {
+          const { rows } = await sql<{ n: string }>`
+            select count(*) as n from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'
+          `.execute(db);
+          if (Number(rows[0]?.n) > 0) break;
+          assert.ok(i < 250, "lease recovery never waited on the lock");
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        // What a cancel of a running Job commits.
+        await holder
+          .updateTable("jobs")
+          .set({ cancel_requested: true })
+          .where("id", "=", job.id)
+          .execute();
+      });
+      await sweeping;
+      const ended = await jobs.get(a, job.id);
+      assert.equal(ended.state, "cancelled", name);
+      assert.equal(ended.remoteEffectsUnknown, true, name);
+      assert.equal(ended.error, undefined, name);
+      assert.equal(await survivor.claim(), undefined, name);
+    }
+  });
+
   test("settled failures retry only when the handler opts in", async () => {
     let calls = 0;
     behaviors.set("flaky", async () => {

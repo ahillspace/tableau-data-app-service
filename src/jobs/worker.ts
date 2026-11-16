@@ -707,41 +707,12 @@ export class JobWorker {
     const now = this.#clock.now();
     const expired = await this.#db
       .selectFrom("jobs")
-      .select(["id", "handler", "cancel_requested", "deadline_at"])
+      .select("id")
       .where("state", "=", "running")
       .where("lease_expires_at", "<", now)
       .limit(this.#batch)
       .execute();
-    for (const job of expired) {
-      const handler = this.#connections.definitions.types.handler(job.handler)?.handler;
-      const retry = handler?.retrySafe && !job.cancel_requested && (job.deadline_at ?? now) > now;
-      const update = this.#db
-        .updateTable("jobs")
-        .where("id", "=", job.id)
-        .where("state", "=", "running")
-        .where("lease_expires_at", "<", now);
-      if (retry)
-        await update
-          .set({
-            state: "queued",
-            run_after: now,
-            lease_owner: null,
-            lease_expires_at: null,
-            ...REQUEUE_RESUME,
-            earlier_effects_unknown: true,
-          })
-          .execute();
-      else
-        await update
-          .set({
-            state: job.cancel_requested ? "cancelled" : "interrupted",
-            remote_effects_unknown: true,
-            ...this.#finished(now),
-            ...(job.cancel_requested ? {} : { error: JSON.stringify(INTERRUPTED) }),
-          })
-          .execute();
-      this.#log.warn("job lease expired", { jobId: job.id, retried: Boolean(retry) });
-    }
+    for (const { id } of expired) await this.#recoverExpired(id);
 
     // A cancel that arrived while an attempt was being queued again ends the Job here; claims skip it.
     const cancelled = await this.#db
@@ -781,6 +752,55 @@ export class JobWorker {
       .where("state", "=", "waiting")
       .where("run_after", "<=", now)
       .execute();
+  }
+
+  /**
+   * Settles one Job whose lease expired, deciding under its row lock with the time, lease, cancel and
+   * deadline read after the lock is held. A recorded cancel ends it `cancelled`; otherwise it is
+   * queued again when its handler declares replay safe and time remains, and interrupted when not.
+   * Its attempt's outcome is unknown either way.
+   */
+  async #recoverExpired(id: string): Promise<void> {
+    const retried = await transaction(this.#db, async (tx) => {
+      const row = await tx
+        .selectFrom("jobs")
+        .select(["handler", "cancel_requested", "deadline_at", "lease_expires_at"])
+        .where("id", "=", id)
+        .where("state", "=", "running")
+        .forUpdate()
+        .executeTakeFirst();
+      const now = this.#clock.now();
+      if (!row?.lease_expires_at || row.lease_expires_at.getTime() >= now.getTime())
+        return undefined;
+      const handler = this.#connections.definitions.types.handler(row.handler)?.handler;
+      const retry =
+        !row.cancel_requested &&
+        handler?.retrySafe === true &&
+        (row.deadline_at ?? now).getTime() > now.getTime();
+      const update = tx.updateTable("jobs").where("id", "=", id);
+      if (retry)
+        await update
+          .set({
+            state: "queued",
+            run_after: now,
+            lease_owner: null,
+            lease_expires_at: null,
+            ...REQUEUE_RESUME,
+            earlier_effects_unknown: true,
+          })
+          .execute();
+      else
+        await update
+          .set({
+            state: row.cancel_requested ? "cancelled" : "interrupted",
+            remote_effects_unknown: true,
+            ...this.#finished(now),
+            ...(row.cancel_requested ? {} : { error: JSON.stringify(INTERRUPTED) }),
+          })
+          .execute();
+      return retry;
+    });
+    if (retried !== undefined) this.#log.warn("job lease expired", { jobId: id, retried });
   }
 
   /** Deletes expired results and finished-Job records in bounded batches. Returns rows deleted. */

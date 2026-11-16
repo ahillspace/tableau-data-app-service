@@ -69,7 +69,7 @@ A failure that commits after its deadline ends as the handler reported it and is
 Cancelling a queued or waiting Job ends it.
 Cancelling a running Job aborts its signal; the Job ends as `cancelled` when the handler returns, and reports whether remote effects are unknown.
 A cancel recorded before the attempt's commit wins over whatever the attempt returned: a success is discarded and reports unknown remote effects, and a failure is neither retried nor replayed and keeps its uncertainty.
-An attempt stopped by its worker shutting down or losing its lease after a cancel was recorded ends `cancelled` with unknown remote effects rather than being interrupted or replayed.
+An attempt stopped by its worker shutting down, or recovered after its lease expired, ends `cancelled` with unknown remote effects when a cancel was recorded before that transition locks its row, rather than being interrupted or replayed.
 A handler may implement remote cancel for its external task.
 
 ## Results and retention
@@ -89,7 +89,7 @@ Operators can list and cancel any Job.
 
 | Failure | Behavior |
 | --- | --- |
-| Worker crash | Leases expire; running Jobs become `interrupted` or retry as their handler declares. |
+| Worker crash | Leases expire; running Jobs become `cancelled` when a cancel was recorded, otherwise `interrupted` or retried as their handler declares. |
 | Database unavailable at admission | Admission fails; no Job is reported as accepted. |
 | Callback for an unknown or finished Job | Rejected and logged. |
 
