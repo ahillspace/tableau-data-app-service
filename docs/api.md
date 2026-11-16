@@ -24,6 +24,7 @@ Pages are top-level service windows that read the sign-in cookie; they are serve
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
 | `GET /tableau/sign-in` | None | Identity | Start Tableau sign-in for a page flow; shows a pod chooser when there are several deployments, then redirects to Tableau. |
+| `GET /tableau/client.json` | None | Identity | The service's OAuth client metadata document; its URL is the client ID. |
 | `GET /tableau/callback` | Transaction cookie | Identity | Tableau's redirect; sets the sign-in cookie. |
 | `GET /tableau/signed-in` | Cookie | Identity | Confirms the sign-in when no other page asked for it. |
 

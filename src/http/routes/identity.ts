@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isUuid } from "../../identity/sessions.ts";
+import { TABLEAU_CALLBACK_PATH, TABLEAU_CLIENT_PATH } from "../../identity/tableau-cloud.ts";
 import { invalid, ServiceError } from "../../platform/errors.ts";
 import { caller } from "../auth.ts";
 import {
@@ -163,7 +164,9 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
     }
   });
 
-  app.get("/tableau/callback", async (request, reply) => {
+  app.get(TABLEAU_CLIENT_PATH, async () => identity.clientMetadata());
+
+  app.get(TABLEAU_CALLBACK_PATH, async (request, reply) => {
     const browserToken = readCookie(request, TABLEAU_TX_COOKIE);
     clearCookie(reply, TABLEAU_TX_COOKIE, { sameSite: "Lax" });
     try {

@@ -5,7 +5,11 @@ import { invalid, ServiceError } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
 import { hashToken, pkceChallenge, randomToken, sameSecret } from "../platform/secrets.ts";
 import { bindOperator, isOperator, matchAndBindSite } from "./directory.ts";
-import type { DeploymentAdapter } from "./tableau-cloud.ts";
+import {
+  type DeploymentAdapter,
+  TABLEAU_CALLBACK_PATH,
+  tableauClientMetadata,
+} from "./tableau-cloud.ts";
 import type { Attribution, Identity, Principal, SignInSession } from "./types.ts";
 
 const TRANSACTION_SECONDS = 600;
@@ -108,7 +112,12 @@ export class IdentityService {
   }
 
   get callbackUri(): string {
-    return `${this.#origin}/tableau/callback`;
+    return `${this.#origin}${TABLEAU_CALLBACK_PATH}`;
+  }
+
+  /** The client metadata document Tableau fetches to resolve the service's client ID. */
+  clientMetadata(): ReturnType<typeof tableauClientMetadata> {
+    return tableauClientMetadata(this.#origin);
   }
 
   // ---- Tableau sign-in ----

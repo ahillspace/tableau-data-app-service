@@ -7,8 +7,7 @@ How to install, configure and operate an installation.
 - Node 26.13 or later within Node 26.
 - Postgres 16 or later, reachable with TLS.
 - Redis 7 or later, only for events.
-- An HTTPS public origin for the service.
-- A Tableau Cloud OAuth client registered with the redirect URL `{public origin}/tableau/callback`.
+- An HTTPS public origin for the service, reachable from Tableau's sign-in service.
 
 ## Install
 
@@ -28,7 +27,7 @@ Write a bootstrap file:
 {
   "publicOrigin": "https://service.example",
   "deployments": [
-    { "id": "cloud-west", "kind": "tableau-cloud", "podOrigin": "https://pod.online.tableau.com", "clientId": "…" }
+    { "id": "cloud-west", "kind": "tableau-cloud", "podOrigin": "https://pod.online.tableau.com" }
   ],
   "firstSite": { "deploymentId": "cloud-west", "contentUrl": "example-site" },
   "firstOperator": { "deploymentId": "cloud-west", "siteContentUrl": "example-site", "username": "operator@example.com" }
@@ -38,6 +37,7 @@ Write a bootstrap file:
 Deployment IDs are slugs, `tableau-cloud` is the one kind, and pod origins are HTTPS.
 `publicOrigin` may be left out when `PUBLIC_ORIGIN` is set, and `signInLimit` sets the sign-in limit in seconds.
 The bootstrap file holds no secrets.
+Nothing is registered with Tableau in advance; see [Tableau client](identity.md#tableau-client).
 
 ## Run
 

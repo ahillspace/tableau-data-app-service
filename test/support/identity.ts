@@ -1,6 +1,6 @@
 import { applyBootstrap } from "../../src/identity/directory.ts";
 import { IdentityService } from "../../src/identity/sessions.ts";
-import { TableauCloudAdapter } from "../../src/identity/tableau-cloud.ts";
+import { TableauCloudAdapter, tableauClientMetadata } from "../../src/identity/tableau-cloud.ts";
 import type { Db } from "../../src/persistence/database.ts";
 import type { Clock } from "../../src/platform/clock.ts";
 import { Log } from "../../src/platform/log.ts";
@@ -10,6 +10,7 @@ import { loopback, testCa } from "./https.ts";
 import { type TableauStandIn, type TableauUser } from "./tableau.ts";
 
 export const DEPLOYMENT = "cloud-test";
+export const SERVICE_ORIGIN = "https://service.test";
 
 export function testOutbound(): Outbound {
   return new Outbound({
@@ -56,7 +57,6 @@ export async function identityHarness(
           id: DEPLOYMENT,
           kind: "tableau-cloud",
           podOrigin: tableau.origin,
-          clientId: tableau.clientId,
         },
       ],
       firstSite: { deploymentId: DEPLOYMENT, contentUrl: options.site ?? "alpha" },
@@ -71,7 +71,7 @@ export async function identityHarness(
   const adapter = new TableauCloudAdapter({
     deploymentId: DEPLOYMENT,
     podOrigin: tableau.origin,
-    clientId: tableau.clientId,
+    clientId: tableauClientMetadata(SERVICE_ORIGIN).client_id,
     fetch: outbound.fetcher(true),
     metadata: tableau.metadata,
   });
@@ -79,7 +79,7 @@ export async function identityHarness(
   const identity = new IdentityService({
     db,
     adapters: new Map([[DEPLOYMENT, adapter]]),
-    publicOrigin: "https://service.test",
+    publicOrigin: SERVICE_ORIGIN,
     signInLimitSeconds: options.signInLimitSeconds ?? 7 * 86400,
     clock,
     log,

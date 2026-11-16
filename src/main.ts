@@ -9,7 +9,11 @@ import { createEvents } from "./events/index.ts";
 import { createApi } from "./http/app.ts";
 import { applyBootstrap } from "./identity/directory.ts";
 import { IdentityService } from "./identity/sessions.ts";
-import { type DeploymentAdapter, TableauCloudAdapter } from "./identity/tableau-cloud.ts";
+import {
+  type DeploymentAdapter,
+  TableauCloudAdapter,
+  tableauClientMetadata,
+} from "./identity/tableau-cloud.ts";
 import { JobService } from "./jobs/service.ts";
 import type { JobLimits } from "./jobs/types.ts";
 import { JobWorker } from "./jobs/worker.ts";
@@ -127,7 +131,11 @@ function connectionsFor(
   });
 }
 
-function adapters(bootstrap: Bootstrap, out: Outbound): Map<string, DeploymentAdapter> {
+function adapters(
+  bootstrap: Bootstrap,
+  publicOrigin: string,
+  out: Outbound,
+): Map<string, DeploymentAdapter> {
   // Tableau's sign-in and REST hosts are public, so private addresses are refused.
   const fetch = out.fetcher(false);
   return new Map(
@@ -136,7 +144,7 @@ function adapters(bootstrap: Bootstrap, out: Outbound): Map<string, DeploymentAd
       new TableauCloudAdapter({
         deploymentId: d.id,
         podOrigin: d.podOrigin,
-        clientId: d.clientId,
+        clientId: tableauClientMetadata(publicOrigin).client_id,
         fetch,
       }) as DeploymentAdapter,
     ]),
@@ -189,7 +197,7 @@ async function startApi(loaded: Loaded, resources: Resources): Promise<Running> 
   const connections = connectionsFor(db, settings, installation, out, log);
   const identity = new IdentityService({
     db,
-    adapters: adapters(bootstrap, out),
+    adapters: adapters(bootstrap, installation.publicOrigin, out),
     publicOrigin: installation.publicOrigin,
     signInLimitSeconds: installation.signInLimitSeconds,
     clock: systemClock,

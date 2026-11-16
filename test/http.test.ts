@@ -124,8 +124,11 @@ describe("http", () => {
       for (let hop = 0; hop < 10 && response.status >= 300 && response.status < 400; hop++) {
         const location = new URL(response.headers.get("location") as string, origin);
         if (location.origin === tableau.origin) {
+          // Tableau resolves the client by fetching the metadata document at the client ID URL.
+          const clientId = new URL(location.searchParams.get("client_id") as string);
+          const client = await (await fetch(`${origin}${clientId.pathname}`)).json();
           response = await this.request(
-            `/tableau/callback?${tableau.authorize(location, this.user)}`,
+            `/tableau/callback?${tableau.authorize(location, this.user, client)}`,
           );
           continue;
         }
@@ -398,6 +401,32 @@ describe("http", () => {
     // The trusted site binds to its Tableau site ID at the first sign-in.
     await new Browser(operatorUser).visit("/tableau/sign-in");
     alpha = ((await listSites(db))[0] as { id: string }).id;
+  });
+
+  test("V3 the service publishes its Tableau client metadata document at its client ID URL", async () => {
+    const response = await call("/tableau/client.json");
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
+    assert.deepEqual(await response.json(), {
+      client_id: "https://service.test/tableau/client.json",
+      client_name: "Data App integration service",
+      redirect_uris: ["https://service.test/tableau/callback"],
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "openid email",
+    });
+    // Sign-in sends Tableau that same URL as the client ID and the document's redirect URL.
+    const begun = await new Browser(alice).request("/tableau/sign-in");
+    const authorize = new URL(begun.headers.get("location") as string);
+    assert.equal(
+      authorize.searchParams.get("client_id"),
+      "https://service.test/tableau/client.json",
+    );
+    assert.equal(
+      authorize.searchParams.get("redirect_uri"),
+      "https://service.test/tableau/callback",
+    );
   });
 
   test("V7 app sign-in over HTTP: popup needs an opener, redeem sets the partitioned restore cookie, restore needs no prompt", async () => {

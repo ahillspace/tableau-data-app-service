@@ -91,12 +91,8 @@ export async function applyBootstrap(db: Db, bootstrap: Bootstrap, log: Log): Pr
     for (const d of bootstrap.deployments) {
       await tx
         .insertInto("deployments")
-        .values({ id: d.id, kind: d.kind, pod_origin: d.podOrigin, client_id: d.clientId })
-        .onConflict((oc) =>
-          oc
-            .column("id")
-            .doUpdateSet({ kind: d.kind, pod_origin: d.podOrigin, client_id: d.clientId }),
-        )
+        .values({ id: d.id, kind: d.kind, pod_origin: d.podOrigin })
+        .onConflict((oc) => oc.column("id").doUpdateSet({ kind: d.kind, pod_origin: d.podOrigin }))
         .execute();
     }
     const ignored: string[] = [];

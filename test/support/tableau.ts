@@ -1,10 +1,13 @@
 /**
  * A local stand-in for Tableau's central sign-in service and a pod's REST API.
  * It issues ES256 ID tokens, checks PKCE and the client, and answers sessions/current.
+ * Like Tableau, it knows the client only through the client's metadata document, which `authorize` is given.
  */
 import { createHash, generateKeyPairSync, type KeyObject, randomBytes, sign } from "node:crypto";
 import type * as oauth from "oauth4webapi";
 import { json, readBody, type StandIn, standIn } from "./https.ts";
+
+const SERVICE_ORIGIN = "https://service.test";
 
 export type TableauUser = {
   siteId: string;
@@ -36,7 +39,8 @@ const b64 = (value: Buffer | string) => Buffer.from(value).toString("base64url")
 
 export class TableauStandIn {
   server!: StandIn;
-  readonly clientId = "tableau-client";
+  /** The service's client ID in tests: its metadata document URL under the test public origin. */
+  readonly clientId = `${SERVICE_ORIGIN}/tableau/client.json`;
   faults: Faults = {};
   readonly #codes = new Map<string, Pending>();
   readonly #tokens = new Map<string, { user: TableauUser; sub: string }>();
@@ -82,12 +86,25 @@ export class TableauStandIn {
     };
   }
 
-  /** Plays the browser at Tableau: the user signs in and Tableau redirects back with a code. */
-  authorize(authorizationUrl: URL | string, user: TableauUser): URLSearchParams {
+  /**
+   * Plays the browser at Tableau: the user signs in and Tableau redirects back with a code.
+   * When given the client's metadata document, it refuses a client ID or redirect URL the document does not name, as Tableau does.
+   */
+  authorize(
+    authorizationUrl: URL | string,
+    user: TableauUser,
+    client?: { client_id: string; redirect_uris: string[] },
+  ): URLSearchParams {
     const url = new URL(authorizationUrl);
     const p = url.searchParams;
     if (p.get("scope") !== "openid email" || p.get("code_challenge_method") !== "S256")
       throw new Error("bad authorize request");
+    if (
+      client &&
+      (p.get("client_id") !== client.client_id ||
+        !client.redirect_uris.includes(p.get("redirect_uri") ?? ""))
+    )
+      throw new Error("client metadata does not match the authorize request");
     const code = b64(randomBytes(24));
     this.#codes.set(code, {
       user,

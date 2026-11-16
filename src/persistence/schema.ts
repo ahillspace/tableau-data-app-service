@@ -15,7 +15,6 @@ export interface Database {
     id: string;
     kind: string;
     pod_origin: string;
-    client_id: string;
     created_at: CreatedAt;
   };
   trusted_sites: {

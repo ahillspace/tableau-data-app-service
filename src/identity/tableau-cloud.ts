@@ -43,6 +43,27 @@ export const TABLEAU_CLOUD_METADATA: oauth.AuthorizationServer = Object.freeze({
   id_token_signing_alg_values_supported: ["ES256"],
 });
 
+/** Where the service publishes its own OAuth client metadata document; the document's URL is the client ID. */
+export const TABLEAU_CLIENT_PATH = "/tableau/client.json";
+/** Where Tableau returns the browser after sign-in. */
+export const TABLEAU_CALLBACK_PATH = "/tableau/callback";
+
+/**
+ * The service's OAuth client metadata document for Tableau's central sign-in service.
+ * Tableau resolves the client by fetching this document from the client ID URL, so no client is registered in advance.
+ */
+export function tableauClientMetadata(publicOrigin: string) {
+  return {
+    client_id: `${publicOrigin}${TABLEAU_CLIENT_PATH}`,
+    client_name: "Data App integration service",
+    redirect_uris: [`${publicOrigin}${TABLEAU_CALLBACK_PATH}`],
+    grant_types: ["authorization_code"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+    scope: "openid email",
+  };
+}
+
 const currentSession = z.object({
   session: z.object({
     site: z.object({ id: z.string().min(1).max(200), contentUrl: z.string().max(255) }),
@@ -73,6 +94,7 @@ function unavailable(cause?: unknown): ServiceError {
 export type TableauCloudOptions = {
   deploymentId: string;
   podOrigin: string;
+  /** The URL of the service's client metadata document; see `tableauClientMetadata`. */
   clientId: string;
   fetch: typeof fetch;
   /** Overrides Tableau's sign-in metadata; used only by local stand-ins in tests. */

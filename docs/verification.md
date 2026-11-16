@@ -13,7 +13,7 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 | --- | --- | --- |
 | V1 | Bootstrap and settings validation list every failing field with its rule and no secret value. | `test/roles.test.ts` |
 | V2 | Postgres connections verify the server certificate, and a mismatched CA fails startup. | `test/persistence.test.ts` |
-| V3 | Tableau sign-in validates state, PKCE, nonce, ID token and current session, using a local stand-in for Tableau. | `test/identity.test.ts` |
+| V3 | Tableau sign-in validates state, PKCE, nonce, ID token and current session, and the service publishes the client metadata document its client ID names, using a local stand-in for Tableau. | `test/identity.test.ts`, `test/http.test.ts` |
 | V4 | Identity equality uses deployment, site ID and user ID; same username on two sites are two identities. | `test/identity.test.ts` |
 | V5 | Bootstrap operator and trusted site bind to IDs on first sign-in and never match by name afterwards. | `test/identity.test.ts` |
 | V6 | No Tableau role grants operator status. | `test/identity.test.ts` |

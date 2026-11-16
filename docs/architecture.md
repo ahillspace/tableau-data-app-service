@@ -76,7 +76,7 @@ Components are listed in dependency order; a component depends only on component
 
 ### Identity
 
-- **Owns:** deployments, trusted sites, verified Tableau sign-in, operators, sign-in sessions, app sessions and bearers, the app registry and the "verify app location" step.
+- **Owns:** deployments, the service's Tableau client metadata document, trusted sites, verified Tableau sign-in, operators, sign-in sessions, app sessions and bearers, the app registry and the "verify app location" step.
 - **Interface:** `beginTableauSignIn`, `completeTableauSignIn`, `startAppSignIn`, `issueCompletionCode`, `redeemAppSignIn`, `restore`, `authenticate(bearer)`, `authenticateOperator(bearer)`, `beginOperatorSignIn`, `approveOperatorSignIn`, `redeemOperatorCode`, `revokeSessions`, and the directory of sites and operators.
 - **Invariants:** an identity is a deployment, a site ID and a user ID; operator status comes only from the operators table; the last verified Tableau sign-in time is set only by a Tableau sign-in.
 - **Failure:** a Tableau outage fails new sign-ins and leaves existing bearers working until they expire.

@@ -13,7 +13,7 @@ Display names are kept for display only and never compared, and emails are not s
 
 ## Deployments and trusted sites
 
-A deployment is one Tableau Cloud pod, named in the bootstrap configuration with its pod origin and OAuth client ID.
+A deployment is one Tableau Cloud pod, named in the bootstrap configuration with its pod origin.
 A deployment adapter implements Tableau sign-in for its deployment kind.
 The one adapter kind is `tableau-cloud`.
 
@@ -29,7 +29,7 @@ Trusting a site never adds it to any connection definition's audience.
 
 ## Tableau Cloud sign-in
 
-Sign-in uses OAuth authorization code with PKCE against Tableau's central sign-in service, as a public client with the deployment's client ID and scopes `openid email`.
+Sign-in uses OAuth authorization code with PKCE against Tableau's central sign-in service, as a public client with scopes `openid email`.
 
 1. The service creates a sign-in transaction with a random `state`, a PKCE verifier and an OpenID Connect `nonce`, stored in Postgres so any replica can complete it.
    A short-lived `__Host-tdas-tableau-tx` cookie binds the transaction to the browser that started it.
@@ -43,6 +43,14 @@ Sign-in uses OAuth authorization code with PKCE against Tableau's central sign-i
 
 The service keeps no Tableau token.
 Any failure from step 3 on fails the sign-in with a reason code and no partial session.
+
+### Tableau client
+
+The service is its own OAuth client, described by a client metadata document it publishes at `GET /tableau/client.json`.
+The document's URL, `{public origin}/tableau/client.json`, is the client ID, and Tableau's sign-in service fetches it to learn the client.
+The document names the client, the one redirect URL `{public origin}/tableau/callback`, the authorization code grant, no client authentication, and the scopes `openid email`.
+Every deployment uses the same client, because the client depends only on the public origin.
+Nothing is registered with Tableau in advance, and changing the public origin changes the client ID with it.
 
 ## Sessions
 
@@ -157,13 +165,13 @@ It is the only path that changes operators without an operator session, and it w
 
 The bootstrap configuration holds:
 
-- deployments: ID, kind, pod origin and OAuth client ID;
+- deployments: ID, kind and pod origin;
 - the first trusted site: deployment ID and content URL;
 - the first operator: deployment ID, site content URL and username;
 - the service's public origin, optional when `PUBLIC_ORIGIN` is set;
 - the sign-in limit, if not the default.
 
-Deployments are applied on every start of the API role, because each needs an OAuth client registered with Tableau.
+Deployments are applied on every start of the API role, because they describe the installation rather than runtime data.
 The first site and first operator are applied only while their table is empty.
 After that, trusted sites and operators are runtime data and bootstrap entries for them are ignored with a log line naming the ignored fields.
 

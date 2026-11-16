@@ -14,7 +14,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       id text primary key,
       kind text not null,
       pod_origin text not null,
-      client_id text not null,
       created_at timestamptz not null default clock_timestamp()
     );
 
