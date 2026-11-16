@@ -35,14 +35,14 @@ The Linux run has not been recorded yet.
 | V13 | Personal checkout never returns a shared connection. | Passed at `47889fa` | `test/connections.test.ts` |
 | V14 | Concurrent refreshes on two replicas call the token endpoint once. | Passed at `47889fa` | `test/connections.test.ts` |
 | V15 | A connect page refuses a sign-in cookie whose identity does not match the transaction. | Passed at `47889fa` | `test/connections.test.ts`, `test/http.test.ts` |
-| V16 | Native requests and responses pass through unchanged apart from the documented headers. | Passed at `47889fa` | `test/router.test.ts`, `test/http.test.ts` |
-| V17 | Large uploads and downloads stream with bounded memory. | Passed at `47889fa` | `test/router.test.ts` |
+| V16 | Native requests and responses pass through unchanged apart from the documented headers, and a provider response cannot pass for a service error or cause the SDK to resend. | Passed at `47889fa` | `test/router.test.ts`, `test/http.test.ts` |
+| V17 | Large uploads and downloads stream through the router without being buffered: bytes in flight on each leg stay bounded far below the body size. | Passed at `47889fa` | `test/router.test.ts` |
 | V18 | Destination checks refuse private and metadata addresses at socket time, including after DNS change. | Passed at `47889fa` | `test/outbound.test.ts` |
 | V19 | The router never retries and reports whether the provider may have received a request. | Passed at `47889fa` | `test/outbound.test.ts` |
 | V20 | Job admission is idempotent per submission key and never reports an uncommitted Job. | Passed at `47889fa` | `test/jobs.test.ts` |
-| V21 | Worker crash marks Jobs interrupted, with no replay unless the handler opts in. | Passed at `47889fa` | `test/jobs.test.ts` |
+| V21 | Worker crash marks Jobs interrupted, and an attempt with an unknown outcome is never replayed unless the handler declares replay safe; the record keeps that uncertainty. | Passed at `47889fa` | `test/jobs.test.ts` |
 | V22 | Waiting Jobs release their slot and resume on a verified callback. | Passed at `47889fa` | `test/jobs.test.ts`, `test/http.test.ts` |
-| V23 | Job caps and retention windows are enforced. | Passed at `47889fa` | `test/jobs.test.ts` |
+| V23 | Job caps and retention windows are enforced; a success committed at or after the runtime deadline is not published, and a cancel recorded before an attempt's commit wins over its outcome. | Passed at `47889fa` | `test/jobs.test.ts` |
 | V24 | With events off, no Redis client is created; with Redis down, everything except events works. | Passed at `47889fa` | `test/events.test.ts` |
 | V25 | Slack event signatures and ages are verified; stale or forged deliveries are refused. | Passed at `47889fa` | `test/slack.test.ts`, `test/events.test.ts` |
 | V26 | No log line or error contains a secret value. | Passed at `47889fa` | `test/platform.test.ts`, `test/roles.test.ts`, `test/http.test.ts` |

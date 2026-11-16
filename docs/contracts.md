@@ -88,6 +88,8 @@ type ServiceErrorBody = {
 
 Native provider responses are never wrapped in this shape.
 A service error on a native route is marked with the response header `Tableau-Service-Error: 1`, so the SDK can tell a service error from a provider's own error.
+The router removes every `Tableau-Service-*` header from provider responses, so only the service can set the marker.
+The SDK restores and resends a request only after a marked `sign-in-required` error, which the service returns before any provider is called; it never resends after any other 401.
 
 ## Revision
 
@@ -112,11 +114,16 @@ type JobState = "queued" | "running" | "waiting" | "succeeded" | "failed" | "can
 type Job = {
   id: string;
   handler: string;
+  definitionId: string;
   owner: Identity;
   appId: string;
   submissionKey: string;
   state: JobState;
+  attempt: number;
   progress?: unknown;
+  externalTaskId?: string;
+  cancelRequested: boolean;
+  remoteEffectsUnknown: boolean;
   result?: { available: boolean; expiresAt: Date };
   error?: ServiceErrorBody["error"];
   createdAt: Date;

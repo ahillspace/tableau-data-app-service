@@ -418,7 +418,14 @@ export class JobService {
     const ended = await transaction(this.#db, async (tx) => {
       const row = await tx
         .selectFrom("jobs")
-        .select(["state", "handler", "external_task_id", "owner_identity_id", "definition_id"])
+        .select([
+          "state",
+          "handler",
+          "external_task_id",
+          "owner_identity_id",
+          "definition_id",
+          "earlier_effects_unknown",
+        ])
         .where("id", "=", id)
         .forUpdate()
         .executeTakeFirst();
@@ -436,7 +443,7 @@ export class JobService {
         .set({
           state: "cancelled",
           cancel_requested: true,
-          remote_effects_unknown: remote,
+          remote_effects_unknown: remote || row.earlier_effects_unknown,
           callback_verifier_hash: null,
           resume: null,
           resuming: null,
@@ -463,8 +470,9 @@ export class JobService {
   }
 
   /**
-   * Asks a cancelled Job's handler to stop its external task. Success clears the Job's
-   * remote-effects flag; failure is logged and the flag stays.
+   * Asks a cancelled Job's handler to stop its external task. Success settles the task, so the Job's
+   * remote effects are unknown afterwards only if an earlier attempt left them so; failure is logged
+   * and the flag stays.
    */
   async cancelExternalTask(
     id: string,
@@ -485,7 +493,7 @@ export class JobService {
       });
       await this.#db
         .updateTable("jobs")
-        .set({ remote_effects_unknown: false })
+        .set({ remote_effects_unknown: sql<boolean>`earlier_effects_unknown` })
         .where("id", "=", id)
         .execute();
     } catch (error) {

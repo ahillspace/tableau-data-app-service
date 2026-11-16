@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
+import { sql } from "kysely";
 import type {
   JobHandlerDefinition,
   JobRunContext,
@@ -17,6 +18,7 @@ import { Log } from "../src/platform/log.ts";
 import { hashToken } from "../src/platform/secrets.ts";
 import { type ConnectionsHarness, connectionsHarness } from "./support/connections.ts";
 import { freshDatabase, testKeys } from "./support/db.ts";
+import { readBody, type StandIn, standIn } from "./support/https.ts";
 import {
   appSignIn,
   type IdentityHarness,
@@ -62,6 +64,7 @@ const tasks: ProviderType = {
     handler("echo"),
     handler("safe", { retrySafe: true }),
     handler("flaky", { retries: { attempts: 2, backoffSeconds: 0 } }),
+    handler("replayable", { retrySafe: true, retries: { attempts: 1, backoffSeconds: 0 } }),
     handler("small", { limits: { inputBytes: 64, resultBytes: 64, runtimeSeconds: 60 } }),
     handler("remote", {
       cancel: async (ctx) => {
@@ -310,6 +313,215 @@ describe("jobs", () => {
     const failed = await jobs.get(a, plain.job.id);
     assert.equal(failed.state, "failed");
     assert.equal(failed.attempt, 1);
+  });
+
+  test("an attempt whose outcome is unknown is replayed only when the handler declares replay safe", async () => {
+    // A provider that performs each operation it receives, counted here, and then drops the
+    // connection, so the handler never learns whether its operation happened.
+    let performed = 0;
+    const lossy: StandIn = await standIn((req, _res) => {
+      void readBody(req).then(() => {
+        performed++;
+        req.socket.destroy();
+      });
+    });
+    try {
+      await c.definitions.create("test", {
+        id: "lossy",
+        displayName: "Lossy",
+        type: "tasks",
+        ownership: "personal",
+        apiHosts: [lossy.origin],
+        audience: [((await listSites(db))[0] as { id: string }).id],
+        privateHosts: true,
+      });
+      await c.connections.setPersonalCredential(a, "lossy", "alice-key");
+      const operate: Behavior = async (ctx) => {
+        await ctx.fetch(`${lossy.origin}/charge`, {
+          method: "POST",
+          body: "1",
+          signal: ctx.signal,
+        });
+        return { kind: "succeeded", result: "unreachable" };
+      };
+      const run = (name: string, key: string) =>
+        jobs.submit(a, { handler: name, definitionId: "lossy", input: 1, submissionKey: key });
+      const w = worker();
+
+      // Declared retries cover settled failures only; this outcome is not settled.
+      behaviors.set("flaky", operate);
+      const unsafe = await run("flaky", "lost-1");
+      while (await step(w)) {}
+      assert.equal(performed, 1);
+      const ended = await jobs.get(a, unsafe.job.id);
+      assert.equal(ended.state, "failed");
+      assert.equal(ended.attempt, 1);
+      assert.equal(ended.error?.upstream, "may-have-been-sent");
+      assert.equal(ended.remoteEffectsUnknown, true);
+
+      // A handler that throws after acting is just as uncertain, whatever it throws.
+      performed = 0;
+      behaviors.set("flaky", async (ctx) => {
+        await operate(ctx).catch(() => {});
+        throw new ServiceError(400, "bad-input", "The handler gave up", { upstream: "not-sent" });
+      });
+      const thrown = await run("flaky", "lost-2");
+      while (await step(w)) {}
+      assert.equal(performed, 1);
+      assert.equal((await jobs.get(a, thrown.job.id)).remoteEffectsUnknown, true);
+
+      // A handler that declares replay safe is replayed, and the uncertainty stays on the record.
+      performed = 0;
+      behaviors.set("replayable", operate);
+      const safe = await run("replayable", "lost-3");
+      while (await step(w)) {}
+      assert.equal(performed, 2);
+      const replayed = await jobs.get(a, safe.job.id);
+      assert.equal(replayed.state, "failed");
+      assert.equal(replayed.attempt, 2);
+      assert.equal(replayed.remoteEffectsUnknown, true);
+
+      // An uncertain first attempt followed by a settled failure still reports the first attempt.
+      performed = 0;
+      let attempts = 0;
+      behaviors.set("replayable", async (ctx) =>
+        ++attempts === 1
+          ? await operate(ctx)
+          : { kind: "failed", code: "rejected", message: "The provider refused" },
+      );
+      const mixed = await run("replayable", "lost-4");
+      while (await step(w)) {}
+      assert.equal(performed, 1);
+      const settled = await jobs.get(a, mixed.job.id);
+      assert.equal(settled.state, "failed");
+      assert.equal(settled.error?.code, "rejected");
+      assert.equal(settled.remoteEffectsUnknown, true);
+    } finally {
+      await lossy.close();
+    }
+  });
+
+  test("a success that reaches its commit after the deadline is not published", async () => {
+    const w = worker();
+    const shortDeadline = async () => {
+      const claimed = await w.claim();
+      assert.ok(claimed);
+      claimed.deadline_at = new Date(h.clock.now().getTime() + 50);
+      await db
+        .updateTable("jobs")
+        .set({ deadline_at: claimed.deadline_at })
+        .where("id", "=", claimed.id)
+        .execute();
+      return claimed;
+    };
+    const unpublished = async (id: string) => {
+      const ended = await jobs.get(a, id);
+      assert.equal(ended.state, "failed");
+      assert.equal(ended.error?.code, "runtime-exceeded");
+      assert.equal(ended.remoteEffectsUnknown, true);
+      assert.equal(ended.result, undefined);
+      const stored = await db.selectFrom("job_results").select("job_id").where("job_id", "=", id);
+      assert.equal((await stored.execute()).length, 0);
+      return ended;
+    };
+
+    // Synchronous work holds the event loop past the deadline, so the deadline timer never fires.
+    behaviors.set("echo", async () => {
+      const until = Date.now() + 200;
+      while (Date.now() < until) {}
+      return { kind: "succeeded", result: "late" };
+    });
+    const blocked = await submit(a, "echo", 1, "late-1");
+    await w.execute(await shortDeadline());
+    await unpublished(blocked.job.id);
+
+    // The commit waits on another session's lock on the row, and the deadline passes meanwhile.
+    behaviors.set("echo", async () => ({ kind: "succeeded", result: "late" }));
+    const waited = await submit(a, "echo", 2, "late-2");
+    const claimed = await shortDeadline();
+    let running: Promise<void> | undefined;
+    let released: Date | undefined;
+    await db.transaction().execute(async (holder) => {
+      await sql`select id from jobs where id = ${claimed.id} for update`.execute(holder);
+      running = w.execute(claimed);
+      // Wait until the worker's commit is blocked on the row lock in this database.
+      for (let i = 0; ; i++) {
+        const { rows } = await sql<{ n: string }>`
+          select count(*) as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'
+        `.execute(db);
+        if (Number(rows[0]?.n) > 0) break;
+        assert.ok(i < 250, "the worker's commit never waited on the lock");
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      // The handler returned in time; the deadline passes while its commit waits.
+      await new Promise((r) => setTimeout(r, 100));
+      released = h.clock.now();
+    });
+    await running;
+    const ended = await unpublished(waited.job.id);
+    assert.ok(new Date(ended.finishedAt as string) >= (released as Date));
+  });
+
+  test("a cancel that commits while an ending waits for the row lock wins over that ending", async () => {
+    const w = worker();
+    /** Runs the next Job; a cancel commits after the handler returns but before its commit locks the row. */
+    const cancelledDuringCommit = async (id: string) => {
+      const claimed = await w.claim();
+      assert.equal(claimed?.id, id);
+      let running: Promise<void> | undefined;
+      await db.transaction().execute(async (holder) => {
+        await sql`select id from jobs where id = ${id} for update`.execute(holder);
+        running = w.execute(claimed);
+        for (let i = 0; ; i++) {
+          const { rows } = await sql<{ n: string }>`
+            select count(*) as n from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'
+          `.execute(db);
+          if (Number(rows[0]?.n) > 0) break;
+          assert.ok(i < 250, "the worker's commit never waited on the lock");
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        // What a cancel of a running Job commits.
+        await holder
+          .updateTable("jobs")
+          .set({ cancel_requested: true })
+          .where("id", "=", id)
+          .execute();
+      });
+      await running;
+      const ended = await jobs.get(a, id);
+      const stored = await db.selectFrom("job_results").select("job_id").where("job_id", "=", id);
+      assert.equal((await stored.execute()).length, 0);
+      return ended;
+    };
+
+    // A success is discarded; the provider acted, so its effects are unknown.
+    behaviors.set("echo", async () => ({ kind: "succeeded", result: "done" }));
+    const succeeded = await submit(a, "echo", 1, "cx-1");
+    const s = await cancelledDuringCommit(succeeded.job.id);
+    assert.equal(s.state, "cancelled");
+    assert.equal(s.result, undefined);
+    assert.equal(s.remoteEffectsUnknown, true);
+
+    // A settled failure that would retry ends cancelled instead, with nothing left unknown.
+    behaviors.set("flaky", async () => ({ kind: "failed", code: "busy", message: "try later" }));
+    const settled = await submit(a, "flaky", 1, "cx-2");
+    const f = await cancelledDuringCommit(settled.job.id);
+    assert.equal(f.state, "cancelled");
+    assert.equal(f.attempt, 1);
+    assert.equal(f.remoteEffectsUnknown, false);
+
+    // An uncertain outcome that would be replayed ends cancelled and keeps its uncertainty.
+    behaviors.set("replayable", async () => {
+      throw new Error("lost");
+    });
+    const uncertain = await submit(a, "replayable", 1, "cx-3");
+    const u = await cancelledDuringCommit(uncertain.job.id);
+    assert.equal(u.state, "cancelled");
+    assert.equal(u.attempt, 1);
+    assert.equal(u.remoteEffectsUnknown, true);
+    assert.equal(await w.claim(), undefined);
   });
 
   test("V22 a waiting Job releases its slot and resumes once on a verified callback", async () => {

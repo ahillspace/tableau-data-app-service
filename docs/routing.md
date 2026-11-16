@@ -20,8 +20,9 @@ On the request, the router:
 - removes hop-by-hop headers (`Connection` and the headers it names, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`) and sets `Host`;
 - places the credential the definition calls for, setting that one header or query parameter and leaving every other app header, including `Authorization` when the placement is elsewhere, as sent.
 
-On the response, the router removes hop-by-hop headers and adds CORS headers that expose every response header to the app.
-It changes nothing else: status, headers, caching, content type and body pass through.
+On the response, the router removes hop-by-hop headers, the provider's own `Access-Control-*` headers and any `Tableau-Service-*` header, and adds CORS headers that expose every response header to the app.
+The `Tableau-Service-` namespace belongs to the service, so a provider response can never pass for a service error.
+It changes nothing else: status, other headers, caching, content type and body pass through.
 
 The router sets no size limit on bodies or headers, no limit on method names, no content-type rule, and no cap on concurrent outgoing connections.
 It blocks no provider endpoint.

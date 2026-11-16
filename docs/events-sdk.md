@@ -55,14 +55,15 @@ const defs = await service.definitions();      // ownership, connection status
 await service.connect("slack-user");           // OAuth popup; user gesture
 await service.setCredential("my-api", key);    // static personal credential
 await service.disconnect("slack-user");
-const job = await service.jobs.submit("handler", input, { key });
+const job = await service.jobs.submit("handler", input, { definition: "my-api", key });
 const stream = service.events.subscribe(["slack-bot"], onEvent);
 ```
 
 - `fetch` returns the provider's native `Response`; the SDK does not parse, wrap or retry it.
 - The SDK sends every service call with `redirect: "manual"`, so a provider redirect comes back to the app and the bearer never follows it; browsers expose such a response as an opaque redirect.
 - Service errors are thrown as `ServiceError` with the stable code and an `upstream` field that says whether the provider may have received the request.
-- When the bearer has expired, the SDK tries `restore` once; if that fails, calls throw `sign-in-required` and the app calls `signIn` from a user gesture.
+- When the service rejects an expired bearer with `sign-in-required`, which it does before any provider is called, the SDK tries `restore` once and resends; if that fails, calls throw `sign-in-required` and the app calls `signIn` from a user gesture.
+  A provider's own 401 is returned to the app and never resent.
 - `restore` and `signIn` read the page's declared attribution (site content URL, workbook and view) from the page URL and referrer, and sends it with the app ID.
 
 The SDK validates only what it needs to talk to the service.

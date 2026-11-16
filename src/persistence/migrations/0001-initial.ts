@@ -246,6 +246,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       resuming jsonb,
       cancel_requested boolean not null default false,
       remote_effects_unknown boolean not null default false,
+      earlier_effects_unknown boolean not null default false,
       error jsonb,
       created_at timestamptz not null default clock_timestamp(),
       started_at timestamptz,

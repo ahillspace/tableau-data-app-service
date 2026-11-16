@@ -53,7 +53,7 @@ Pages are top-level service windows and carry the sign-in cookie.
 
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
-| `POST /v1/jobs` | Bearer | Jobs | Submit with handler, input and submission key. |
+| `POST /v1/jobs` | Bearer | Jobs | Submit with handler, definition ID, input and submission key. |
 | `GET /v1/jobs` | Bearer | Jobs | List the caller's Jobs. |
 | `GET /v1/jobs/{id}` | Bearer | Jobs | Read a Job. |
 | `GET /v1/jobs/{id}/result` | Bearer | Jobs | Read a Job's result. |

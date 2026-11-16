@@ -238,10 +238,21 @@ describe("router", () => {
       assert.equal(seen.body.toString(), "request body");
     });
 
-    test("V17 large uploads and downloads stream through with bounded memory", async () => {
+    test("V17 large uploads and downloads stream through without being buffered", async () => {
+      // Streaming is measured as bytes in flight, not as process memory: the most bytes one side has
+      // produced that the other has not yet consumed. A router that buffers a body holds all of it,
+      // so its in-flight count reaches the full size; a streaming router holds only what transport
+      // buffers (socket, TLS and stream high-water marks) allow. The count does not depend on garbage
+      // collection timing or on how much memory the test process happens to retain.
       const MB = 1024 * 1024;
       const size = 96 * MB;
+      const bound = 24 * MB;
+      let yielded = 0;
       let received = 0;
+      let sent = 0;
+      let downloaded = 0;
+      let uploadInFlight = 0;
+      let downloadInFlight = 0;
       const stream = await standIn((req, res) => {
         req.on("data", (chunk: Buffer) => {
           received += chunk.length;
@@ -249,10 +260,10 @@ describe("router", () => {
         req.on("end", () => {
           res.writeHead(200, { "content-type": "application/octet-stream" });
           const chunk = Buffer.alloc(MB, 7);
-          let sent = 0;
           const pump = () => {
             while (sent < size) {
               sent += chunk.length;
+              downloadInFlight = Math.max(downloadInFlight, sent - downloaded);
               if (!res.write(chunk)) return void res.once("drain", pump);
             }
             res.end();
@@ -264,18 +275,12 @@ describe("router", () => {
         await shareStatic("blobs", `${stream.origin}/api`, "key-2");
         const upload = (async function* () {
           const chunk = Buffer.alloc(MB, 3);
-          for (let i = 0; i < size / MB; i++) yield chunk;
+          while (yielded < size) {
+            yielded += chunk.length;
+            uploadInFlight = Math.max(uploadInFlight, yielded - received);
+            yield chunk;
+          }
         })();
-        global.gc?.();
-        const baseline = process.memoryUsage();
-        let peak = 0;
-        const sample = setInterval(() => {
-          const m = process.memoryUsage();
-          peak = Math.max(
-            peak,
-            m.heapUsed + m.arrayBuffers - baseline.heapUsed - baseline.arrayBuffers,
-          );
-        }, 5);
         const response = await router.forward({
           principal,
           definitionId: "blobs",
@@ -285,15 +290,11 @@ describe("router", () => {
           body: Readable.from(upload),
           signal: new AbortController().signal,
         });
-        let downloaded = 0;
         for await (const chunk of response.body) downloaded += (chunk as Buffer).length;
-        clearInterval(sample);
         assert.equal(received, size);
         assert.equal(downloaded, size);
-        assert.ok(
-          peak < 48 * MB,
-          `memory grew by ${Math.round(peak / MB)} MB while moving ${(2 * size) / MB} MB`,
-        );
+        const inFlight = `upload ${Math.round(uploadInFlight / MB)} MB, download ${Math.round(downloadInFlight / MB)} MB in flight while moving ${size / MB} MB each way`;
+        assert.ok(uploadInFlight < bound && downloadInFlight < bound, inFlight);
       } finally {
         await stream.close();
       }
