@@ -61,6 +61,12 @@ type Ending =
   | { state: "cancelled"; remoteEffectsUnknown: boolean }
   | { state: "interrupted" };
 
+/**
+ * What an attempt produced, before the row lock decides how it ends. A success whose result cannot be
+ * stored is still a success: the provider acted, so a cancel or the deadline outranks its rejection.
+ */
+type Outcome = Ending | { state: "unpublishable"; error: ServiceErrorBody["error"] };
+
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_RENEW_MS = 10_000;
 const DEFAULT_POLL_MS = 1_000;
@@ -350,18 +356,16 @@ export class JobWorker {
           canonical = canonicalJson(step.result ?? null);
         } catch {
           await this.#end(job, {
-            state: "failed",
+            state: "unpublishable",
             error: { code: "result-invalid", message: "The handler's result is not JSON" },
-            remoteEffectsUnknown: false,
           });
           return;
         }
         const cap = limitsFor(this.#jobs.limits, handler).resultBytes;
         if (canonical.bytes > cap) {
           await this.#end(job, {
-            state: "failed",
+            state: "unpublishable",
             error: { code: "result-too-large", message: `The result is larger than ${cap} bytes` },
-            remoteEffectsUnknown: false,
           });
           return;
         }
@@ -585,20 +589,25 @@ export class JobWorker {
    * ends the Job `cancelled`: a handler's own cancel keeps what it reports, a failure keeps its
    * uncertainty, and a success reports unknown remote effects because the provider acted and its
    * result is discarded. Otherwise a success that commits at or past the deadline is not published.
+   * Only then is a success whose result cannot be stored failed for that reason; the handler finished,
+   * so its remote effects are known.
    */
-  async #end(job: Claimed, ending: Ending): Promise<void> {
+  async #end(job: Claimed, outcome: Outcome): Promise<void> {
+    const succeeded = outcome.state === "succeeded" || outcome.state === "unpublishable";
     const written = await this.#commit(job, async (tx, locked) => {
       const final: Ending = locked.cancelRequested
         ? {
             state: "cancelled",
             remoteEffectsUnknown:
-              ending.state === "cancelled" || ending.state === "failed"
-                ? ending.remoteEffectsUnknown
+              outcome.state === "cancelled" || outcome.state === "failed"
+                ? outcome.remoteEffectsUnknown
                 : true,
           }
-        : locked.pastDeadline && ending.state === "succeeded"
+        : locked.pastDeadline && succeeded
           ? runtimeExceeded(true)
-          : ending;
+          : outcome.state === "unpublishable"
+            ? { state: "failed", error: outcome.error, remoteEffectsUnknown: false }
+            : outcome;
       await this.#writeEnding(tx, job, final, locked);
       return final;
     });

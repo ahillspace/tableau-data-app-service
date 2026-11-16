@@ -74,7 +74,8 @@ A handler may implement remote cancel for its external task.
 
 ## Results and retention
 
-A result larger than the result cap, 100 MB by default, fails the Job with `result-too-large`.
+A result larger than the result cap, 100 MB by default, fails the Job with `result-too-large`, and a result that is not JSON fails it with `result-invalid`.
+Either is still a success at the commit: a recorded cancel or a passed deadline takes precedence over the rejection, as for any other success.
 Results are kept for seven days and finished-Job records for thirty days after the Job finishes, both configurable.
 A finished-Job record outlives its result so a repeated submission key still returns the original Job, and a late reader is told `result-expired`.
 Workers delete expired results and records in bounded batches.

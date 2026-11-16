@@ -500,6 +500,24 @@ describe("jobs", () => {
     await running;
     const ended = await unpublished(waited.job.id);
     assert.ok(new Date(ended.finishedAt as string) >= (released as Date));
+
+    // A late success is not published even when its result could not have been stored anyway.
+    behaviors.set("small", async () => {
+      const until = Date.now() + 200;
+      while (Date.now() < until) {}
+      return { kind: "succeeded", result: "y".repeat(100) };
+    });
+    const oversized = await submit(a, "small", 1, "late-3");
+    await w.execute(await shortDeadline());
+    await unpublished(oversized.job.id);
+    behaviors.set("small", async () => {
+      const until = Date.now() + 200;
+      while (Date.now() < until) {}
+      return { kind: "succeeded", result: 1n };
+    });
+    const invalid = await submit(a, "small", 1, "late-4");
+    await w.execute(await shortDeadline());
+    await unpublished(invalid.job.id);
   });
 
   test("a cancel that commits while an ending waits for the row lock wins over that ending", async () => {
@@ -542,6 +560,18 @@ describe("jobs", () => {
     assert.equal(s.state, "cancelled");
     assert.equal(s.result, undefined);
     assert.equal(s.remoteEffectsUnknown, true);
+
+    // So is a success whose result could not be stored: the handler finished, so the provider acted.
+    behaviors.set("small", async () => ({ kind: "succeeded", result: "y".repeat(100) }));
+    const oversized = await submit(a, "small", 1, "cx-4");
+    const o = await cancelledDuringCommit(oversized.job.id);
+    assert.equal(o.state, "cancelled");
+    assert.equal(o.remoteEffectsUnknown, true);
+    behaviors.set("small", async () => ({ kind: "succeeded", result: 1n }));
+    const invalid = await submit(a, "small", 1, "cx-5");
+    const i = await cancelledDuringCommit(invalid.job.id);
+    assert.equal(i.state, "cancelled");
+    assert.equal(i.remoteEffectsUnknown, true);
 
     // A settled failure that would retry ends cancelled instead, with nothing left unknown.
     behaviors.set("flaky", async () => ({ kind: "failed", code: "busy", message: "try later" }));
