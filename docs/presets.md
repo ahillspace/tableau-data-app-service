@@ -24,7 +24,9 @@ Any provider the generic `oauth2`, `static` or `none` types can describe needs n
 ### Slack
 
 - `type: slack`, with `presetOptions.tokenMode` of `bot` or `user`.
-- API host `https://slack.com/api`; OAuth endpoints `https://slack.com/oauth/v2/authorize` and `https://slack.com/api/oauth.v2.access`.
+- API hosts `https://slack.com/api` for Web API methods and `https://files.slack.com` for file downloads; OAuth endpoints `https://slack.com/oauth/v2/authorize` and `https://slack.com/api/oauth.v2.access`.
+- A Data App downloads a Slack-hosted file through the router by naming `https://files.slack.com` in `Tableau-Service-Host` and passing the path of the file's `url_private` or thumbnail URL; the definition needs the `files:read` scope.
+  A remote file's `url_private` is an external link on another host, so the router refuses it and the token never leaves Slack.
 - Bot mode requests `scope` and stores the bot token; user mode requests `user_scope` and stores the installing user's token.
 - One Slack app can back a shared bot definition and a personal user definition at the same time, because one install returns both tokens.
 - A definition without a client ID takes static tokens only, and static tokens are accepted in either mode.

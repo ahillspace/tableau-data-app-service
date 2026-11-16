@@ -3,7 +3,8 @@ import { createHmac } from "node:crypto";
 import { describe, test } from "node:test";
 import type { ConnectionDefinition } from "../src/connections/types.ts";
 import { ServiceError } from "../src/platform/errors.ts";
-import { slack, slackEventSource } from "../src/presets/slack.ts";
+import { SLACK_API, SLACK_FILES, slack, slackEventSource } from "../src/presets/slack.ts";
+import { destination } from "../src/router/router.ts";
 
 const SECRET = "test-signing-secret";
 
@@ -16,7 +17,7 @@ function definition(
     displayName: "Slack",
     type: "slack",
     ownership: mode === "bot" ? "shared" : "personal",
-    apiHosts: ["https://slack.com/api"],
+    apiHosts: [SLACK_API, SLACK_FILES],
     scopes,
     presetOptions: { tokenMode: mode },
     credentialPlacement: { kind: "bearer" },
@@ -70,7 +71,7 @@ function errorCode(fn: () => unknown): string {
 describe("slack preset", () => {
   test("defaults fill hosts and endpoints, and tokenMode is required", () => {
     assert.deepEqual(slack.defaults?.({ clientId: "1.2" }), {
-      apiHosts: ["https://slack.com/api"],
+      apiHosts: ["https://slack.com/api", "https://files.slack.com"],
       credentialPlacement: { kind: "bearer" },
       authorizationEndpoint: "https://slack.com/oauth/v2/authorize",
       tokenEndpoint: "https://slack.com/api/oauth.v2.access",
@@ -82,6 +83,21 @@ describe("slack preset", () => {
         { path: "presetOptions.tokenMode", rule: "one-of:bot|user" },
         { path: "presetOptions.extra", rule: "unknown-field" },
       ],
+    );
+  });
+
+  test("file downloads reach Slack's file host and no other host", () => {
+    const bot = definition("bot");
+    const file = destination(bot, "/files-pri/T1-F1/screenshot.png", "https://files.slack.com");
+    assert.equal(file.url.href, "https://files.slack.com/files-pri/T1-F1/screenshot.png");
+    assert.equal(
+      destination(bot, "/conversations.history", undefined).url.href,
+      `${SLACK_API}/conversations.history`,
+    );
+    // A remote file's url_private is an app-chosen external URL; the token never goes there.
+    assert.equal(
+      errorCode(() => destination(bot, "/doc", "https://files.example.com")),
+      "invalid-request",
     );
   });
 

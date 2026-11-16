@@ -16,6 +16,8 @@ import type {
 import { ServiceError } from "../platform/errors.ts";
 
 export const SLACK_API = "https://slack.com/api";
+/** Slack's file host, where `url_private` and thumbnail downloads live. */
+export const SLACK_FILES = "https://files.slack.com";
 export const SLACK_AUTHORIZE = "https://slack.com/oauth/v2/authorize";
 export const SLACK_TOKEN = "https://slack.com/api/oauth.v2.access";
 /** Slack refuses requests whose signature timestamp is more than five minutes away. */
@@ -209,7 +211,7 @@ export const slack: ProviderType = {
   credentialless: false,
   defaults(input) {
     return {
-      apiHosts: [SLACK_API],
+      apiHosts: [SLACK_API, SLACK_FILES],
       credentialPlacement: { kind: "bearer" },
       ...(input.clientId !== undefined
         ? { authorizationEndpoint: SLACK_AUTHORIZE, tokenEndpoint: SLACK_TOKEN }
