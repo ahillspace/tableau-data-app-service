@@ -77,7 +77,7 @@ def product(text):
     assumptions = items(section(text, 'Unverified assumptions'), r'A\d+')
     journeys = [{'name': plain(r['Journey']), 'text': plain(r['What happens'])} for r in tables(section(text, 'Viewer and operator journeys'))[0]]
     exclusions = [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', section(text, 'Exclusions'), re.M | re.S)]
-    status = {k.lower().replace(' ', '-'): v.strip() for k, v in re.findall(r'^(Design status|Implementation status|User acceptance): (.+)$', text, re.M)}
+    status = {k.lower().replace(' ', '-'): plain(v) for k, v in re.findall(r'^(Design status|Implementation status|User acceptance): (.+)$', text, re.M)}
     return {'requirements': requirements, 'recommendations': recommendations, 'assumptions': assumptions,
             'journeys': journeys, 'exclusions': exclusions, 'status': status}
 
@@ -143,7 +143,8 @@ def flows(text):
 def verification(text):
     def gates(heading):
         rows = tables(section(text, heading))[0]
-        return [{'id': plain(r['Gate']), 'shows': plain(r['Shows']), 'status': plain(r['Status'])} for r in rows]
+        return [{'id': plain(r['Gate']), 'shows': plain(r['Shows']), 'status': plain(r['Status']),
+                 'evidence': plain(r.get('Evidence', ''))} for r in rows]
     limitations = [plain(p) for p in re.findall(r'^- (.*?)(?=^- |\Z)', section(text, 'Known limitations'), re.M | re.S)]
     return {'automated': gates('Automated gates'), 'live': gates('Live gates'), 'limitations': limitations}
 

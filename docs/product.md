@@ -15,7 +15,7 @@ This document has three kinds of statement, kept in separate sections:
 - [Assumptions](#unverified-assumptions) are facts the design depends on that have not been verified, each with the check that settles it.
 
 Design status: draft, awaiting product owner approval.
-Implementation status: not started.
+Implementation status: built; automated gates pass, live gates open.
 User acceptance: not started.
 
 ## Who uses it

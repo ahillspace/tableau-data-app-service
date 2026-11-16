@@ -78,6 +78,12 @@ th,
 dd {
   overflow-wrap: anywhere;
 }
+/* Table cells shrink to fit by breaking anywhere; short code tokens such as commit IDs and file
+   names stay whole and long ones still wrap. */
+td code,
+th code {
+  overflow-wrap: break-word;
+}
 .sr-only {
   position: absolute;
   width: 1px;

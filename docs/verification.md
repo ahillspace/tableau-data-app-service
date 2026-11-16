@@ -1,7 +1,7 @@
 # Verification
 
 These gates define what must be shown before each part of the service is called done.
-Nothing here has been run; status is recorded per gate as work proceeds.
+Each gate records its status and, once run, the evidence and the commit it ran against.
 Design convergence, implementation verification and user acceptance are tracked separately.
 
 | Status | Meaning |
@@ -12,38 +12,41 @@ Design convergence, implementation verification and user acceptance are tracked 
 
 ## Automated gates
 
-Run with `npm test` on macOS and Linux against a real Postgres, and Redis where noted.
+Run with `npm test` against a real Postgres, and Redis where noted.
+Every automated gate passed on macOS at commit `47889fa`, with 99 of 99 tests passing.
+Each gate's evidence names the test file that shows it.
+The Linux run has not been recorded yet.
 
-| Gate | Shows | Status |
-| --- | --- | --- |
-| V1 | Bootstrap and settings validation list every failing field with its rule and no secret value. | Open |
-| V2 | Postgres connections verify the server certificate, and a mismatched CA fails startup. | Open |
-| V3 | Tableau sign-in validates state, PKCE, nonce, ID token and current session, using a local stand-in for Tableau. | Open |
-| V4 | Identity equality uses deployment, site ID and user ID; same username on two sites are two identities. | Open |
-| V5 | Bootstrap operator and trusted site bind to IDs on first sign-in and never match by name afterwards. | Open |
-| V6 | No Tableau role grants operator status. | Open |
-| V7 | First sign-in needs a matching proof and a single-use completion code, and a popup without an opener refuses. Restore issues a bearer from a valid restore cookie, and refuses after the sign-in limit or once the site is untrusted. | Open |
-| V7a | Every operator route refuses a restored or app bearer. | Open |
-| V8 | The sign-in limit is enforced and nothing but a Tableau sign-in moves it. | Open |
-| V9 | Sealed values open only with matching purpose and record ID. | Open |
-| V10 | Definitions validate as a whole and report every failing field. | Open |
-| V11 | In-place changes keep connections; redefinition and retirement end them and delete credentials; definition IDs survive. | Open |
-| V12 | Two API replicas see a definition change on their next checkout. | Open |
-| V13 | Personal checkout never returns a shared connection. | Open |
-| V14 | Concurrent refreshes on two replicas call the token endpoint once. | Open |
-| V15 | A connect page refuses a sign-in cookie whose identity does not match the transaction. | Open |
-| V16 | Native requests and responses pass through unchanged apart from the documented headers. | Open |
-| V17 | Large uploads and downloads stream with bounded memory. | Open |
-| V18 | Destination checks refuse private and metadata addresses at socket time, including after DNS change. | Open |
-| V19 | The router never retries and reports whether the provider may have received a request. | Open |
-| V20 | Job admission is idempotent per submission key and never reports an uncommitted Job. | Open |
-| V21 | Worker crash marks Jobs interrupted, with no replay unless the handler opts in. | Open |
-| V22 | Waiting Jobs release their slot and resume on a verified callback. | Open |
-| V23 | Job caps and retention windows are enforced. | Open |
-| V24 | With events off, no Redis client is created; with Redis down, everything except events works. | Open |
-| V25 | Slack event signatures and ages are verified; stale or forged deliveries are refused. | Open |
-| V26 | No log line or error contains a secret value. | Open |
-| V27 | The SDK minifies to under 15 KB. | Open |
+| Gate | Shows | Status | Evidence |
+| --- | --- | --- | --- |
+| V1 | Bootstrap and settings validation list every failing field with its rule and no secret value. | Passed at `47889fa` | `test/roles.test.ts` |
+| V2 | Postgres connections verify the server certificate, and a mismatched CA fails startup. | Passed at `47889fa` | `test/persistence.test.ts` |
+| V3 | Tableau sign-in validates state, PKCE, nonce, ID token and current session, using a local stand-in for Tableau. | Passed at `47889fa` | `test/identity.test.ts` |
+| V4 | Identity equality uses deployment, site ID and user ID; same username on two sites are two identities. | Passed at `47889fa` | `test/identity.test.ts` |
+| V5 | Bootstrap operator and trusted site bind to IDs on first sign-in and never match by name afterwards. | Passed at `47889fa` | `test/identity.test.ts` |
+| V6 | No Tableau role grants operator status. | Passed at `47889fa` | `test/identity.test.ts` |
+| V7 | First sign-in needs a matching proof and a single-use completion code, and a popup without an opener refuses. Restore issues a bearer from a valid restore cookie, and refuses after the sign-in limit or once the site is untrusted. | Passed at `47889fa` | `test/identity.test.ts`, `test/http.test.ts` |
+| V7a | Every operator route refuses a restored or app bearer. | Passed at `47889fa` | `test/identity.test.ts`, `test/http.test.ts` |
+| V8 | The sign-in limit is enforced and nothing but a Tableau sign-in moves it. | Passed at `47889fa` | `test/identity.test.ts` |
+| V9 | Sealed values open only with matching purpose and record ID. | Passed at `47889fa` | `test/sealing.test.ts` |
+| V10 | Definitions validate as a whole and report every failing field. | Passed at `47889fa` | `test/connections.test.ts` |
+| V11 | In-place changes keep connections; redefinition and retirement end them and delete credentials; definition IDs survive. | Passed at `47889fa` | `test/connections.test.ts` |
+| V12 | Two API replicas see a definition change on their next checkout. | Passed at `47889fa` | `test/connections.test.ts` |
+| V13 | Personal checkout never returns a shared connection. | Passed at `47889fa` | `test/connections.test.ts` |
+| V14 | Concurrent refreshes on two replicas call the token endpoint once. | Passed at `47889fa` | `test/connections.test.ts` |
+| V15 | A connect page refuses a sign-in cookie whose identity does not match the transaction. | Passed at `47889fa` | `test/connections.test.ts`, `test/http.test.ts` |
+| V16 | Native requests and responses pass through unchanged apart from the documented headers. | Passed at `47889fa` | `test/router.test.ts`, `test/http.test.ts` |
+| V17 | Large uploads and downloads stream with bounded memory. | Passed at `47889fa` | `test/router.test.ts` |
+| V18 | Destination checks refuse private and metadata addresses at socket time, including after DNS change. | Passed at `47889fa` | `test/outbound.test.ts` |
+| V19 | The router never retries and reports whether the provider may have received a request. | Passed at `47889fa` | `test/outbound.test.ts` |
+| V20 | Job admission is idempotent per submission key and never reports an uncommitted Job. | Passed at `47889fa` | `test/jobs.test.ts` |
+| V21 | Worker crash marks Jobs interrupted, with no replay unless the handler opts in. | Passed at `47889fa` | `test/jobs.test.ts` |
+| V22 | Waiting Jobs release their slot and resume on a verified callback. | Passed at `47889fa` | `test/jobs.test.ts`, `test/http.test.ts` |
+| V23 | Job caps and retention windows are enforced. | Passed at `47889fa` | `test/jobs.test.ts` |
+| V24 | With events off, no Redis client is created; with Redis down, everything except events works. | Passed at `47889fa` | `test/events.test.ts` |
+| V25 | Slack event signatures and ages are verified; stale or forged deliveries are refused. | Passed at `47889fa` | `test/slack.test.ts`, `test/events.test.ts` |
+| V26 | No log line or error contains a secret value. | Passed at `47889fa` | `test/platform.test.ts`, `test/roles.test.ts`, `test/http.test.ts` |
+| V27 | The SDK minifies to under 15 KB. | Passed at `47889fa` | `test/sdk.test.ts` |
 
 ## Live gates
 
@@ -67,3 +70,4 @@ Run against a deployed installation with a published Tableau Cloud Data App and 
 - The service does not verify which Tableau site the calling app runs on.
 - Whether Tableau's central sign-in can reuse an existing Tableau Cloud session is unknown.
 - Tableau Server is not built.
+- No production Job handler ships: Job handlers are optional per provider type and none is specified for Slack, so L8 needs a provider type that installs one.

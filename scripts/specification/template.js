@@ -253,9 +253,15 @@
       const n = s ? all.filter((g) => g.status === s).length : all.length;
       filters.append(el("button", { type: "button", class: "filter-button", "aria-pressed": String(gateFilter === s), onclick: () => { gateFilter = s; renderVerification(); } }, `${s || "All"} (${n})`));
     }
-    const rows = (gates) => gates.filter((g) => !gateFilter || g.status === gateFilter).map((g) => [el("strong", { text: g.id }), g.shows, badge(g.status)]);
-    table($("automated"), ["Gate", "Shows", "Status"], rows(MODEL.verification.automated));
-    table($("live"), ["Gate", "Shows", "Status"], rows(MODEL.verification.live));
+    // A table shows an Evidence column only when its gates record evidence.
+    const gateTable = (node, gates) => {
+      const evidence = gates.some((g) => g.evidence);
+      const shown = gates.filter((g) => !gateFilter || g.status === gateFilter);
+      table(node, ["Gate", "Shows", "Status", ...(evidence ? ["Evidence"] : [])],
+        shown.map((g) => [el("strong", { text: g.id }), g.shows, badge(g.status), ...(evidence ? [g.evidence] : [])]));
+    };
+    gateTable($("automated"), MODEL.verification.automated);
+    gateTable($("live"), MODEL.verification.live);
     const limits = clear($("limitations"));
     for (const l of MODEL.verification.limitations) limits.append(el("li", { text: l }));
   }
