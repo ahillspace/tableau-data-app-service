@@ -103,7 +103,7 @@ describe("jobs", () => {
   let a: Principal;
   let b: Principal;
 
-  const worker = (concurrency = 1) =>
+  const worker = (concurrency = 1, renewMs = 50) =>
     new JobWorker({
       db,
       connections: c.connections,
@@ -112,7 +112,7 @@ describe("jobs", () => {
       log: new Log((line) => lines.push(line)),
       concurrency,
       leaseMs: 30_000,
-      renewMs: 50,
+      renewMs,
       pollMs: 20,
     });
 
@@ -522,6 +522,37 @@ describe("jobs", () => {
     assert.equal(u.attempt, 1);
     assert.equal(u.remoteEffectsUnknown, true);
     assert.equal(await w.claim(), undefined);
+  });
+
+  test("a cancel recorded before a shutdown interrupts the attempt ends the Job cancelled", async () => {
+    for (const [name, key] of [
+      ["echo", "shut-unsafe"],
+      ["safe", "shut-safe"],
+    ] as const) {
+      let started!: () => void;
+      const running = new Promise<void>((r) => {
+        started = r;
+      });
+      behaviors.set(name, async (ctx) => {
+        started();
+        await new Promise<void>((resolve) =>
+          ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        throw new Error("aborted");
+      });
+      const { job } = await submit(a, name, 1, key);
+      // Lease renewal never runs here, so only the shutdown's own commit can see the cancel.
+      const w = worker(1, 600_000);
+      w.start();
+      await running;
+      assert.equal((await jobs.cancelOwn(a, job.id)).state, "running");
+      await w.stop(0);
+      const ended = await jobs.get(a, job.id);
+      assert.equal(ended.state, "cancelled", name);
+      assert.equal(ended.remoteEffectsUnknown, true, name);
+      assert.equal(ended.error, undefined, name);
+      assert.equal(await w.claim(), undefined, name);
+    }
   });
 
   test("V22 a waiting Job releases its slot and resumes once on a verified callback", async () => {

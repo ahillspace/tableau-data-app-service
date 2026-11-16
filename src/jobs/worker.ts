@@ -664,8 +664,18 @@ export class JobWorker {
     });
   }
 
+  /**
+   * Settles an attempt that shutdown aborted. Its outcome is unknown, so a recorded cancel ends the
+   * Job `cancelled` with unknown remote effects; otherwise it is queued again when its handler
+   * declares replay safe and time remains, and interrupted when not.
+   */
   async #interruptOwn(job: Claimed, handler: JobHandlerDefinition): Promise<void> {
     const written = await this.#commit(job, async (tx, locked) => {
+      if (locked.cancelRequested) {
+        const ending: Ending = { state: "cancelled", remoteEffectsUnknown: true };
+        await this.#writeEnding(tx, job, ending, locked);
+        return ending;
+      }
       if (handler.retrySafe && !locked.pastDeadline) {
         await tx
           .updateTable("jobs")
