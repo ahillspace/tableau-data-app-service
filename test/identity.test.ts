@@ -90,7 +90,7 @@ describe("identity", () => {
     assert.ok(!dump.includes("Bearer"));
   });
 
-  test("V3 state, PKCE, nonce, signature, audience, at_hash, userinfo and session are each enforced", async () => {
+  test("V3 state, PKCE, nonce, signature, audience, at_hash when present, userinfo and session are each enforced", async () => {
     const begun = await h.identity.beginTableauSignIn({ deploymentId: DEPLOYMENT, returnTo: "/x" });
     const query = tableau.authorize(begun.authorizationUrl, alice);
     const wrongState = new URLSearchParams(query);
@@ -115,7 +115,6 @@ describe("identity", () => {
       { nonce: true },
       { signature: true },
       { audience: true },
-      { atHash: "missing" as const },
       { atHash: "wrong" as const },
       { userinfoSubject: true },
       { sessionStatus: 401 },
@@ -143,6 +142,10 @@ describe("identity", () => {
       await db.selectFrom("sign_in_sessions").select("id").executeTakeFirst(),
       undefined,
     );
+    // Tableau may leave at_hash out of an ID token from the token endpoint; sign-in still succeeds.
+    tableau.faults = { atHash: "missing" };
+    assert.ok((await tableauSignIn(h, tableau, alice)).cookie);
+    tableau.faults = {};
   });
 
   test("V3 an untrusted site fails with site-not-trusted naming the content URL", async () => {

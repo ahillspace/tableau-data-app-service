@@ -180,10 +180,8 @@ export class TableauCloudAdapter implements DeploymentAdapter {
     const claims = oauth.getValidatedIdTokenClaims(tokens);
     if (!claims) throw failed("id-token");
     if (claims.azp !== undefined && claims.azp !== this.#client.client_id) throw failed("azp");
-    if (
-      typeof claims.at_hash !== "string" ||
-      claims.at_hash !== (await atHash(tokens.access_token))
-    )
+    // The token endpoint makes at_hash optional (OpenID Connect Core 3.1.3.6); when present it must match.
+    if (claims.at_hash !== undefined && claims.at_hash !== (await atHash(tokens.access_token)))
       throw failed("at-hash");
     const info = await call("userinfo", async () => {
       const r = await oauth.userInfoRequest(this.#as, this.#client, tokens.access_token, options);

@@ -36,7 +36,7 @@ Sign-in uses OAuth authorization code with PKCE against Tableau's central sign-i
    When the installation has several deployments, the popup first asks the viewer to choose a Tableau Cloud pod.
 2. The popup redirects to Tableau's authorization endpoint.
 3. Tableau redirects to the service's Tableau callback with a code and `state`.
-4. The service exchanges the code, validates the ID token's issuer, audience, signature, expiry, nonce and access token hash, and checks the userinfo subject matches.
+4. The service exchanges the code, validates the ID token's issuer, audience, signature, expiry and nonce, checks the access token hash when the ID token carries one, and checks the userinfo subject matches.
 5. The service calls the pod's REST API `GET /api/3.24/sessions/current` with the access token and reads the site ID, site content URL, user ID and user name.
 6. The site must be a trusted site on that deployment, matched by bound site ID or, before binding, by content URL.
 7. The service records the identity's last verified Tableau sign-in time and discards Tableau's tokens.
