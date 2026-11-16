@@ -25,6 +25,7 @@ Shared types are in [contracts](contracts.md).
                                   Provider APIs, Tableau sign-in and REST API
 ```
 
+The [system architecture diagram](architecture/system-architecture.png) shows every component, what it owns, and what crosses each boundary; its source is [system-architecture.excalidraw](architecture/system-architecture.excalidraw).
 The API and worker roles are one codebase started with a role argument.
 Both scale to several replicas.
 Postgres is the only authoritative store.
