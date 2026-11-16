@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import type { JobHandlerDefinition, JobStepResult } from "../connections/provider-types.ts";
 import type { ConnectionService } from "../connections/service.ts";
-import { type Db, transaction } from "../persistence/database.ts";
+import { type Db, type Tx, transaction } from "../persistence/database.ts";
 import type { Clock } from "../platform/clock.ts";
 import { ServiceError, type ServiceErrorBody } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
@@ -40,6 +40,19 @@ type Claimed = {
   has_resume: boolean;
   attempt: number;
   deadline_at: Date;
+  /** The external task an earlier attempt started, if any. */
+  external_task_id: string | null;
+};
+
+/** What a claim's row says once this worker holds its lock, with the time read after the lock. */
+type Locked = {
+  now: Date;
+  deadline: Date;
+  pastDeadline: boolean;
+  cancelRequested: boolean;
+  /** An earlier attempt of this Job ended in a way the provider may have acted on. */
+  earlierEffectsUnknown: boolean;
+  hasCallback: boolean;
 };
 
 type Ending =
@@ -47,6 +60,12 @@ type Ending =
   | { state: "failed"; error: ServiceErrorBody["error"]; remoteEffectsUnknown: boolean }
   | { state: "cancelled"; remoteEffectsUnknown: boolean }
   | { state: "interrupted" };
+
+/**
+ * What an attempt produced, before the row lock decides how it ends. A success whose result cannot be
+ * stored is still a success: the provider acted, so a cancel or the deadline outranks its rejection.
+ */
+type Outcome = Ending | { state: "unpublishable"; error: ServiceErrorBody["error"] };
 
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_RENEW_MS = 10_000;
@@ -60,6 +79,11 @@ class Stop extends Error {
     this.why = why;
   }
 }
+
+const INTERRUPTED = {
+  code: "interrupted",
+  message: "The worker running this Job stopped; the provider may have acted",
+};
 
 /** Puts a pending callback back for the next attempt: a newer callback wins over the one in use. */
 const REQUEUE_RESUME = { resume: sql<string | null>`coalesce(resume, resuming)`, resuming: null };
@@ -193,7 +217,8 @@ export class JobWorker {
       where jobs.id = picked.id
       returning jobs.id, jobs.lease_owner as lease, jobs.handler, jobs.definition_id,
         jobs.owner_identity_id, jobs.input, jobs.resuming as resumed,
-        (jobs.resuming is not null) as has_resume, jobs.attempt, jobs.deadline_at
+        (jobs.resuming is not null) as has_resume, jobs.attempt, jobs.deadline_at,
+        jobs.external_task_id
     `.execute(this.#db);
     const row = result.rows[0];
     if (!row) return undefined;
@@ -303,12 +328,7 @@ export class JobWorker {
       await this.#wait(job, step.externalTaskId, step.checkAt);
       return;
     }
-    const cancelRequested = stop?.why === "cancel" || (await this.#cancelRequested(job));
-    if (cancelRequested) {
-      const known = step?.kind === "cancelled" ? step.remoteEffectsUnknown : true;
-      await this.#end(job, { state: "cancelled", remoteEffectsUnknown: known });
-      return;
-    }
+    // A cancel is settled under the row lock by `#end` and `#fail`, whatever the attempt produced.
     if (stop?.why === "deadline") {
       await this.#end(job, runtimeExceeded(true));
       return;
@@ -323,12 +343,10 @@ export class JobWorker {
             }
           : { code: "handler-failed", message: "The Job's handler failed" };
       if (!(thrown instanceof ServiceError)) log.warn("job handler threw", { error: thrown });
-      await this.#fail(
-        job,
-        handler,
-        error,
-        thrown instanceof ServiceError ? thrown.upstream === "may-have-been-sent" : true,
-      );
+      // A throw means the handler did not finish its attempt. Whatever the error says about its last
+      // request, an earlier operation in the same attempt may have reached the provider, so the outcome
+      // is uncertain. A handler reports a settled failure by returning one.
+      await this.#fail(job, handler, error, "uncertain");
       return;
     }
     switch (step.kind) {
@@ -338,18 +356,16 @@ export class JobWorker {
           canonical = canonicalJson(step.result ?? null);
         } catch {
           await this.#end(job, {
-            state: "failed",
+            state: "unpublishable",
             error: { code: "result-invalid", message: "The handler's result is not JSON" },
-            remoteEffectsUnknown: false,
           });
           return;
         }
         const cap = limitsFor(this.#jobs.limits, handler).resultBytes;
         if (canonical.bytes > cap) {
           await this.#end(job, {
-            state: "failed",
+            state: "unpublishable",
             error: { code: "result-too-large", message: `The result is larger than ${cap} bytes` },
-            remoteEffectsUnknown: false,
           });
           return;
         }
@@ -357,7 +373,7 @@ export class JobWorker {
         return;
       }
       case "failed":
-        await this.#fail(job, handler, { code: step.code, message: step.message }, false);
+        await this.#fail(job, handler, { code: step.code, message: step.message }, "settled");
         return;
       case "cancelled":
         await this.#end(job, {
@@ -390,15 +406,6 @@ export class JobWorker {
     }
   }
 
-  async #cancelRequested(job: Claimed): Promise<boolean> {
-    const row = await this.#db
-      .selectFrom("jobs")
-      .select("cancel_requested")
-      .where("id", "=", job.id)
-      .executeTakeFirst();
-    return row?.cancel_requested ?? false;
-  }
-
   async #progress(job: Claimed, value: unknown): Promise<void> {
     const canonical = canonicalJson(value ?? null);
     await this.#db
@@ -425,43 +432,66 @@ export class JobWorker {
   }
 
   /**
-   * Releases the slot. A callback that already arrived queues the Job again at once. The row is
-   * locked while the next state is chosen, so a cancel that arrives during the attempt is never lost:
-   * either it is seen here and the Job ends cancelled, or it waits for this commit and finds the Job
-   * waiting.
+   * Commits this claim's next state. The row is locked first, and only then are the time, the
+   * deadline and the claim read, so a commit that waited on the lock is judged by when it actually
+   * happens. The claim is valid while its fencing token is the lease owner and the Job is running;
+   * only the sweep replaces the token, and it moves the Job out of `running` when it does. Returns
+   * undefined when the claim no longer holds the Job.
    */
-  async #wait(job: Claimed, externalTaskId: string, checkAt: Date | undefined): Promise<void> {
-    const now = this.#clock.now();
-    const due = checkAt && checkAt < job.deadline_at ? checkAt : job.deadline_at;
-    const outcome = await transaction(this.#db, async (tx) => {
+  async #commit<T>(
+    job: Claimed,
+    write: (tx: Tx, locked: Locked) => Promise<T>,
+  ): Promise<T | undefined> {
+    return await transaction(this.#db, async (tx) => {
       const row = await tx
         .selectFrom("jobs")
-        .select(["cancel_requested", sql<boolean>`resume is not null`.as("has_callback")])
+        .select([
+          "deadline_at",
+          "cancel_requested",
+          "earlier_effects_unknown",
+          sql<boolean>`resume is not null`.as("has_callback"),
+        ])
         .where("id", "=", job.id)
         .where("lease_owner", "=", job.lease)
         .where("state", "=", "running")
         .forUpdate()
         .executeTakeFirst();
       if (!row) return undefined;
-      if (row.cancel_requested) {
-        await tx
-          .updateTable("jobs")
-          .set({
-            state: "cancelled",
-            external_task_id: externalTaskId,
-            remote_effects_unknown: true,
-            ...this.#finished(now),
-          })
-          .where("id", "=", job.id)
-          .execute();
-        return "cancelled" as const;
+      const now = this.#clock.now();
+      const deadline = row.deadline_at ?? job.deadline_at;
+      return await write(tx, {
+        now,
+        deadline,
+        pastDeadline: now.getTime() >= deadline.getTime(),
+        cancelRequested: row.cancel_requested,
+        earlierEffectsUnknown: row.earlier_effects_unknown,
+        hasCallback: row.has_callback,
+      });
+    });
+  }
+
+  /**
+   * Releases the slot. A callback that already arrived queues the Job again at once. A cancel that
+   * arrives during the attempt is never lost: either it is seen under the row lock and the Job ends
+   * cancelled, or it waits for this commit and finds the Job waiting. A wait asked for after the
+   * deadline ends the Job as `runtime-exceeded`.
+   */
+  async #wait(job: Claimed, externalTaskId: string, checkAt: Date | undefined): Promise<void> {
+    const outcome = await this.#commit(job, async (tx, locked) => {
+      if (locked.cancelRequested || locked.pastDeadline) {
+        const ending: Ending = locked.cancelRequested
+          ? { state: "cancelled", remoteEffectsUnknown: true }
+          : runtimeExceeded(true);
+        await this.#writeEnding(tx, job, ending, locked, { external_task_id: externalTaskId });
+        return ending.state;
       }
-      const state = row.has_callback ? ("queued" as const) : ("waiting" as const);
+      const state = locked.hasCallback ? ("queued" as const) : ("waiting" as const);
+      const due = checkAt && checkAt < locked.deadline ? checkAt : locked.deadline;
       await tx
         .updateTable("jobs")
         .set({
           state,
-          run_after: state === "queued" ? now : due,
+          run_after: state === "queued" ? locked.now : due,
           external_task_id: externalTaskId,
           lease_owner: null,
           lease_expires_at: null,
@@ -494,99 +524,187 @@ export class JobWorker {
     };
   }
 
+  /**
+   * Ends an attempt that failed. A settled failure is retried when the handler declares retries. An
+   * uncertain outcome, where the provider may have acted, is retried only when the handler also
+   * declares replay safe; the uncertainty is kept for whatever the Job ends as. Nothing is retried
+   * once the deadline has passed, and nothing is retried or failed once a cancel is recorded: the Job
+   * ends `cancelled`, reporting unknown remote effects when this attempt's outcome was uncertain.
+   */
   async #fail(
     job: Claimed,
     handler: JobHandlerDefinition,
     error: ServiceErrorBody["error"],
-    remoteEffectsUnknown: boolean,
+    outcome: "settled" | "uncertain",
   ): Promise<void> {
+    const uncertain = outcome === "uncertain";
     const retries = handler.retries;
-    if (retries && job.attempt <= retries.attempts) {
-      const delay = retries.backoffSeconds * 1000 * 2 ** (job.attempt - 1);
-      const runAfter = new Date(this.#clock.now().getTime() + delay);
-      if (runAfter < job.deadline_at) {
-        await this.#db
-          .updateTable("jobs")
-          .set({
-            state: "queued",
-            run_after: runAfter,
-            lease_owner: null,
-            lease_expires_at: null,
-            ...REQUEUE_RESUME,
-            error: JSON.stringify(error),
-          })
-          .where("id", "=", job.id)
-          .where("lease_owner", "=", job.lease)
-          .where("state", "=", "running")
-          .execute();
-        this.#log.info("job will retry", { jobId: job.id, attempt: job.attempt, code: error.code });
-        return;
+    const result = await this.#commit(job, async (tx, locked) => {
+      if (locked.cancelRequested) {
+        const ending: Ending = { state: "cancelled", remoteEffectsUnknown: uncertain };
+        await this.#writeEnding(tx, job, ending, locked);
+        return ending;
       }
-    }
-    await this.#end(job, { state: "failed", error, remoteEffectsUnknown });
+      // Past the deadline the failure stands as reported; nothing runs again.
+      const replay =
+        !locked.pastDeadline &&
+        retries !== undefined &&
+        job.attempt <= retries.attempts &&
+        (!uncertain || handler.retrySafe);
+      if (replay) {
+        const delay = retries.backoffSeconds * 1000 * 2 ** (job.attempt - 1);
+        const runAfter = new Date(locked.now.getTime() + delay);
+        if (runAfter < locked.deadline) {
+          await tx
+            .updateTable("jobs")
+            .set({
+              state: "queued",
+              run_after: runAfter,
+              lease_owner: null,
+              lease_expires_at: null,
+              ...REQUEUE_RESUME,
+              error: JSON.stringify(error),
+              ...(uncertain ? { earlier_effects_unknown: true } : {}),
+            })
+            .where("id", "=", job.id)
+            .execute();
+          return "retry" as const;
+        }
+      }
+      const ending: Ending = { state: "failed", error, remoteEffectsUnknown: uncertain };
+      await this.#writeEnding(tx, job, ending, locked);
+      return ending;
+    });
+    if (result === "retry")
+      this.#log.info("job will retry", {
+        jobId: job.id,
+        attempt: job.attempt,
+        errorCode: error.code,
+      });
+    else if (result) this.#logEnding(job, result);
   }
 
-  /** Writes a final state, guarded by this claim's lease. */
-  async #end(job: Claimed, ending: Ending): Promise<void> {
-    const now = this.#clock.now();
-    const resultExpires = new Date(now.getTime() + this.#jobs.limits.resultRetentionSeconds * 1000);
-    await transaction(this.#db, async (tx) => {
-      const row = await tx
-        .updateTable("jobs")
-        .set({
-          state: ending.state,
-          ...this.#finished(now),
-          error: ending.state === "failed" ? JSON.stringify(ending.error) : null,
-          remote_effects_unknown:
-            ending.state === "interrupted"
-              ? true
-              : ending.state === "succeeded"
-                ? false
-                : ending.remoteEffectsUnknown,
-          ...(ending.state === "succeeded" ? { result_expires_at: resultExpires } : {}),
-        })
-        .where("id", "=", job.id)
-        .where("lease_owner", "=", job.lease)
-        .where("state", "=", "running")
-        .returning("id")
-        .executeTakeFirst();
-      if (!row) return;
-      if (ending.state === "succeeded")
-        await tx
-          .insertInto("job_results")
-          .values({
-            job_id: job.id,
-            result: ending.result,
-            size: ending.size,
-            expires_at: resultExpires,
-          })
-          .execute();
+  /**
+   * Writes a final state for this claim, deciding under the row lock in this order. A recorded cancel
+   * ends the Job `cancelled`: a handler's own cancel keeps what it reports, a failure keeps its
+   * uncertainty, and a success reports unknown remote effects because the provider acted and its
+   * result is discarded. Otherwise a success that commits at or past the deadline is not published.
+   * Only then is a success whose result cannot be stored failed for that reason; the handler finished,
+   * so its remote effects are known.
+   */
+  async #end(job: Claimed, outcome: Outcome): Promise<void> {
+    const succeeded = outcome.state === "succeeded" || outcome.state === "unpublishable";
+    const written = await this.#commit(job, async (tx, locked) => {
+      const final: Ending = locked.cancelRequested
+        ? {
+            state: "cancelled",
+            remoteEffectsUnknown:
+              outcome.state === "cancelled" || outcome.state === "failed"
+                ? outcome.remoteEffectsUnknown
+                : true,
+          }
+        : locked.pastDeadline && succeeded
+          ? runtimeExceeded(true)
+          : outcome.state === "unpublishable"
+            ? { state: "failed", error: outcome.error, remoteEffectsUnknown: false }
+            : outcome;
+      await this.#writeEnding(tx, job, final, locked);
+      return final;
     });
+    if (written) this.#logEnding(job, written);
+  }
+
+  /**
+   * Writes a final state under the lock `#commit` holds. A succeeded Job reports no unknown remote
+   * effects: an earlier uncertain attempt was replayed only because its handler declares replays
+   * safe. Any other ending reports them when this attempt or an earlier one may have left any.
+   */
+  async #writeEnding(
+    tx: Tx,
+    job: Claimed,
+    ending: Ending,
+    locked: Locked,
+    extra: { external_task_id?: string } = {},
+  ): Promise<void> {
+    const own =
+      ending.state === "interrupted"
+        ? true
+        : ending.state === "succeeded"
+          ? false
+          : ending.remoteEffectsUnknown;
+    const resultExpires = new Date(
+      locked.now.getTime() + this.#jobs.limits.resultRetentionSeconds * 1000,
+    );
+    await tx
+      .updateTable("jobs")
+      .set({
+        state: ending.state,
+        ...this.#finished(locked.now),
+        ...extra,
+        error:
+          ending.state === "failed"
+            ? JSON.stringify(ending.error)
+            : ending.state === "interrupted"
+              ? JSON.stringify(INTERRUPTED)
+              : null,
+        remote_effects_unknown:
+          ending.state !== "succeeded" && (own || locked.earlierEffectsUnknown),
+        ...(ending.state === "succeeded" ? { result_expires_at: resultExpires } : {}),
+      })
+      .where("id", "=", job.id)
+      .execute();
+    if (ending.state === "succeeded")
+      await tx
+        .insertInto("job_results")
+        .values({
+          job_id: job.id,
+          result: ending.result,
+          size: ending.size,
+          expires_at: resultExpires,
+        })
+        .execute();
+  }
+
+  #logEnding(job: Claimed, ending: Ending): void {
     this.#log.info("job finished", {
       jobId: job.id,
       state: ending.state,
-      ...(ending.state === "failed" ? { code: ending.error.code } : {}),
+      ...(ending.state === "failed" ? { errorCode: ending.error.code } : {}),
     });
   }
 
+  /**
+   * Settles an attempt that shutdown aborted. Its outcome is unknown, so a recorded cancel ends the
+   * Job `cancelled` with unknown remote effects; otherwise it is queued again when its handler
+   * declares replay safe and time remains, and interrupted when not.
+   */
   async #interruptOwn(job: Claimed, handler: JobHandlerDefinition): Promise<void> {
-    if (handler.retrySafe && job.deadline_at > this.#clock.now()) {
-      await this.#db
-        .updateTable("jobs")
-        .set({
-          state: "queued",
-          run_after: this.#clock.now(),
-          lease_owner: null,
-          lease_expires_at: null,
-          ...REQUEUE_RESUME,
-        })
-        .where("id", "=", job.id)
-        .where("lease_owner", "=", job.lease)
-        .where("state", "=", "running")
-        .execute();
-      return;
-    }
-    await this.#end(job, { state: "interrupted" });
+    const written = await this.#commit(job, async (tx, locked) => {
+      if (locked.cancelRequested) {
+        const ending: Ending = { state: "cancelled", remoteEffectsUnknown: true };
+        await this.#writeEnding(tx, job, ending, locked);
+        return ending;
+      }
+      if (handler.retrySafe && !locked.pastDeadline) {
+        await tx
+          .updateTable("jobs")
+          .set({
+            state: "queued",
+            run_after: locked.now,
+            lease_owner: null,
+            lease_expires_at: null,
+            ...REQUEUE_RESUME,
+            earlier_effects_unknown: true,
+          })
+          .where("id", "=", job.id)
+          .execute();
+        return undefined;
+      }
+      const ending: Ending = { state: "interrupted" };
+      await this.#writeEnding(tx, job, ending, locked);
+      return ending;
+    });
+    if (written) this.#logEnding(job, written);
   }
 
   /**
@@ -598,47 +716,12 @@ export class JobWorker {
     const now = this.#clock.now();
     const expired = await this.#db
       .selectFrom("jobs")
-      .select(["id", "handler", "cancel_requested", "deadline_at"])
+      .select("id")
       .where("state", "=", "running")
       .where("lease_expires_at", "<", now)
       .limit(this.#batch)
       .execute();
-    for (const job of expired) {
-      const handler = this.#connections.definitions.types.handler(job.handler)?.handler;
-      const retry = handler?.retrySafe && !job.cancel_requested && (job.deadline_at ?? now) > now;
-      const update = this.#db
-        .updateTable("jobs")
-        .where("id", "=", job.id)
-        .where("state", "=", "running")
-        .where("lease_expires_at", "<", now);
-      if (retry)
-        await update
-          .set({
-            state: "queued",
-            run_after: now,
-            lease_owner: null,
-            lease_expires_at: null,
-            ...REQUEUE_RESUME,
-          })
-          .execute();
-      else
-        await update
-          .set({
-            state: job.cancel_requested ? "cancelled" : "interrupted",
-            remote_effects_unknown: true,
-            ...this.#finished(now),
-            ...(job.cancel_requested
-              ? {}
-              : {
-                  error: JSON.stringify({
-                    code: "interrupted",
-                    message: "The worker running this Job stopped; the provider may have acted",
-                  }),
-                }),
-          })
-          .execute();
-      this.#log.warn("job lease expired", { jobId: job.id, retried: Boolean(retry) });
-    }
+    for (const { id } of expired) await this.#recoverExpired(id);
 
     // A cancel that arrived while an attempt was being queued again ends the Job here; claims skip it.
     const cancelled = await this.#db
@@ -678,6 +761,55 @@ export class JobWorker {
       .where("state", "=", "waiting")
       .where("run_after", "<=", now)
       .execute();
+  }
+
+  /**
+   * Settles one Job whose lease expired, deciding under its row lock with the time, lease, cancel and
+   * deadline read after the lock is held. A recorded cancel ends it `cancelled`; otherwise it is
+   * queued again when its handler declares replay safe and time remains, and interrupted when not.
+   * Its attempt's outcome is unknown either way.
+   */
+  async #recoverExpired(id: string): Promise<void> {
+    const retried = await transaction(this.#db, async (tx) => {
+      const row = await tx
+        .selectFrom("jobs")
+        .select(["handler", "cancel_requested", "deadline_at", "lease_expires_at"])
+        .where("id", "=", id)
+        .where("state", "=", "running")
+        .forUpdate()
+        .executeTakeFirst();
+      const now = this.#clock.now();
+      if (!row?.lease_expires_at || row.lease_expires_at.getTime() >= now.getTime())
+        return undefined;
+      const handler = this.#connections.definitions.types.handler(row.handler)?.handler;
+      const retry =
+        !row.cancel_requested &&
+        handler?.retrySafe === true &&
+        (row.deadline_at ?? now).getTime() > now.getTime();
+      const update = tx.updateTable("jobs").where("id", "=", id);
+      if (retry)
+        await update
+          .set({
+            state: "queued",
+            run_after: now,
+            lease_owner: null,
+            lease_expires_at: null,
+            ...REQUEUE_RESUME,
+            earlier_effects_unknown: true,
+          })
+          .execute();
+      else
+        await update
+          .set({
+            state: row.cancel_requested ? "cancelled" : "interrupted",
+            remote_effects_unknown: true,
+            ...this.#finished(now),
+            ...(row.cancel_requested ? {} : { error: JSON.stringify(INTERRUPTED) }),
+          })
+          .execute();
+      return retry;
+    });
+    if (retried !== undefined) this.#log.warn("job lease expired", { jobId: id, retried });
   }
 
   /** Deletes expired results and finished-Job records in bounded batches. Returns rows deleted. */

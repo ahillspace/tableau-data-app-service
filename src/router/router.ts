@@ -77,12 +77,21 @@ export function forwardableRequestHeaders(headers: [string, string][]): [string,
   return forwarded;
 }
 
-/** Response headers as the app receives them: the provider's, minus hop-by-hop and the provider's CORS answer. */
+/**
+ * Response headers as the app receives them: the provider's, minus hop-by-hop, the provider's CORS
+ * answer and any header in the service's own `Tableau-Service-` namespace, so only the service can
+ * mark a response as its own.
+ */
 export function forwardableResponseHeaders(headers: [string, string][]): [string, string][] {
   const drop = hopByHop(headers);
   return headers.filter(([name]) => {
     const lower = name.toLowerCase();
-    return !drop.has(lower) && !lower.startsWith("proxy-") && !lower.startsWith("access-control-");
+    return (
+      !drop.has(lower) &&
+      !lower.startsWith("proxy-") &&
+      !lower.startsWith("access-control-") &&
+      !lower.startsWith("tableau-service-")
+    );
   });
 }
 

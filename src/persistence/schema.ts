@@ -215,6 +215,8 @@ export interface Database {
     resuming: Json | null;
     cancel_requested: boolean;
     remote_effects_unknown: boolean;
+    /** An earlier attempt ended in a way the provider may have acted on; kept for the final state. */
+    earlier_effects_unknown: Generated<boolean>;
     error: Json | null;
     created_at: CreatedAt;
     started_at: Timestamp | null;

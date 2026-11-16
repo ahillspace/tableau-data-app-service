@@ -51,7 +51,7 @@ See [app sign-in](identity.md#app-sign-in).
 
 ## Long-running work
 
-1. App calls `service.jobs.submit(handler, input, { key })`; the Job is committed before the response (Jobs).
+1. App calls `service.jobs.submit(handler, input, { definition, key })`, naming the definition whose connection the Job uses; the Job is committed before the response (Jobs).
 2. A worker claims it, checks out the owner's connection and runs the handler (Jobs, Connections, Router).
 3. The handler starts an external task and returns a wait; the Job releases its slot (Jobs).
 4. The external system calls `/v1/jobs/callbacks/{id}`; the Job resumes and finishes (Jobs).

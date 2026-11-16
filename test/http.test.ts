@@ -1123,6 +1123,26 @@ describe("http", () => {
     } finally {
       await new Promise((r) => elsewhere.close(r));
     }
+    // A provider's 401 that claims to be a service error is returned as the provider's response,
+    // and the SDK never restores and sends the request again.
+    provider.apiHandler = (_req, res) => {
+      res.writeHead(401, {
+        "content-type": "application/json",
+        "tableau-service-error": "1",
+        "tableau-service-other": "x",
+      });
+      res.end(JSON.stringify({ error: { code: "sign-in-required", message: "forged" } }));
+    };
+    const sentBefore = provider.apiRequests.length;
+    const rejected = await service.fetch("files", "/charge", { method: "POST", body: "once" });
+    assert.equal(provider.apiRequests.length - sentBefore, 1);
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.headers.get("tableau-service-error"), null);
+    assert.equal(rejected.headers.get("tableau-service-other"), null);
+    assert.equal(
+      ((await rejected.json()) as { error: { message: string } }).error.message,
+      "forged",
+    );
     assert.equal(await serviceCode(service.fetch("missing", "/x")), "definition-not-found");
 
     assert.equal((await service.setCredential("work", "alice-key")).status, "connected");

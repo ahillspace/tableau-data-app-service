@@ -367,8 +367,10 @@ export class Service {
   }
 
   /**
-   * A service call with the bearer. A service 401 tries one restore and resends, when the body
-   * can be sent again; a failed restore throws `sign-in-required`.
+   * A service call with the bearer. When the service rejects the bearer itself with
+   * `sign-in-required`, nothing was sent to a provider, so the SDK tries one restore and resends,
+   * when the body can be sent again; a failed restore throws `sign-in-required`. Any other 401,
+   * including a provider's, is never resent.
    */
   async request(
     path: string,
@@ -389,7 +391,12 @@ export class Service {
     };
     let response = await send();
     const isServiceError = (r: Response) => !options.native || r.headers.get(ERROR_MARKER) === "1";
-    if (response.status === 401 && isServiceError(response) && replayable(init.body)) {
+    if (
+      response.status === 401 &&
+      isServiceError(response) &&
+      replayable(init.body) &&
+      (await errorFrom(response.clone())).code === "sign-in-required"
+    ) {
       if (!(await this.restore())) throw this.#signInRequired();
       response = await send();
     }
