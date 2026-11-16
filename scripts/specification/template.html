@@ -3,164 +3,163 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Tableau Data App Service - Documentation</title>
+    <title>Tableau Data App Service - documentation</title>
     <style>
       /*__STYLE__*/
     </style>
   </head>
   <body>
-    <a href="#main" class="skip-link">Skip to content</a>
+    <a href="#view-overview" class="skip-link">Skip to content</a>
     <div class="shell">
       <aside class="rail">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">tdas</span>
-          <span>Tableau Data App Service<br /><span class="muted">Documentation</span></span>
+        <div>
+          <div class="brand">
+            <span class="brand-mark">[a]</span><span>Application<br />documentation</span>
+          </div>
+          <p class="rail-subtitle eyebrow" style="margin-top:15px">Tableau Data App Service</p>
         </div>
-        <nav aria-label="Views" id="views">
-          <a href="#overview" data-view="overview"><span class="num">01</span>Overview</a>
-          <a href="#capabilities" data-view="capabilities"><span class="num">02</span>What it does</a>
-          <a href="#architecture" data-view="architecture"><span class="num">03</span>Architecture</a>
-          <a href="#flows" data-view="flows"><span class="num">04</span>Flows</a>
-          <a href="#api" data-view="api"><span class="num">05</span>API</a>
-          <a href="#verification" data-view="verification"><span class="num">06</span>Verification</a>
-          <a href="#documents" data-view="documents"><span class="num">07</span>Documents</a>
+        <nav aria-label="Views">
+          <a href="#overview" data-view="overview" class="active"><span class="num">00</span>Overview</a
+          ><a href="#system" data-view="system"><span class="num">01</span>System map</a
+          ><a href="#flows" data-view="flows"><span class="num">02</span>Data flows</a
+          ><a href="#modules" data-view="modules"><span class="num">03</span>Modules</a
+          ><a href="#api" data-view="api"><span class="num">04</span>API</a
+          ><a href="#verification" data-view="verification"><span class="num">05</span>Verification</a
+          ><a href="#documents" data-view="documents"><span class="num">06</span>Documents</a>
         </nav>
-        <p class="rail-foot muted" id="rail-foot"></p>
+        <div class="rail-note" id="rail-note"></div>
       </aside>
-      <main id="main" tabindex="-1">
+      <main>
+        <div class="topbar">
+          <div class="breadcrumbs">documentation / data app service / <span id="crumb">overview</span></div>
+          <div class="top-actions"><button id="print-button" type="button">Print summary</button></div>
+        </div>
+        <header class="heading">
+          <div>
+            <h1>Tableau Data App Service</h1>
+            <p class="prose muted">
+              What the service does, how its components fit together, how a request moves through them,
+              and what the tests show. Generated from the current documents.
+            </p>
+          </div>
+          <div class="heading-meta" id="heading-meta"></div>
+        </header>
+
         <section id="view-overview" class="view" aria-labelledby="overview-title">
-          <header class="view-head">
-            <p class="eyebrow">Overview</p>
-            <h1 id="overview-title">An authenticated router between Tableau Data Apps and the APIs they use.</h1>
-          </header>
-          <div class="grid two">
-            <article class="surface document-content" id="product-intro"></article>
-            <div class="stack">
-              <section class="surface" aria-labelledby="gates-title">
-                <h2 id="gates-title" class="eyebrow">Verification</h2>
-                <div id="gate-summary"></div>
-              </section>
-              <section class="surface" aria-labelledby="journeys-title">
-                <h2 id="journeys-title" class="eyebrow">Journeys</h2>
-                <dl class="pairs" id="journeys"></dl>
-              </section>
-            </div>
+          <div class="view-head"><div><h2 id="overview-title">What this service does.</h2><p class="muted">The product overview, who uses the service, what it does and what it does not include.</p></div></div>
+          <article class="surface surface-body document-content product-overview" id="product-overview"></article>
+          <div class="overview-route" aria-label="Request path"><span>Tableau Data App</span><span aria-hidden="true">→</span><span>Data App Service</span><span aria-hidden="true">→</span><span>Provider API</span></div>
+          <div class="callout">
+            <h3>One view of the current documents.</h3>
+            <p id="overview-callout"></p>
+            <div class="linkrow"><a href="#system">Explore the system map →</a><a href="#flows">Trace a request →</a><a href="#verification">See what is verified →</a><a href="#documents">Read the documents →</a></div>
           </div>
+          <h3 class="section-title eyebrow">Who uses it</h3>
+          <div class="strip audience" id="audience" style="margin-top:0"></div>
+          <h3 class="section-title eyebrow">What it does</h3>
+          <div class="capability-list" id="capabilities"></div>
+          <h3 class="section-title eyebrow">Viewer and operator journeys</h3>
+          <div class="table-wrap"><table class="journey-table"><thead><tr><th>Journey</th><th>What happens</th></tr></thead><tbody id="journeys"></tbody></table></div>
+          <h3 class="section-title eyebrow">Not included</h3>
+          <div class="surface surface-body"><ul class="plain-list" id="exclusions"></ul></div>
         </section>
 
-        <section id="view-capabilities" class="view" hidden aria-labelledby="capabilities-title">
-          <header class="view-head">
-            <p class="eyebrow">What it does</p>
-            <h1 id="capabilities-title">What the service does today, and what it does not include.</h1>
-          </header>
-          <div class="toolbar">
-            <label class="search"><span class="sr-only">Filter capabilities</span><input id="capability-filter" type="search" placeholder="Filter what the service does" autocomplete="off" /></label>
-          </div>
-          <section class="surface" aria-labelledby="capability-title">
-            <h2 id="capability-title">Capabilities</h2>
-            <div id="capability-list"></div>
-          </section>
-          <section class="surface" aria-labelledby="exclude-title">
-            <h2 id="exclude-title">Not included</h2>
-            <ul class="bullets" id="exclusion-list"></ul>
-          </section>
-        </section>
-
-        <section id="view-architecture" class="view" hidden aria-labelledby="architecture-title">
-          <header class="view-head">
-            <p class="eyebrow">Architecture</p>
-            <h1 id="architecture-title">One codebase, API and worker roles, Postgres, and Redis only for events.</h1>
-          </header>
-          <div class="grid two wide-left">
-            <section class="surface" aria-labelledby="topology-title">
-              <h2 id="topology-title" class="eyebrow">Topology</h2>
-              <pre class="diagram" id="topology"></pre>
-              <ol class="direction" id="direction"></ol>
-            </section>
-            <section class="surface" aria-labelledby="roles-title">
-              <h2 id="roles-title" class="eyebrow">Roles</h2>
-              <dl class="pairs" id="roles"></dl>
-            </section>
-          </div>
-          <section aria-labelledby="components-title">
-            <h2 id="components-title" class="section-title">Components, in dependency order</h2>
-            <div class="grid two">
-              <div class="component-list" id="component-list" role="listbox" aria-label="Components"></div>
-              <article class="surface" id="component-detail" aria-live="polite"></article>
+        <section id="view-system" class="view" hidden aria-labelledby="system-title">
+          <div class="view-head"><div><h2 id="system-title">One codebase: replicable API and worker, Postgres, optional Redis.</h2><p class="muted">Select a card to inspect what it owns, its interface, invariants, failure and extension path.</p></div></div>
+          <div id="system-workspace" class="workspace-grid">
+            <div>
+              <div class="surface">
+                <div class="surface-head">
+                  <h3>System boundary</h3>
+                  <div class="system-lenses"><button type="button" data-system-lens="runtime" aria-pressed="true">Runtime</button><button type="button" data-system-lens="trust" aria-pressed="false">Trust &amp; data</button></div>
+                </div>
+                <div id="runtime-lens">
+                  <div class="diagram-hint">Pan the map horizontally to see every boundary.</div>
+                  <div class="diagram-stage" id="system-diagram" tabindex="0" role="region" aria-label="System map"></div>
+                  <div class="diagram-caption" id="system-caption"></div>
+                </div>
+                <div id="trust-lens" hidden></div>
+              </div>
+              <div id="system-summary"></div>
+              <div class="callout">
+                <h3>Dependency direction.</h3>
+                <p id="direction-summary"></p>
+                <div class="linkrow"><a href="#modules">Inspect dependencies by module →</a><a href="#documents/architecture/dependency-direction">Read the source →</a></div>
+              </div>
             </div>
-          </section>
-          <section class="surface" aria-labelledby="trust-title">
-            <h2 id="trust-title">Trust boundaries</h2>
-            <div class="table-wrap"><table id="trust"></table></div>
-          </section>
-          <section class="surface" aria-labelledby="deps-title">
-            <h2 id="deps-title">Runtime dependencies</h2>
-            <div class="table-wrap"><table id="dependencies"></table></div>
-          </section>
+            <aside id="system-inspector" class="surface inspector" aria-live="polite"></aside>
+          </div>
         </section>
 
         <section id="view-flows" class="view" hidden aria-labelledby="flows-title">
-          <header class="view-head">
-            <p class="eyebrow">Flows</p>
-            <h1 id="flows-title">End-to-end sequences, each step with the component that owns it.</h1>
-          </header>
-          <div class="grid flows-grid">
-            <nav class="flow-list" id="flow-list" aria-label="Flows"></nav>
-            <article class="surface" id="flow-detail" aria-live="polite"></article>
+          <div class="view-head"><div><h2 id="flows-title">Follow a request, one step at a time.</h2><p class="muted">Each step names the component that owns it; the map highlights the path it takes.</p></div></div>
+          <div class="toolbar"><label for="flow-select" class="eyebrow">Scenario</label><select id="flow-select"></select></div>
+          <div class="flow-layout">
+            <div id="flow-steps" class="step-list" aria-label="Flow steps"></div>
+            <div class="surface">
+              <div class="surface-head"><h3 id="flow-name"></h3><span id="flow-counter" class="eyebrow"></span></div>
+              <div id="flow-current" class="diagram-caption"></div>
+              <div class="diagram-hint">Pan the map horizontally. Step details remain below.</div>
+              <div class="diagram-stage" id="flow-diagram" tabindex="0" role="region" aria-label="Flow map"></div>
+              <div id="step-detail" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="flow-controls"><button id="previous-step" type="button">← Previous step</button><span>Use buttons or ← → while a step is focused.</span><button id="next-step" type="button">Next step →</button></div>
+          <aside id="flow-inspector" class="surface" style="margin-top:16px" hidden aria-live="polite"></aside>
+        </section>
+
+        <section id="view-modules" class="view" hidden aria-labelledby="modules-title">
+          <div class="view-head"><div><h2 id="modules-title">Each responsibility has one owner.</h2><p class="muted">Components in dependency order; each depends only on components above it.</p></div></div>
+          <div class="toolbar"><input id="module-search" type="search" aria-label="Filter components" placeholder="Filter by component, interface, invariant or failure…" /></div>
+          <div class="workspace-grid">
+            <div>
+              <div id="module-dependencies" class="surface" style="margin-bottom:16px"></div>
+              <div id="module-grid" class="module-grid"></div>
+              <p id="module-empty" class="no-results" hidden>No component matches this filter.</p>
+            </div>
+            <aside id="module-inspector" class="surface inspector" aria-live="polite"></aside>
           </div>
         </section>
 
         <section id="view-api" class="view" hidden aria-labelledby="api-title">
-          <header class="view-head">
-            <p class="eyebrow">API</p>
-            <h1 id="api-title">Every route, its authentication and its owner.</h1>
-            <p class="muted" id="api-preamble"></p>
-          </header>
-          <div class="toolbar">
-            <label class="search"><span class="sr-only">Filter routes</span><input id="api-filter" type="search" placeholder="Filter routes" autocomplete="off" /></label>
-            <label><span class="sr-only">Group</span><select id="api-group"></select></label>
-            <span class="muted" id="api-count" aria-live="polite"></span>
+          <div class="view-head"><div><h2 id="api-title">Every route at the boundary.</h2><p class="muted" id="api-preamble"></p></div></div>
+          <div class="toolbar"><input id="api-search" type="search" aria-label="Search routes" placeholder="Find a route, auth or owner…" /><select id="api-filter" aria-label="Filter route group"><option value="">All route groups</option></select></div>
+          <div class="api-workspace">
+            <div class="table-wrap api-list">
+              <table><thead><tr><th>Route</th><th>Auth</th><th>Owner</th></tr></thead><tbody id="api-rows"></tbody></table>
+            </div>
+            <div id="api-detail" class="surface" aria-live="polite"></div>
           </div>
-          <div id="api-groups"></div>
         </section>
 
         <section id="view-verification" class="view" hidden aria-labelledby="verification-title">
-          <header class="view-head">
-            <p class="eyebrow">Verification</p>
-            <h1 id="verification-title">What the automated tests show, what is not yet verified live, and known limitations.</h1>
-          </header>
-          <section class="surface" aria-labelledby="auto-title">
-            <h2 id="auto-title">Automated tests</h2>
-            <div class="table-wrap"><table id="checks"></table></div>
-          </section>
-          <div class="grid two">
-            <section class="surface" aria-labelledby="unverified-title">
-              <h2 id="unverified-title">Not verified live</h2>
-              <ul class="bullets" id="unverified"></ul>
-            </section>
-            <section class="surface" aria-labelledby="limits-title">
-              <h2 id="limits-title">Known limitations</h2>
-              <ul class="bullets" id="limitations"></ul>
-            </section>
+          <div class="view-head"><div><h2 id="verification-title">What the tests show, and what is not yet verified.</h2><p class="muted">Automated checks, items not yet run against live services, and known limitations.</p></div></div>
+          <div class="strip verification-strip" id="verification-summary" style="margin:0 0 16px"></div>
+          <div class="surface">
+            <div class="surface-head"><h3>Automated tests</h3><span class="eyebrow" id="check-count"></span></div>
+            <div class="surface-body" style="padding-bottom:0"><p class="prose muted" id="verification-intro"></p><div class="toolbar" style="margin-top:14px"><input id="check-search" type="search" aria-label="Filter checks" placeholder="Filter checks by ID, behavior or test file…" /></div></div>
+            <div class="table-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0"><table class="verification-table"><thead><tr><th>Check</th><th>Shows</th><th>Tests</th></tr></thead><tbody id="check-rows"></tbody></table></div>
+          </div>
+          <div class="verification-columns">
+            <div class="surface"><div class="surface-head"><h3>Not verified live</h3><span class="eyebrow" id="unverified-count"></span></div><div class="surface-body"><p class="muted" id="unverified-intro" style="font-size:12px;margin-bottom:12px"></p><ul id="unverified"></ul></div></div>
+            <div class="surface"><div class="surface-head"><h3>Known limitations</h3><span class="eyebrow" id="limitation-count"></span></div><div class="surface-body"><ul id="limitations"></ul></div></div>
           </div>
         </section>
 
         <section id="view-documents" class="view" hidden aria-labelledby="documents-title">
-          <header class="view-head">
-            <p class="eyebrow">Documents</p>
-            <h1 id="documents-title">The source documents, as written.</h1>
-          </header>
-          <div class="grid docs-grid">
-            <nav class="doc-list" id="doc-list" aria-label="Documents"></nav>
-            <div>
-              <nav class="doc-toc" id="doc-toc" aria-label="Sections in this document"></nav>
-              <article class="surface document-content" id="doc-body" tabindex="-1"></article>
-              <p class="muted doc-meta" id="doc-meta"></p>
-            </div>
+          <div class="view-head"><div><h2 id="documents-title">Read the current documents.</h2><p class="muted">Every document listed in specification.json, rendered in full with working links between them.</p></div></div>
+          <div class="documents-layout">
+            <nav class="document-nav" id="document-nav" aria-label="Documents"></nav>
+            <article class="surface document-reader">
+              <nav class="document-toc" id="document-toc" aria-label="Sections in this document"></nav>
+              <div class="surface-body document-content" id="document-body" tabindex="-1"></div>
+              <div class="document-meta" id="document-meta"></div>
+            </article>
           </div>
         </section>
       </main>
     </div>
+    <section id="print-review" aria-label="Printable summary"></section>
     <script>
       const MODEL = /*__MODEL__*/;
     </script>
