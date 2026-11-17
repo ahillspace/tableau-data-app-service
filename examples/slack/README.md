@@ -53,5 +53,6 @@ To package it as a Data App, bundle `app.ts` with the same configuration and inc
 
 - The SDK keeps the service bearer in memory only; the example stores nothing in the browser.
 - A pasted token is cleared from the page as soon as it is submitted, and the service never returns it.
+- The page never submits a form: a Data App runs in a sandboxed frame without `allow-forms`, where a submit button does nothing, so buttons act on click and inputs on Enter.
 - Native errors are Slack's own responses and are shown as they arrived; only the service's own errors are reported as SDK errors.
 - Closing the page leaves connections and Jobs in place.

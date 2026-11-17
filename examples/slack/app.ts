@@ -32,7 +32,7 @@ const status = element<HTMLParagraphElement>("status");
 const output = element<HTMLPreElement>("response");
 const eventsToggle = element<HTMLButtonElement>("events");
 const eventLog = element<HTMLOListElement>("event-log");
-const tokenForm = element<HTMLFormElement>("token-form");
+const tokenForm = element<HTMLDivElement>("token-form");
 const tokenInput = element<HTMLInputElement>("slack-token");
 
 let definitions: Definition[] = [];
@@ -158,8 +158,8 @@ function closeTokenForm(): void {
   tokenForm.hidden = true;
 }
 
-tokenForm.addEventListener("submit", (event) => {
-  event.preventDefault();
+// A Data App's sandbox blocks form submission, so the token is stored from a click or Enter, never a submit.
+function storeToken(): void {
   const definitionId = tokenDefinition;
   const token = tokenInput.value.trim();
   // The token is cleared from the page at once; the service seals it and never returns it.
@@ -170,6 +170,10 @@ tokenForm.addEventListener("submit", (event) => {
     say("Your Slack token is stored.");
     await refresh();
   });
+}
+element<HTMLButtonElement>("token-store").addEventListener("click", storeToken);
+tokenInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") storeToken();
 });
 element<HTMLButtonElement>("token-cancel").addEventListener("click", closeTokenForm);
 
