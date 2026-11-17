@@ -1,10 +1,11 @@
 import type { Readable } from "node:stream";
+import { selectApiHost } from "../connections/hosts.ts";
 import type { ConnectionService } from "../connections/service.ts";
 import type { ConnectionDefinition, OutgoingRequest } from "../connections/types.ts";
-import { normalizeApiHost } from "../connections/validation.ts";
 import { SERVICE_COOKIE_PREFIX } from "../http/cookies.ts";
 import type { Principal } from "../identity/types.ts";
-import { invalid, notFound } from "../platform/errors.ts";
+import type { Metrics } from "../operations/metrics.ts";
+import { invalid, notFound, ServiceError } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
 import type { Outbound } from "../platform/outbound.ts";
 
@@ -104,16 +105,7 @@ export function destination(
   target: string,
   requestedHost: string | undefined,
 ): { origin: string; target: string; url: URL } {
-  let host = definition.apiHosts[0] as string;
-  if (requestedHost !== undefined) {
-    const normalized = normalizeApiHost(requestedHost.trim());
-    if (!normalized || !definition.apiHosts.includes(normalized))
-      throw invalid(
-        [{ path: "Tableau-Service-Host", rule: "one-of-api-hosts" }],
-        "The requested host is not one of the definition's API hosts",
-      );
-    host = normalized;
-  }
+  const host = selectApiHost(definition.apiHosts, requestedHost);
   const base = new URL(host);
   const basePath = base.pathname.replace(/\/$/, "");
   if (target !== "" && !target.startsWith("/") && !target.startsWith("?"))
@@ -149,47 +141,113 @@ export class NativeRouter {
   readonly #connections: ConnectionService;
   readonly #outbound: Outbound;
   readonly #log: Log;
+  readonly #metrics: Metrics | undefined;
 
-  constructor(options: { connections: ConnectionService; outbound: Outbound; log: Log }) {
+  constructor(options: {
+    connections: ConnectionService;
+    outbound: Outbound;
+    log: Log;
+    metrics?: Metrics;
+  }) {
     this.#connections = options.connections;
     this.#outbound = options.outbound;
     this.#log = options.log;
+    this.#metrics = options.metrics;
   }
 
   /** Sends the request once. Never retries; a transport failure says whether the provider may have received it. */
   async forward(request: NativeRequest): Promise<NativeResponse> {
-    const lease = await this.#connections.checkout(
-      request.principal,
-      request.definitionId,
-      request.signal,
-    );
-    const requested = request.headers.find(([n]) => n.toLowerCase() === HOST_HEADER)?.[1];
-    const chosen = destination(lease.definition, request.target, requested);
-    const outgoing: OutgoingRequest = {
-      target: chosen.target,
-      headers: forwardableRequestHeaders(request.headers),
+    let admitted = false;
+    let upstreamMs: number | undefined;
+    let recorded = false;
+    const record = (status: number | "transport-error" | "cancelled" | "service-error") => {
+      if (recorded || !admitted) return;
+      recorded = true;
+      try {
+        this.#metrics?.recordNative({
+          definitionId: request.definitionId,
+          status,
+          ...(upstreamMs !== undefined ? { upstreamMs } : {}),
+        });
+      } catch {}
     };
-    lease.apply(outgoing);
-    outgoing.headers.push(["host", chosen.url.host]);
-    const response = await this.#outbound.request(chosen.url, {
-      method: request.method,
-      rawTarget: outgoing.target,
-      headers: outgoing.headers,
-      body: request.body,
-      signal: request.signal,
-      privateHosts: lease.definition.privateHosts,
-    });
-    this.#log.info("native request", {
-      definitionId: request.definitionId,
-      method: request.method,
-      host: chosen.url.host,
-      status: response.status,
-    });
-    return {
-      status: response.status,
-      headers: forwardableResponseHeaders(response.headers),
-      body: response.body,
-    };
+    try {
+      const requested = request.headers.find(([n]) => n.toLowerCase() === HOST_HEADER)?.[1];
+      const lease = await this.#connections.checkout(
+        request.principal,
+        request.definitionId,
+        request.signal,
+        requested,
+      );
+      admitted = true;
+      const chosen = destination(lease.definition, request.target, requested);
+      const outgoing: OutgoingRequest = {
+        target: chosen.target,
+        headers: forwardableRequestHeaders(request.headers),
+      };
+      lease.apply(outgoing);
+      outgoing.headers.push(["host", chosen.url.host]);
+      const started = performance.now();
+      const response = await this.#outbound.request(chosen.url, {
+        method: request.method,
+        rawTarget: outgoing.target,
+        headers: outgoing.headers,
+        body: request.body,
+        signal: request.signal,
+        privateHosts: lease.definition.privateHosts,
+      });
+      upstreamMs = performance.now() - started;
+      response.body.once("end", () => record(response.status));
+      response.body.once("error", () =>
+        record(request.signal.aborted ? "cancelled" : "transport-error"),
+      );
+      response.body.once("close", () =>
+        record(
+          response.body.readableEnded
+            ? response.status
+            : request.signal.aborted
+              ? "cancelled"
+              : "transport-error",
+        ),
+      );
+      this.#log.info("native request", {
+        definitionId: request.definitionId,
+        method: request.method,
+        host: chosen.url.host,
+        status: response.status,
+      });
+      return {
+        status: response.status,
+        headers: forwardableResponseHeaders(response.headers),
+        body: response.body,
+      };
+    } catch (error) {
+      if (
+        error instanceof ServiceError &&
+        [
+          "not-connected",
+          "needs-authorization",
+          "not-in-audience",
+          "definition-disabled",
+          "refresh-failed",
+          "refresh-uncertain",
+          "exchange-failed",
+          "exchange-uncertain",
+          "credential-incomplete",
+        ].includes(error.code)
+      )
+        admitted = true;
+      record(
+        request.signal.aborted
+          ? "cancelled"
+          : error instanceof ServiceError && error.code.startsWith("upstream-")
+            ? "transport-error"
+            : error instanceof ServiceError
+              ? error.status
+              : "service-error",
+      );
+      throw error;
+    }
   }
 
   /** Runs a preset capability with the same checkout and transport as native requests. */
@@ -201,8 +259,7 @@ export class NativeRouter {
     signal: AbortSignal,
   ): Promise<unknown> {
     const definition = await this.#connections.definitions.get(definitionId);
-    const type = definition ? this.#connections.definitions.types.get(definition.type) : undefined;
-    const capability = type?.capabilities?.find((c) => c.name === name);
+    const capability = this.#connections.definitions.extensions.capability(name);
     if (!definition || !capability) throw notFound("capability-not-found", "No such capability");
     const lease = await this.#connections.checkout(principal, definitionId, signal);
     return await capability.run({

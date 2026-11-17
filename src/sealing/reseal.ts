@@ -8,6 +8,7 @@ export type ResealReport = { resealed: number; remaining: number };
 const PURPOSE_BY_FIELD: Record<string, SealPurpose> = {
   clientSecret: "client-secret",
   signingSecret: "signing-secret",
+  signingPrivateKey: "signing-private-key",
   credential: "credential",
 };
 

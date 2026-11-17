@@ -2,9 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isUuid } from "../../identity/sessions.ts";
 import { TABLEAU_CALLBACK_PATH, TABLEAU_CLIENT_PATH } from "../../identity/tableau-cloud.ts";
 import { invalid, ServiceError } from "../../platform/errors.ts";
+import { pkceChallenge, randomToken } from "../../platform/secrets.ts";
 import { caller } from "../auth.ts";
 import {
+  CONSOLE_TX_COOKIE,
   clearCookie,
+  OPERATOR_COOKIE,
   RESTORE_COOKIE,
   readCookie,
   SIGN_IN_COOKIE,
@@ -197,24 +200,41 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
     try {
       const transaction = query(request, "transaction");
       if (transaction === undefined) {
-        const mode = query(request, "mode") === "popup" ? "popup" : "loopback";
+        const mode =
+          query(request, "mode") === "console"
+            ? "console"
+            : query(request, "mode") === "popup"
+              ? "popup"
+              : "loopback";
+        if (mode === "console" && !services.consoleEnabled)
+          throw new ServiceError(404, "not-found", "No such route");
+        const verifier = mode === "console" ? randomToken() : undefined;
         const id = await identity.beginOperatorSignIn({
           mode,
           redirectUri: query(request, "redirect_uri"),
-          codeChallenge: query(request, "code_challenge"),
+          codeChallenge: verifier ? pkceChallenge(verifier) : query(request, "code_challenge"),
           state: query(request, "state"),
         });
+        if (verifier)
+          setCookie(reply, CONSOLE_TX_COOKIE, verifier, { sameSite: "Lax", maxAgeSeconds: 600 });
         return redirect(reply, `/operator-sign-in?transaction=${id}`, 303);
       }
       if (!isUuid(transaction)) throw invalid([{ path: "transaction", rule: "format:uuid" }]);
       const session = await signInSession(services, request);
       if (!session)
         return await toTableau(services, reply, `/operator-sign-in?transaction=${transaction}`);
+      if (
+        (await identity.operatorSignInMode(transaction)) === "console" &&
+        !services.consoleEnabled
+      )
+        throw new ServiceError(404, "not-found", "No such route");
       const prepared = await identity.prepareOperatorConsent(transaction, session);
       const target =
         prepared.mode === "loopback"
           ? `the command-line tool on this computer (${escapeHtml(prepared.redirectUri ?? "")})`
-          : "the tool that opened this window";
+          : prepared.mode === "console"
+            ? "the operator console on this service"
+            : "the tool that opened this window";
       return sendPage(reply, {
         title: "Approve operator access",
         // The approval redirects to the loopback address, and form-action governs that redirect too.
@@ -237,6 +257,11 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
           reply,
           `/operator-sign-in?transaction=${encodeURIComponent(transaction)}`,
         );
+      const mode = await identity.operatorSignInMode(transaction);
+      if (mode === "console" && !services.consoleEnabled)
+        throw new ServiceError(404, "not-found", "No such route");
+      if (form.decision !== "approve" && mode === "console")
+        return redirect(reply, "/console?auth=denied", 303);
       if (form.decision !== "approve")
         return sendErrorPage(
           reply,
@@ -247,6 +272,16 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         typeof form.consent === "string" ? form.consent : undefined,
         session,
       );
+      if (approved.mode === "console") {
+        const verifier = readCookie(request, CONSOLE_TX_COOKIE);
+        const redeemed = await identity.redeemOperatorCode({ code: approved.code, verifier });
+        clearCookie(reply, CONSOLE_TX_COOKIE, { sameSite: "Lax" });
+        setCookie(reply, OPERATOR_COOKIE, redeemed.bearer, {
+          sameSite: "Strict",
+          expiresAt: redeemed.principal.expiresAt,
+        });
+        return redirect(reply, "/console", 303);
+      }
       if (approved.mode === "loopback") {
         const target = new URL(approved.redirectUri as string);
         target.searchParams.set("code", approved.code);

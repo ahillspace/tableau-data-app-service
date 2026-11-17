@@ -28,7 +28,7 @@ export function openCredential(
     throw new ServiceError(503, "credential-unavailable", "A stored credential is unreadable");
   }
   const value = parsed as Partial<StoredCredential>;
-  if (!value || typeof value.accessToken !== "string")
+  if (!value || typeof value !== "object" || Array.isArray(value))
     throw new ServiceError(503, "credential-unavailable", "A stored credential is unreadable");
   return parsed as StoredCredential;
 }
@@ -50,8 +50,7 @@ export function leaseFor(
     definition,
     connectionId,
     apply(request) {
-      if (credential)
-        placeCredential(request, definition.credentialPlacement, credential.accessToken);
+      if (credential) placeCredential(request, definition.credentialPlacement, credential);
     },
   };
 }
@@ -59,6 +58,7 @@ export function leaseFor(
 export const SECRET_PURPOSE = {
   clientSecret: "client-secret",
   signingSecret: "signing-secret",
+  signingPrivateKey: "signing-private-key",
 } as const;
 
 export async function readDefinitionSecret(
@@ -135,6 +135,7 @@ export async function replaceConnection(
       account_name: input.account?.name ?? null,
       scopes: JSON.stringify(input.scopes),
       authorized_at: now,
+      credential_set_at: now,
       credential_expires_at: input.credential.expiresAt
         ? new Date(input.credential.expiresAt)
         : null,

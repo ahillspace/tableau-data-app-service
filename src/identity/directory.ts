@@ -244,7 +244,7 @@ export async function removeSite(db: Db, actor: string, id: string): Promise<voi
     if (!row) throw notFound("site-not-found", "No such trusted site");
     await endSiteSessions(tx, row.deployment_id, row.site_id);
     // Audiences name only sites that exist, so a removed site leaves every audience in the same transaction.
-    await sql`update definitions set audience = audience - ${id}::text where audience ? ${id}::text`.execute(
+    await sql`update definitions set audience = audience - ${id}::text, version = version + 1, updated_at = clock_timestamp() where audience ? ${id}::text`.execute(
       tx,
     );
     await bumpRevision(tx);

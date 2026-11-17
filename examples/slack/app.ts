@@ -166,7 +166,7 @@ tokenForm.addEventListener("submit", (event) => {
   closeTokenForm();
   if (!definitionId || !token) return;
   void attempt(async () => {
-    await service.setCredential(definitionId, token);
+    await service.setCredential(definitionId, { kind: "token", value: token });
     say("Your Slack token is stored.");
     await refresh();
   });

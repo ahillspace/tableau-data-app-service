@@ -3,6 +3,7 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:net";
 import { after, before, beforeEach, describe, test } from "node:test";
+import { templates } from "../src/catalog/index.ts";
 import { createEvents } from "../src/events/index.ts";
 import { RedisEventBus } from "../src/events/redis.ts";
 import { EventService, STREAM_BUFFER, type StreamSink } from "../src/events/service.ts";
@@ -11,7 +12,6 @@ import type { Principal, SignInSession } from "../src/identity/types.ts";
 import type { Db } from "../src/persistence/database.ts";
 import { ServiceError } from "../src/platform/errors.ts";
 import { Log } from "../src/platform/log.ts";
-import { slack } from "../src/presets/slack.ts";
 import { type ConnectionsHarness, connectionsHarness } from "./support/connections.ts";
 import { freshDatabase, testKeys } from "./support/db.ts";
 import {
@@ -153,7 +153,6 @@ describe("events", () => {
       keys: testKeys(),
       outbound: h.outbound,
       clock: h.clock,
-      presets: [slack],
     });
     const op = await tableauSignIn(h, tableau, operatorUser);
     const opSession = (await h.identity.readSignInSession(op.cookie)) as SignInSession;
@@ -167,17 +166,13 @@ describe("events", () => {
       await c.definitions.create("test", {
         id,
         displayName: id,
-        type: "slack",
+        apiHosts: ["https://slack.com/api", "https://files.slack.com"],
+        authentication: { method: "static" },
+        webhook: templates[0]?.definition.webhook,
+        secrets: { signingSecret: SECRET },
         ownership,
-        presetOptions: { tokenMode: ownership === "shared" ? "bot" : "user" },
         audience: [alpha],
       });
-      const link = await c.connections.createSecretLink(opPrincipal, id, "signingSecret");
-      await c.connections.submitSecret(
-        new URL(link.url).pathname.split("/").at(-1) as string,
-        opSession,
-        SECRET,
-      );
     }
     a = (await appSignIn(h, (await tableauSignIn(h, tableau, alice)).cookie)).principal;
     carolPrincipal = (await appSignIn(h, (await tableauSignIn(h, tableau, carol)).cookie))
@@ -256,7 +251,10 @@ describe("events", () => {
 
     // Narrowing the audience stops delivery to streams already open.
     const beta = (await listSites(db)).find((s) => s.contentUrl === "beta")?.id as string;
-    await c.definitions.patch("test", "slack-bot", { audience: [beta] });
+    await c.definitions.patch("test", "slack-bot", {
+      audience: [beta],
+      expectedVersion: (await c.definitions.viewForOperators("slack-bot")).version,
+    });
     await (
       await receiving.service.ingest("slack-bot", signedDelivery(message("Ev-after")))
     ).publish();
@@ -274,7 +272,11 @@ describe("events", () => {
       "slack-bot",
       signedDelivery({ type: "url_verification", challenge: "c-1" }),
     );
-    assert.deepEqual(challenge.response, { status: 200, contentType: "text/plain", body: "c-1" });
+    assert.deepEqual(challenge.response, {
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body: "c-1",
+    });
   });
 
   test("a slow client's buffer is bounded and it is told about loss", async () => {

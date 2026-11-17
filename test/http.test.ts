@@ -11,12 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type { FastifyInstance } from "fastify";
+import { templates } from "../src/catalog/index.ts";
 import { type CliDeps, tdas } from "../src/cli/tdas.ts";
 import type {
   JobHandlerDefinition,
   JobRunContext,
   JobStepResult,
-  ProviderType,
 } from "../src/connections/provider-types.ts";
 import { createEvents } from "../src/events/index.ts";
 import type { EventService } from "../src/events/service.ts";
@@ -28,7 +28,6 @@ import type { Db } from "../src/persistence/database.ts";
 import { ServiceError as PlatformError } from "../src/platform/errors.ts";
 import { Log } from "../src/platform/log.ts";
 import { pkceChallenge, randomToken } from "../src/platform/secrets.ts";
-import { slack } from "../src/presets/slack.ts";
 import { NativeRouter } from "../src/router/router.ts";
 import {
   createService,
@@ -38,6 +37,7 @@ import {
 } from "../src/sdk/index.ts";
 import { type ConnectionsHarness, connectionsHarness } from "./support/connections.ts";
 import { freshDatabase, testKeys } from "./support/db.ts";
+import { oauthAuthentication } from "./support/definitions.ts";
 import { type IdentityHarness, identityHarness } from "./support/identity.ts";
 import { OAuthStandIn } from "./support/oauth.ts";
 import { TableauStandIn, type TableauUser } from "./support/tableau.ts";
@@ -74,13 +74,7 @@ const remote: JobHandlerDefinition = {
     return { kind: "wait", externalTaskId: "task-1" };
   },
 };
-const tasks: ProviderType = {
-  name: "tasks",
-  oauth: "none",
-  staticCredential: true,
-  credentialless: false,
-  jobHandlers: [remote],
-};
+const jobHandlers = [remote];
 
 describe("http", () => {
   let tableau: TableauStandIn;
@@ -229,10 +223,10 @@ describe("http", () => {
     return ((await token.json()) as { bearer: string }).bearer;
   }
 
-  /** An operator creates a definition and types its secret on the secret page. */
+  /** The operator API accepts secret values once and returns only safe metadata. */
   async function defineWithSecret(
     op: string,
-    browser: Browser,
+    _browser: Browser,
     definition: Record<string, unknown>,
     field: string,
     value: string,
@@ -240,22 +234,15 @@ describe("http", () => {
     const created = await call("/v1/admin/definitions", {
       method: "POST",
       bearer: op,
-      json: definition,
+      json: {
+        ...definition,
+        ...(field === "credential"
+          ? { credential: { kind: "token", value } }
+          : { secrets: { [field]: value } }),
+      },
     });
     assert.equal(created.status, 201, await created.clone().text());
-    const link = await call(`/v1/admin/definitions/${definition.id}/secret-links`, {
-      method: "POST",
-      bearer: op,
-      json: { field },
-    });
-    assert.equal(link.status, 201);
-    const path = new URL(((await link.json()) as { url: string }).url).pathname;
-    const page = await browser.visit(path);
-    assert.equal(page.status, 200);
-    assert.match(await page.text(), /type="password"/);
-    const saved = await browser.form(path, { value });
-    assert.equal(saved.status, 200);
-    assert.match(await saved.text(), /sealed/);
+    assert.equal((await created.text()).includes(value), false);
   }
 
   /**
@@ -360,7 +347,7 @@ describe("http", () => {
       keys: testKeys(),
       outbound: h.outbound,
       clock: h.clock,
-      presets: [slack, tasks],
+      jobHandlers,
     });
     lines = [];
     const log = new Log((line) => lines.push(line));
@@ -491,7 +478,7 @@ describe("http", () => {
       ["PATCH", "/v1/admin/definitions/x"],
       ["PUT", "/v1/admin/definitions/x"],
       ["POST", "/v1/admin/definitions/x/retire"],
-      ["POST", "/v1/admin/definitions/x/secret-links"],
+      ["PUT", "/v1/admin/definitions/x/secrets"],
       ["POST", "/v1/admin/definitions/x/connect"],
       ["GET", "/v1/admin/connections"],
       ["DELETE", "/v1/admin/connections/x"],
@@ -615,7 +602,7 @@ describe("http", () => {
       {
         id: "files",
         displayName: "Files",
-        type: "static",
+        authentication: { method: "static" },
         ownership: "shared",
         apiHosts: [`${provider.origin}/api`],
         credentialPlacement: { kind: "header", name: "X-Api-Key" },
@@ -708,12 +695,9 @@ describe("http", () => {
       {
         id: "crm",
         displayName: "CRM",
-        type: "oauth2",
+        authentication: oauthAuthentication(provider),
         ownership: "personal",
         apiHosts: [`${provider.origin}/api`],
-        authorizationEndpoint: `${provider.origin}/authorize`,
-        tokenEndpoint: `${provider.origin}/token`,
-        clientId: provider.clientId,
         scopes: ["read"],
         audience: [alpha],
         privateHosts: true,
@@ -767,7 +751,7 @@ describe("http", () => {
       json: {
         id: "work",
         displayName: "Work",
-        type: "tasks",
+        authentication: { method: "static" },
         ownership: "personal",
         apiHosts: ["https://work.example"],
         audience: [alpha],
@@ -780,7 +764,7 @@ describe("http", () => {
         await call("/v1/definitions/work/credential", {
           method: "PUT",
           bearer,
-          json: { credential: "alice-key" },
+          json: { credential: { kind: "token", value: "alice-key" } },
         })
       ).status,
       200,
@@ -856,9 +840,10 @@ describe("http", () => {
       {
         id: "slack-bot",
         displayName: "Slack",
-        type: "slack",
+        authentication: { method: "static" },
+        apiHosts: ["https://slack.com/api", "https://files.slack.com"],
+        webhook: templates[0]?.definition.webhook,
         ownership: "shared",
-        presetOptions: { tokenMode: "bot" },
         audience: [alpha],
       },
       "signingSecret",
@@ -1007,7 +992,7 @@ describe("http", () => {
       JSON.stringify({
         id: "work",
         displayName: "Work",
-        type: "tasks",
+        authentication: { method: "static" },
         ownership: "personal",
         apiHosts: ["https://work.example"],
         audience: [alpha],
@@ -1072,7 +1057,7 @@ describe("http", () => {
       {
         id: "files",
         displayName: "Files",
-        type: "static",
+        authentication: { method: "static" },
         ownership: "shared",
         apiHosts: [`${provider.origin}/api`],
         credentialPlacement: { kind: "header", name: "X-Api-Key" },
@@ -1085,7 +1070,7 @@ describe("http", () => {
     const work = {
       id: "work",
       displayName: "Work",
-      type: "tasks",
+      authentication: { method: "static" },
       ownership: "personal",
       apiHosts: ["https://work.example"],
       audience: [alpha],
@@ -1174,7 +1159,10 @@ describe("http", () => {
     );
     assert.equal(await serviceCode(service.fetch("missing", "/x")), "definition-not-found");
 
-    assert.equal((await service.setCredential("work", "alice-key")).status, "connected");
+    assert.equal(
+      (await service.setCredential("work", { kind: "token", value: "alice-key" })).status,
+      "connected",
+    );
     const job = await service.jobs.submit("remote", { n: 1 }, { definition: "work", key: "k1" });
     assert.equal(job.state, "queued");
     assert.equal(
@@ -1216,12 +1204,9 @@ describe("http", () => {
       {
         id: "crm",
         displayName: "CRM",
-        type: "oauth2",
+        authentication: oauthAuthentication(provider),
         ownership: "personal",
         apiHosts: [`${provider.origin}/api`],
-        authorizationEndpoint: `${provider.origin}/authorize`,
-        tokenEndpoint: `${provider.origin}/token`,
-        clientId: provider.clientId,
         scopes: ["read"],
         audience: [alpha],
         privateHosts: true,
@@ -1252,9 +1237,10 @@ describe("http", () => {
       {
         id: "slack-bot",
         displayName: "Slack",
-        type: "slack",
+        authentication: { method: "static" },
+        apiHosts: ["https://slack.com/api", "https://files.slack.com"],
+        webhook: templates[0]?.definition.webhook,
         ownership: "shared",
-        presetOptions: { tokenMode: "bot" },
         audience: [alpha],
       },
       "signingSecret",

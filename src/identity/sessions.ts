@@ -521,6 +521,13 @@ export class IdentityService {
       .executeTakeFirst();
     if (!row) return undefined;
     const session = this.#toSession(row);
+    // Activity is approximate and coalesced by persisted time, never one write per native request.
+    await this.#db
+      .updateTable("app_sessions")
+      .set({ last_seen_at: this.#now() })
+      .where("id", "=", row.app_session_id)
+      .where("last_seen_at", "<", new Date(this.#now().getTime() - 60_000))
+      .execute();
     return {
       sessionId: row.app_session_id,
       kind: row.kind,
@@ -563,7 +570,7 @@ export class IdentityService {
    * Popup mode is a browser tool: the code is posted to the opener. Both redeem with the PKCE verifier.
    */
   async beginOperatorSignIn(input: {
-    mode: "loopback" | "popup";
+    mode: "loopback" | "popup" | "console";
     redirectUri?: string | undefined;
     codeChallenge?: string | undefined;
     state?: string | undefined;
@@ -593,11 +600,28 @@ export class IdentityService {
     return row.id;
   }
 
+  async operatorSignInMode(
+    transactionId: string,
+  ): Promise<"loopback" | "popup" | "console" | undefined> {
+    if (!isUuid(transactionId)) return undefined;
+    const row = await this.#db
+      .selectFrom("operator_sign_ins")
+      .select("mode")
+      .where("id", "=", transactionId)
+      .where("expires_at", ">", this.#now())
+      .executeTakeFirst();
+    return row?.mode;
+  }
+
   /** Prepares the consent screen: the signed-in identity must be an operator. Returns a one-time consent token. */
   async prepareOperatorConsent(
     transactionId: string,
     session: SignInSession,
-  ): Promise<{ consent: string; mode: "loopback" | "popup"; redirectUri: string | null }> {
+  ): Promise<{
+    consent: string;
+    mode: "loopback" | "popup" | "console";
+    redirectUri: string | null;
+  }> {
     if (!(await isOperator(this.#db, session.identity)))
       throw new ServiceError(
         403,
@@ -626,7 +650,7 @@ export class IdentityService {
     session: SignInSession,
   ): Promise<{
     code: string;
-    mode: "loopback" | "popup";
+    mode: "loopback" | "popup" | "console";
     redirectUri: string | null;
     state: string | null;
   }> {
@@ -717,6 +741,10 @@ export class IdentityService {
         },
       };
     });
+  }
+
+  async endSession(sessionId: string): Promise<void> {
+    await this.#db.deleteFrom("app_sessions").where("id", "=", sessionId).execute();
   }
 
   // ---- Revocation and registry ----

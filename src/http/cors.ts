@@ -23,6 +23,11 @@ export function corsHeaders(
   credentialed: boolean,
 ): Record<string, string> {
   const origin = header(request, "origin");
+  if (
+    (request.url ?? "").startsWith("/v1/admin/") &&
+    request.headers.cookie?.includes("__Host-tdas-operator=")
+  )
+    return { vary: "Origin" };
   if (credentialed) {
     if (origin === undefined) return { vary: "Origin" };
     return {

@@ -181,8 +181,8 @@ export class JobService {
     return this.#limits;
   }
 
-  #handler(name: string): { handler: JobHandlerDefinition; type: string } {
-    const found = this.#connections.definitions.types.handler(name);
+  #handler(name: string): { handler: JobHandlerDefinition } {
+    const found = this.#connections.definitions.extensions.handler(name);
     if (!found) throw notFound("handler-not-found", `No Job handler is named ${name}`);
     return found;
   }
@@ -213,7 +213,7 @@ export class JobService {
     if (typeof submission.submissionKey !== "string" || !KEY_PATTERN.test(submission.submissionKey))
       errors.push({ path: "key", rule: "printable-1-200" });
     if (errors.length) throw invalid(errors);
-    const { handler, type } = this.#handler(submission.handler);
+    const { handler } = this.#handler(submission.handler);
     const limits = limitsFor(this.#limits, handler);
     const canonical = canonicalJson(submission.input ?? null);
     if (canonical.bytes > limits.inputBytes)
@@ -221,12 +221,6 @@ export class JobService {
         413,
         "input-too-large",
         `The input is larger than ${limits.inputBytes} bytes`,
-      );
-    const definition = await this.#connections.definitions.get(submission.definitionId);
-    if (definition && definition.type !== type)
-      throw invalid(
-        [{ path: "definition", rule: `type:${type}` }],
-        `Handler ${handler.name} uses ${type} definitions`,
       );
     const inputErrors = handler.validateInput?.(submission.input ?? null) ?? [];
     if (inputErrors.length) throw invalid(inputErrors, "The input is invalid");
@@ -478,7 +472,7 @@ export class JobService {
     id: string,
     task: { handler: string; externalTaskId: string; owner: string; definitionId: string },
   ): Promise<void> {
-    const handler = this.#connections.definitions.types.handler(task.handler)?.handler;
+    const handler = this.#connections.definitions.extensions.handler(task.handler)?.handler;
     if (!handler?.cancel) return;
     const signal = AbortSignal.timeout(REMOTE_CANCEL_MS);
     try {

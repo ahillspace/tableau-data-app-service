@@ -99,7 +99,7 @@ export interface Database {
   };
   operator_sign_ins: {
     id: Generated<string>;
-    mode: "loopback" | "popup";
+    mode: "loopback" | "popup" | "console";
     redirect_uri: string | null;
     code_challenge: string;
     /** The CLI's own state value, echoed to its loopback address. */

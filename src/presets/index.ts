@@ -1,9 +1,6 @@
-import { ProviderTypes } from "../connections/provider-types.ts";
-import { slack } from "./slack.ts";
+import { Extensions } from "../connections/provider-types.ts";
 
-/** The presets this build installs. A new preset is added here and nowhere else. */
-export const PRESETS = [slack] as const;
-
-export function installedProviderTypes(): ProviderTypes {
-  return new ProviderTypes(PRESETS);
+/** Trusted capability and Job implementations register here; catalog authentication stays data. */
+export function installedExtensions(): Extensions {
+  return new Extensions();
 }

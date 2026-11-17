@@ -2,6 +2,8 @@ import type { ConnectionService } from "../connections/service.ts";
 import type { EventService } from "../events/service.ts";
 import type { IdentityService } from "../identity/sessions.ts";
 import type { JobService } from "../jobs/service.ts";
+import type { Metrics } from "../operations/metrics.ts";
+import type { Operations } from "../operations/status.ts";
 import type { Db } from "../persistence/database.ts";
 import type { Log } from "../platform/log.ts";
 import type { NativeRouter } from "../router/router.ts";
@@ -17,4 +19,7 @@ export type Services = {
   /** Absent when events are off. */
   events: EventService | undefined;
   log: Log;
+  consoleEnabled?: boolean;
+  metrics?: Metrics;
+  operations?: Operations;
 };

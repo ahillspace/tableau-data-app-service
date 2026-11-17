@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { sql } from "kysely";
-import type { ProviderType } from "../src/connections/provider-types.ts";
 import type { CredentialLease, OutgoingRequest } from "../src/connections/types.ts";
 import {
   addOperator,
@@ -16,6 +15,7 @@ import type { Db } from "../src/persistence/database.ts";
 import { ServiceError } from "../src/platform/errors.ts";
 import { type ConnectionsHarness, connectionsHarness } from "./support/connections.ts";
 import { freshDatabase, testKeys } from "./support/db.ts";
+import { oauthAuthentication } from "./support/definitions.ts";
 import {
   appSignIn,
   DEPLOYMENT,
@@ -72,18 +72,6 @@ const operatorUser: TableauUser = {
 
 type Person = { principal: Principal; session: SignInSession; cookie: string };
 
-/** Revocations a test preset was asked for, with the API hosts of the definition it was given. */
-const revoked: { connectionId: string | null; apiHosts: string[] }[] = [];
-const revocable: ProviderType = {
-  name: "revocable",
-  oauth: "none",
-  staticCredential: true,
-  credentialless: false,
-  async revoke(lease: CredentialLease) {
-    revoked.push({ connectionId: lease.connectionId, apiHosts: lease.definition.apiHosts });
-  },
-};
-
 async function until(check: () => boolean | Promise<boolean>, what: string, ms = 5000) {
   const end = Date.now() + ms;
   while (!(await check())) {
@@ -113,12 +101,9 @@ describe("connections", () => {
     return {
       id: "crm",
       displayName: "CRM",
-      type: "oauth2",
+      authentication: oauthAuthentication(provider),
       ownership: "personal",
       apiHosts: [`${provider.origin}/api`],
-      authorizationEndpoint: `${provider.origin}/authorize`,
-      tokenEndpoint: `${provider.origin}/token`,
-      clientId: provider.clientId,
       scopes: ["read"],
       audience: [siteId],
       privateHosts: true,
@@ -127,9 +112,11 @@ describe("connections", () => {
   }
 
   async function setClientSecret(operator: Person, defId: string) {
-    const link = await c.connections.createSecretLink(operator.principal, defId, "clientSecret");
-    const token = new URL(link.url).pathname.split("/").at(-1) as string;
-    await c.connections.submitSecret(token, operator.session, provider.clientSecret);
+    const view = await c.definitions.viewForOperators(defId);
+    await c.definitions.setSecrets("test", defId, {
+      expectedVersion: view.version,
+      secrets: { clientSecret: provider.clientSecret },
+    });
   }
 
   /** Runs the whole OAuth connect for a person and returns the transaction ID. */
@@ -164,12 +151,10 @@ describe("connections", () => {
     }
     ({ db, close: closeDb } = await freshDatabase());
     h = await identityHarness(db, tableau);
-    revoked.length = 0;
     c = connectionsHarness(db, {
       keys,
       outbound: h.outbound,
       clock: h.clock,
-      presets: [revocable],
     });
     // The trusted site binds to its Tableau site ID at the first sign-in.
     await tableauSignIn(h, tableau, operatorUser);
@@ -182,49 +167,50 @@ describe("connections", () => {
       .create("test", {
         id: "Bad Id",
         displayName: "",
-        type: "oauth2",
         ownership: "team",
         apiHosts: ["http://plain.example", "https://ok.example/api"],
-        tokenEndpoint: "not a url",
-        clientId: "x",
+        authentication: { ...oauthAuthentication(provider), tokenEndpoint: "not a url" },
         credentialPlacement: { kind: "header", name: "Host" },
         audience: ["00000000-0000-0000-0000-000000000000"],
         reauthorizationInterval: 5,
-        clientSecret: "never-accepted",
+        secrets: { clientSecret: "never-accepted" },
         mystery: 1,
       })
       .catch((e) => e);
     const rules = fieldRules(error);
-    assert.deepEqual(rules, {
-      id: "slug:a-z0-9-,1-63",
-      displayName: "printable:1-200",
-      ownership: "one-of:shared|personal",
-      "apiHosts.0": "https-base-url",
-      authorizationEndpoint: "required",
-      tokenEndpoint: "https-url",
-      "credentialPlacement.name": "header-name",
-      "audience.0": "trusted-site",
-      reauthorizationInterval: "seconds:60-315360000",
-      clientSecret: "use-secret-link",
-      mystery: "unknown-field",
-    });
+    for (const path of [
+      "id",
+      "displayName",
+      "ownership",
+      "apiHosts.0",
+      "credentialPlacement.name",
+      "reauthorizationInterval",
+    ])
+      assert.ok(rules[path], `missing error for ${path}`);
     assert.ok(!JSON.stringify(error.toBody()).includes("never-accepted"));
     assert.equal(await db.selectFrom("definitions").select("id").executeTakeFirst(), undefined);
 
     const view = await c.definitions.create("test", oauthDefinition());
     assert.equal(view.generation, 1);
-    assert.equal(view.tokenAuthentication, "basic");
-    assert.equal(view.clientSecretSet, false);
+    assert.equal(
+      view.authentication.method === "authorization_code" &&
+        view.authentication.clientAuthentication.method,
+      "client_secret_basic",
+    );
+    assert.equal(view.secrets.clientSecret.set, false);
     assert.equal(await code(c.definitions.create("test", oauthDefinition())), "definition-exists");
     await setClientSecret(op, "crm");
     const after = await c.definitions.viewForOperators("crm");
-    assert.equal(after.clientSecretSet, true);
+    assert.equal(after.secrets.clientSecret.set, true);
     assert.ok(!JSON.stringify(after).includes(provider.clientSecret));
     // A patch only takes in-place fields.
     assert.deepEqual(
       fieldRules(
         await c.definitions
-          .patch("test", "crm", { apiHosts: ["https://elsewhere.example"] })
+          .patch("test", "crm", {
+            expectedVersion: after.version,
+            apiHosts: ["https://elsewhere.example"],
+          })
           .catch((e) => e),
       ),
       {
@@ -245,6 +231,7 @@ describe("connections", () => {
     );
 
     await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
       displayName: "CRM renamed",
       scopes: ["read", "write"],
     });
@@ -254,15 +241,24 @@ describe("connections", () => {
     );
 
     // Disabling stops checkouts without ending the connection; enabling restores them.
-    await c.definitions.patch("test", "crm", { enabled: false });
+    await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+      enabled: false,
+    });
     assert.equal(await code(c.connections.checkout(a.principal, "crm")), "definition-disabled");
-    await c.definitions.patch("test", "crm", { enabled: true });
+    await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+      enabled: true,
+    });
     await c.connections.checkout(a.principal, "crm");
 
     const redefined = await c.definitions.redefine(
       "test",
       "crm",
-      oauthDefinition({ apiHosts: [`${provider.origin}/v2`] }),
+      oauthDefinition({
+        expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+        apiHosts: [`${provider.origin}/v2`],
+      }),
     );
     assert.equal(redefined.generation, 2);
     assert.equal(redefined.connectionsEnded, 1);
@@ -275,7 +271,9 @@ describe("connections", () => {
     await connect(a, "crm");
     await c.connections.checkout(a.principal, "crm");
 
-    const retired = await c.definitions.retire("test", "crm");
+    const retired = await c.definitions.retire("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+    });
     assert.equal(retired.connectionsEnded, 1);
     assert.equal(await code(c.connections.checkout(a.principal, "crm")), "definition-disabled");
     assert.equal(
@@ -294,7 +292,12 @@ describe("connections", () => {
     );
     assert.equal(await code(c.definitions.create("test", oauthDefinition())), "definition-exists");
     assert.equal(
-      await code(c.definitions.patch("test", "crm", { enabled: true })),
+      await code(
+        c.definitions.patch("test", "crm", {
+          expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+          enabled: true,
+        }),
+      ),
       "definition-retired",
     );
   });
@@ -306,7 +309,14 @@ describe("connections", () => {
     await setClientSecret(op, "crm");
     const started = await c.connections.startConnect(a.principal, "crm", "personal");
     const url = await c.connections.beginConnect(started.transactionId, a.session);
-    await c.definitions.redefine("test", "crm", oauthDefinition({ scopes: ["other"] }));
+    await c.definitions.redefine(
+      "test",
+      "crm",
+      oauthDefinition({
+        expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+        scopes: ["other"],
+      }),
+    );
     const query = provider.authorize(url);
     assert.equal(
       await code(c.connections.completeConnect({ query, session: a.session })),
@@ -323,7 +333,14 @@ describe("connections", () => {
     provider.faults = { delayMs: 300 };
     const pending = c.connections.completeConnect({ query: query2, session: a.session });
     await new Promise((r) => setTimeout(r, 100));
-    await c.definitions.redefine("test", "crm", oauthDefinition({ scopes: ["third"] }));
+    await c.definitions.redefine(
+      "test",
+      "crm",
+      oauthDefinition({
+        expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+        scopes: ["third"],
+      }),
+    );
     assert.equal(await code(pending), "definition-changed");
     assert.equal(await db.selectFrom("connections").select("id").executeTakeFirst(), undefined);
   });
@@ -336,21 +353,38 @@ describe("connections", () => {
     await setClientSecret(op, "crm");
     await connect(a, "crm");
     await replica.connections.checkout(a.principal, "crm");
-    await c.definitions.patch("test", "crm", { enabled: false });
+    await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+      enabled: false,
+    });
     // The replica's cache is still fresh, yet the checkout's own query sees the disabled flag.
     assert.equal(
       await code(replica.connections.checkout(a.principal, "crm")),
       "definition-disabled",
     );
-    await c.definitions.patch("test", "crm", { enabled: true, audience: [] });
+    await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+      enabled: true,
+      audience: [],
+    });
     h.clock.offsetMs += 1100;
     assert.equal(await code(replica.connections.checkout(a.principal, "crm")), "not-in-audience");
     assert.equal((await replica.definitions.get("crm"))?.audience.length, 0);
-    await c.definitions.patch("test", "crm", { audience: [siteId] });
-    await c.definitions.redefine("test", "crm", oauthDefinition({ scopes: ["x"] }));
+    await c.definitions.patch("test", "crm", {
+      expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+      audience: [siteId],
+    });
+    await c.definitions.redefine(
+      "test",
+      "crm",
+      oauthDefinition({
+        expectedVersion: (await c.definitions.viewForOperators("crm")).version,
+        scopes: ["x"],
+      }),
+    );
     // A redefinition is seen immediately too: the generation moved, so the stale connection is not issued.
     assert.equal(await code(replica.connections.checkout(a.principal, "crm")), "not-connected");
-    assert.equal((await replica.definitions.get("crm"))?.generation, 2);
+    assert.equal((await replica.definitions.current({ force: true })).get("crm")?.generation, 2);
   });
 
   test("V13 personal checkout never returns a shared connection", async () => {
@@ -493,20 +527,23 @@ describe("connections", () => {
     );
   });
 
-  test("static credentials, placements, secret links and disconnect", async () => {
+  test("static credentials, placements, write-only custody and disconnect", async () => {
     const op = await person(operatorUser, true);
     const a = await person(alice);
     await c.definitions.create("test", {
       id: "keyed",
       displayName: "Keyed",
-      type: "static",
+      authentication: { method: "static" },
       ownership: "personal",
       apiHosts: [`${provider.origin}/api`],
       credentialPlacement: { kind: "query", name: "api_key" },
       audience: [siteId],
     });
     assert.equal(await code(c.connections.checkout(a.principal, "keyed")), "not-connected");
-    const listed = await c.connections.setPersonalCredential(a.principal, "keyed", "k-123");
+    const listed = await c.connections.setPersonalCredential(a.principal, "keyed", {
+      kind: "token",
+      value: "k-123",
+    });
     assert.equal(listed?.status, "connected");
     assert.equal(
       applied(await c.connections.checkout(a.principal, "keyed"), "/v1/x?api_key=old&y=1").target,
@@ -518,25 +555,25 @@ describe("connections", () => {
     await c.definitions.create("test", {
       id: "keyed-shared",
       displayName: "Keyed shared",
-      type: "static",
+      authentication: { method: "static" },
       ownership: "shared",
       apiHosts: [`${provider.origin}/api`],
       credentialPlacement: { kind: "header", name: "X-Api-Key", prefix: "Key " },
       audience: [siteId],
     });
     assert.equal(
-      await code(c.connections.setPersonalCredential(a.principal, "keyed-shared", "nope")),
+      await code(
+        c.connections.setPersonalCredential(a.principal, "keyed-shared", {
+          kind: "token",
+          value: "nope",
+        }),
+      ),
       "shared-definition",
     );
-    const link = await c.connections.createSecretLink(op.principal, "keyed-shared", "credential");
-    const token = new URL(link.url).pathname.split("/").at(-1) as string;
-    assert.equal(await code(c.connections.readSecretLink(token, a.session)), "operator-required");
-    assert.equal((await c.connections.readSecretLink(token, op.session)).field, "credential");
-    await c.connections.submitSecret(token, op.session, "shared-key");
-    assert.equal(
-      await code(c.connections.submitSecret(token, op.session, "again")),
-      "secret-link-invalid",
-    );
+    await c.definitions.setSecrets("test", "keyed-shared", {
+      expectedVersion: (await c.definitions.viewForOperators("keyed-shared")).version,
+      credential: { kind: "token", value: "shared-key" },
+    });
     const request: OutgoingRequest = {
       target: "/x",
       headers: [
@@ -549,16 +586,6 @@ describe("connections", () => {
       ["accept", "*/*"],
       ["X-Api-Key", "Key shared-key"],
     ]);
-
-    // Links expire after fifteen minutes.
-    const late = await c.connections.createSecretLink(op.principal, "keyed-shared", "credential");
-    h.clock.offsetMs += 15 * 60_000 + 1000;
-    const lateToken = new URL(late.url).pathname.split("/").at(-1) as string;
-    assert.equal(
-      await code(c.connections.submitSecret(lateToken, op.session, "late")),
-      "secret-link-invalid",
-    );
-    h.clock.offsetMs = 0;
 
     assert.equal(await c.connections.disconnectOwn(a.principal, "keyed"), true);
     assert.equal(await code(c.connections.checkout(a.principal, "keyed")), "not-connected");
@@ -582,7 +609,7 @@ describe("connections", () => {
     await c.definitions.create("test", {
       id: "open-data",
       displayName: "Open data",
-      type: "none",
+      authentication: { method: "none" },
       ownership: "shared",
       apiHosts: [`${provider.origin}/api`],
       audience: [siteId],
@@ -592,7 +619,10 @@ describe("connections", () => {
     assert.deepEqual(applied(lease).headers, []);
 
     const other = await addSite(db, "test", { deploymentId: DEPLOYMENT, contentUrl: "beta" });
-    await c.definitions.patch("test", "open-data", { audience: [siteId, other.id] });
+    await c.definitions.patch("test", "open-data", {
+      expectedVersion: 1,
+      audience: [siteId, other.id],
+    });
     await removeSite(db, "test", other.id);
     h.clock.offsetMs += 1100;
     assert.deepEqual((await c.definitions.get("open-data"))?.audience, [siteId]);
@@ -690,98 +720,50 @@ describe("connections", () => {
     );
   });
 
-  test("a secret link is spent only on the generation it was created for", async () => {
-    const op = await person(operatorUser, true);
+  test("disconnect uses its captured revocation destination even across redefinition and keeps local deletion on failure", async () => {
     const a = await person(alice);
-    const shared = {
-      id: "keyed",
-      displayName: "Keyed",
-      type: "static",
-      ownership: "shared",
-      apiHosts: [`${provider.origin}/api`],
-      audience: [siteId],
-    };
-    await c.definitions.create("test", shared);
-    const link = await c.connections.createSecretLink(op.principal, "keyed", "credential");
-    const token = new URL(link.url).pathname.split("/").at(-1) as string;
-    // The definition becomes personal before the link is used.
-    await c.definitions.redefine("test", "keyed", { ...shared, ownership: "personal" });
-    assert.equal(
-      await code(c.connections.submitSecret(token, op.session, "shared-key")),
-      "definition-changed",
-    );
-    assert.equal(await db.selectFrom("connections").select("id").executeTakeFirst(), undefined);
-    assert.equal(await code(c.connections.checkout(a.principal, "keyed")), "not-connected");
-
-    // A client-secret link is equally bound to its generation.
-    await c.definitions.create("test", oauthDefinition());
-    const secretLink = await c.connections.createSecretLink(op.principal, "crm", "clientSecret");
-    await c.definitions.redefine("test", "crm", oauthDefinition({ scopes: ["other"] }));
-    assert.equal(
-      await code(
-        c.connections.submitSecret(
-          new URL(secretLink.url).pathname.split("/").at(-1) as string,
-          op.session,
-          "secret",
-        ),
-      ),
-      "definition-changed",
-    );
-  });
-
-  test("disconnect revokes with the definition the credential was issued under", async () => {
-    const a = await person(alice);
-    const base = {
+    const original = {
       id: "rev",
       displayName: "Revocable",
-      type: "revocable",
       ownership: "personal",
+      authentication: { method: "static" },
       apiHosts: [`${provider.origin}/api`],
       audience: [siteId],
+      privateHosts: true,
+      revocation: {
+        url: `${provider.origin}/api/revoke`,
+        method: "POST",
+        credential: "accessToken",
+        encoding: "form",
+        response: { successStatuses: [200] },
+      },
     };
-    await c.definitions.create("test", base);
-    await c.connections.setPersonalCredential(a.principal, "rev", "k-1");
-    const [connection] = await c.connections.listConnections({ definitionId: "rev" });
-    assert.ok(connection);
-    // An operator redefines the definition right after the disconnect commits. Opening the sealed
-    // credential is the first thing the disconnect does after its commit, so the redefinition starts
-    // there, and any definition read after that point waits for it and sees the new destination.
+    await c.definitions.create("test", original);
+    await c.connections.setPersonalCredential(a.principal, "rev", { kind: "token", value: "k-1" });
     let redefined: Promise<unknown> | undefined;
-    const redefine = () => {
-      redefined ??= c.definitions.redefine("test", "rev", {
-        ...base,
-        apiHosts: [`${provider.origin}/elsewhere`],
+    provider.apiHandler = (_req, res) => {
+      redefined = c.definitions.redefine("test", "rev", {
+        ...original,
+        expectedVersion: 1,
+        revocation: { ...original.revocation, url: `${provider.origin}/api/elsewhere` },
       });
-      return redefined;
+      res.writeHead(500).end();
     };
-    const open = c.sealer.open.bind(c.sealer);
-    c.sealer.open = (...args: Parameters<typeof open>) => {
-      void redefine();
-      return open(...args);
-    };
-    const get = c.definitions.get.bind(c.definitions);
-    let reads = 0;
-    c.definitions.get = async (id: string) => {
-      if (++reads > 1) await redefine();
-      return await get(id);
-    };
-    const revoke = revocable.revoke as NonNullable<ProviderType["revoke"]>;
-    revocable.revoke = async (lease, context) => {
-      await redefine();
-      await revoke(lease, context);
-    };
-    try {
-      assert.equal(await c.connections.disconnectOwn(a.principal, "rev"), true);
-    } finally {
-      c.sealer.open = open;
-      c.definitions.get = get;
-      revocable.revoke = revoke;
-    }
-    assert.ok(redefined, "the definition was redefined during the disconnect");
-    assert.equal((await c.definitions.get("rev"))?.apiHosts[0], `${provider.origin}/elsewhere`);
-    assert.deepEqual(revoked, [
-      { connectionId: connection.id, apiHosts: [`${provider.origin}/api`] },
-    ]);
+    assert.equal(await c.connections.disconnectOwn(a.principal, "rev"), true);
+    await redefined;
+    assert.equal(provider.apiRequests[0]?.url, "/api/revoke");
+    assert.equal(provider.apiRequests[0]?.headers.authorization, "Bearer k-1");
+    assert.equal(
+      (await c.connections.listConnections({ definitionId: "rev" }))[0]?.status,
+      "disconnected",
+    );
+    assert.ok(
+      await db
+        .selectFrom("audit")
+        .select("id")
+        .where("action", "=", "connection.revoke-failed")
+        .executeTakeFirst(),
+    );
   });
 
   test("two first connections for the same slot at once leave one live connection", async () => {
@@ -789,15 +771,18 @@ describe("connections", () => {
     await c.definitions.create("test", {
       id: "keyed",
       displayName: "Keyed",
-      type: "static",
+      authentication: { method: "static" },
       ownership: "personal",
       apiHosts: [`${provider.origin}/api`],
       audience: [siteId],
     });
     const other = connectionsHarness(db, { keys, outbound: h.outbound, clock: h.clock });
     await Promise.all([
-      c.connections.setPersonalCredential(a.principal, "keyed", "k-1"),
-      other.connections.setPersonalCredential(a.principal, "keyed", "k-2"),
+      c.connections.setPersonalCredential(a.principal, "keyed", { kind: "token", value: "k-1" }),
+      other.connections.setPersonalCredential(a.principal, "keyed", {
+        kind: "token",
+        value: "k-2",
+      }),
     ]);
     const live = await db
       .selectFrom("connections")

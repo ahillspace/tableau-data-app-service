@@ -118,7 +118,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
     create table operator_sign_ins (
       id uuid primary key default gen_random_uuid(),
-      mode text not null check (mode in ('loopback', 'popup')),
+      mode text not null check (mode in ('loopback', 'popup', 'console')),
       redirect_uri text,
       code_challenge text not null,
       client_state text,

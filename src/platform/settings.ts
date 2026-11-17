@@ -14,6 +14,7 @@ export type Settings = {
   bootstrapPath: string;
   redisUrl: string | undefined;
   port: number;
+  consoleEnabled: boolean;
   workerHealthPort: number;
   /** From SIGN_IN_LIMIT; bootstrap may supply it instead (see resolveInstallation). */
   signInLimitSeconds: number | undefined;
@@ -116,6 +117,10 @@ const schema = z.object({
     .refine((v) => /^rediss?:\/\//.test(v), "redis-url")
     .optional(),
   PORT: port.default(3000),
+  CONSOLE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   WORKER_HEALTH_PORT: port.default(3001),
   SIGN_IN_LIMIT: positiveInt("seconds").optional(),
   JOB_INPUT_CAP: positiveInt("bytes").default(100 * MB),
@@ -161,6 +166,7 @@ export function loadSettings(env: Record<string, string | undefined> = process.e
     bootstrapPath: d.BOOTSTRAP,
     redisUrl: d.REDIS_URL,
     port: d.PORT,
+    consoleEnabled: d.CONSOLE_ENABLED,
     workerHealthPort: d.WORKER_HEALTH_PORT,
     signInLimitSeconds: d.SIGN_IN_LIMIT,
     jobInputCap: d.JOB_INPUT_CAP,
