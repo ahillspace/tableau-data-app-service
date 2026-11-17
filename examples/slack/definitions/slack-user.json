@@ -1,22 +1,17 @@
 {
+  "displayName": "Slack user",
   "ownership": "personal",
-  "scopes": ["chat:write", "channels:read", "channels:history", "files:read"],
-  "audience": ["REPLACE_WITH_TRUSTED_SITE_RECORD_ID"],
-  "enabled": true,
-  "privateHosts": false,
+  "apiHosts": ["https://slack.com/api", "https://files.slack.com"],
   "credentialPlacement": {
     "kind": "bearer"
   },
-  "id": "slack-user",
-  "displayName": "My Slack account",
-  "apiHosts": ["https://slack.com/api", "https://files.slack.com"],
   "authentication": {
     "method": "authorization_code",
     "authorizationEndpoint": "https://slack.com/oauth/v2/authorize",
     "tokenEndpoint": "https://slack.com/api/oauth.v2.access",
     "clientAuthentication": {
       "method": "client_secret_basic",
-      "clientId": "REPLACE_WITH_SLACK_CLIENT_ID"
+      "clientId": "YOUR_CLIENT_ID"
     },
     "pkce": "none",
     "scopeParameter": {
@@ -130,62 +125,10 @@
       }
     }
   },
-  "webhook": {
-    "verification": {
-      "kind": "hmac",
-      "algorithm": "sha256",
-      "header": "x-slack-signature",
-      "prefix": "v0=",
-      "encoding": "hex",
-      "timestamp": {
-        "header": "x-slack-request-timestamp",
-        "toleranceSeconds": 300
-      },
-      "parts": [
-        {
-          "literal": "v0:"
-        },
-        {
-          "timestamp": true
-        },
-        {
-          "literal": ":"
-        },
-        {
-          "rawBody": true
-        }
-      ]
-    },
-    "handshake": {
-      "kind": "verified-json-echo",
-      "when": {
-        "path": ["type"],
-        "equals": "url_verification"
-      },
-      "value": ["challenge"],
-      "response": "text"
-    },
-    "event": {
-      "id": {
-        "json": ["event_id"]
-      },
-      "type": {
-        "json": ["event", "type"]
-      },
-      "account": [
-        {
-          "json": ["team_id"]
-        },
-        {
-          "json": ["enterprise_id"]
-        },
-        {
-          "json": ["event", "team"]
-        }
-      ],
-      "omit": [["token"]]
-    }
-  },
+  "audience": ["TRUSTED_SITE_ID"],
+  "scopes": ["chat:write", "channels:read", "channels:history", "files:read"],
+  "privateHosts": false,
+  "enabled": true,
   "accountLookup": {
     "url": "https://slack.com/api/auth.test",
     "method": "POST",
@@ -281,5 +224,62 @@
         }
       ]
     }
-  }
+  },
+  "webhook": {
+    "verification": {
+      "kind": "hmac",
+      "algorithm": "sha256",
+      "header": "x-slack-signature",
+      "prefix": "v0=",
+      "encoding": "hex",
+      "timestamp": {
+        "header": "x-slack-request-timestamp",
+        "toleranceSeconds": 300
+      },
+      "parts": [
+        {
+          "literal": "v0:"
+        },
+        {
+          "timestamp": true
+        },
+        {
+          "literal": ":"
+        },
+        {
+          "rawBody": true
+        }
+      ]
+    },
+    "handshake": {
+      "kind": "verified-json-echo",
+      "when": {
+        "path": ["type"],
+        "equals": "url_verification"
+      },
+      "value": ["challenge"],
+      "response": "text"
+    },
+    "event": {
+      "id": {
+        "json": ["event_id"]
+      },
+      "type": {
+        "json": ["event", "type"]
+      },
+      "account": [
+        {
+          "json": ["team_id"]
+        },
+        {
+          "json": ["enterprise_id"]
+        },
+        {
+          "json": ["event", "team"]
+        }
+      ],
+      "omit": [["token"]]
+    }
+  },
+  "id": "slack-user"
 }

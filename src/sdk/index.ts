@@ -447,7 +447,7 @@ export class Service {
     });
   }
 
-  /** Calls a named preset capability. */
+  /** Calls a named code capability. */
   async capability<T = unknown>(definitionId: string, name: string, input?: unknown): Promise<T> {
     const body = await this.call<{ result: T }>(
       "POST",

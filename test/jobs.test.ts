@@ -5,7 +5,7 @@ import type {
   JobHandlerDefinition,
   JobRunContext,
   JobStepResult,
-} from "../src/connections/provider-types.ts";
+} from "../src/connections/extensions.ts";
 import { listSites } from "../src/identity/directory.ts";
 import type { Principal } from "../src/identity/types.ts";
 import { JobService } from "../src/jobs/service.ts";

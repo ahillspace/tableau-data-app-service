@@ -147,7 +147,7 @@ const authentication = z
     }),
     z.strictObject({ method: z.literal("signed_jwt_direct"), jwt }),
     z.strictObject({ method: z.literal("static") }),
-    z.strictObject({ method: z.literal("none"), clientId: text.optional() }),
+    z.strictObject({ method: z.literal("none") }),
   ])
   .superRefine((a, ctx) => {
     const issue = (path: string[], message: string) =>
@@ -165,6 +165,12 @@ const authentication = z
         )
       )
         issue(["clientAuthentication", "jwt"], "literal-client-claims");
+      if (c.method === "private_key_jwt") {
+        if (c.jwt.issuer !== c.clientId)
+          issue(["clientAuthentication", "jwt", "issuer"], "client-id-match");
+        if (c.jwt.subject !== undefined && c.jwt.subject !== c.clientId)
+          issue(["clientAuthentication", "jwt", "subject"], "client-id-match");
+      }
     }
   });
 const requestValue = z.union([
@@ -362,6 +368,8 @@ const definitionSchema = z.strictObject({
     })
     .optional(),
 });
+/** Catalog defaults use the same field schemas; incomplete top-level setup stays editable. */
+export const definitionTemplateSchema = definitionSchema.partial();
 export const IN_PLACE_FIELDS = new Set([
   "displayName",
   "scopes",

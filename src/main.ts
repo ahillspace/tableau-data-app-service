@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { DefinitionStore } from "./connections/definitions.ts";
 import { ConnectionService } from "./connections/service.ts";
 import { createEvents } from "./events/index.ts";
+import { installedExtensions } from "./extensions/index.ts";
 import { createApi } from "./http/app.ts";
 import { applyBootstrap } from "./identity/directory.ts";
 import { IdentityService } from "./identity/sessions.ts";
@@ -32,7 +33,6 @@ import {
   resolveInstallation,
   type Settings,
 } from "./platform/settings.ts";
-import { installedExtensions } from "./presets/index.ts";
 import { NativeRouter } from "./router/router.ts";
 import { Sealer } from "./sealing/sealer.ts";
 import { Maintenance } from "./worker/maintenance.ts";

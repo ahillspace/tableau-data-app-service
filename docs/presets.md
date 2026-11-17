@@ -1,6 +1,9 @@
 # Provider catalog and code extensions
 
-The catalog owns data templates that prefill independent runtime connection definitions.
+The catalog owns JSON data templates in src/catalog/templates/ that prefill independent runtime connection definitions.
+The owning module validates the JSON with the shared definition schemas at startup, and the service build copies the JSON beside the compiled loader.
+Blank top-level setup stays absent from catalog defaults, while required nested identifiers and generic endpoint values use explicit placeholders.
+Run npm run examples:slack to regenerate the Slack example definitions from the same JSON source.
 A template does not execute authentication code, and catalog edits never mutate existing definitions.
 Operators can start from a template or configure the same finite protocol schema from scratch.
 

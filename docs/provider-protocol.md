@@ -56,6 +56,7 @@ type Authentication =
 Selectors have at most 8 nonempty segments of at most 128 characters and refuse prototype-related property names.
 Client identity has one source, `clientAuthentication.clientId`; authorization_code requires it even when client authentication is none.
 Authorization, token and private_key_jwt client assertions derive their client identity from that one value.
+A private_key_jwt configuration must name that same client ID as issuer and, when supplied, subject; the engine always emits both claims from clientAuthentication.clientId.
 Predicates are flat, at most 8 per list, with no regex, recursion, function evaluation or operator nesting.
 Extra parameter maps have at most 32 literal entries and cannot override engine-owned grant_type, state, code, redirect_uri, PKCE, assertion or client authentication fields.
 The engine creates fixed protocol substitutions for code, redirect URI, verifier, refresh token and assertions; templates cannot execute code.

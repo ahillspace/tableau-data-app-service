@@ -17,7 +17,7 @@ import type {
   JobHandlerDefinition,
   JobRunContext,
   JobStepResult,
-} from "../src/connections/provider-types.ts";
+} from "../src/connections/extensions.ts";
 import { createEvents } from "../src/events/index.ts";
 import type { EventService } from "../src/events/service.ts";
 import { createApi } from "../src/http/app.ts";

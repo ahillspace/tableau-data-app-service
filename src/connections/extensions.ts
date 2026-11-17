@@ -2,11 +2,11 @@ import type { Principal } from "../identity/types.ts";
 import type { FieldError } from "../platform/errors.ts";
 import type { CredentialLease, ProtocolFetch } from "./types.ts";
 export type Account = { id: string; name: string | null };
-export type PresetContext = { fetch: ProtocolFetch; signal: AbortSignal };
+export type ExtensionContext = { fetch: ProtocolFetch; signal: AbortSignal };
 export type Capability = {
   readonly name: string;
   run(
-    context: PresetContext & { lease: CredentialLease; principal: Principal; input: unknown },
+    context: ExtensionContext & { lease: CredentialLease; principal: Principal; input: unknown },
   ): Promise<unknown>;
 };
 export type JobHandlerDefinition = {

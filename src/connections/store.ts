@@ -5,8 +5,8 @@ import type { SealedJson } from "../persistence/schema.ts";
 import { ServiceError } from "../platform/errors.ts";
 import { definitionSecretRecordId } from "../sealing/reseal.ts";
 import type { Sealer } from "../sealing/sealer.ts";
+import type { Account } from "./extensions.ts";
 import { placeCredential } from "./placement.ts";
-import type { Account } from "./provider-types.ts";
 import type {
   ConnectionDefinition,
   CredentialLease,

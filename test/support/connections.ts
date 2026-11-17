@@ -3,7 +3,7 @@ import {
   type Capability,
   Extensions,
   type JobHandlerDefinition,
-} from "../../src/connections/provider-types.ts";
+} from "../../src/connections/extensions.ts";
 import { ConnectionService } from "../../src/connections/service.ts";
 import type { Db } from "../../src/persistence/database.ts";
 import { Log } from "../../src/platform/log.ts";

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
-import type { JobHandlerDefinition, JobStepResult } from "../connections/provider-types.ts";
+import type { JobHandlerDefinition, JobStepResult } from "../connections/extensions.ts";
 import type { ConnectionService } from "../connections/service.ts";
 import { type Db, type Tx, transaction } from "../persistence/database.ts";
 import type { Clock } from "../platform/clock.ts";
@@ -289,7 +289,7 @@ export class JobWorker {
       const caller = await ownerCaller(this.#db, job.owner_identity_id);
       const definition = await this.#connections.definitions.get(definitionId);
       const fetch = definition
-        ? this.#connections.presetContext(definition, controller.signal).fetch
+        ? this.#connections.extensionContext(definition, controller.signal).fetch
         : ((() =>
             Promise.reject(
               new ServiceError(404, "definition-not-found", "No such definition"),

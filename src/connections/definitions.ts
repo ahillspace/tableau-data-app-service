@@ -14,8 +14,8 @@ import { invalid, notFound, ServiceError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
 import { definitionSecretRecordId } from "../sealing/reseal.ts";
 import type { Sealer } from "../sealing/sealer.ts";
+import type { Extensions } from "./extensions.ts";
 import { normalizeCredential, signingKey } from "./protocol.ts";
-import type { Extensions } from "./provider-types.ts";
 import { readDefinitionSecret, replaceConnection, SECRET_PURPOSE } from "./store.ts";
 import {
   type ConnectionDefinition,

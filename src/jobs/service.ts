@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import { sql } from "kysely";
-import type { JobHandlerDefinition } from "../connections/provider-types.ts";
+import type { JobHandlerDefinition } from "../connections/extensions.ts";
 import type { CheckoutCaller, ConnectionService } from "../connections/service.ts";
 import { trustedSiteFor } from "../identity/directory.ts";
 import { actorOf, type Identity, type Principal } from "../identity/types.ts";
@@ -482,7 +482,7 @@ export class JobService {
       await handler.cancel({
         externalTaskId: task.externalTaskId,
         checkout: () => this.#connections.checkout(caller, task.definitionId, signal),
-        fetch: this.#connections.presetContext(definition, signal).fetch,
+        fetch: this.#connections.extensionContext(definition, signal).fetch,
         signal,
       });
       await this.#db

@@ -250,7 +250,7 @@ export class NativeRouter {
     }
   }
 
-  /** Runs a preset capability with the same checkout and transport as native requests. */
+  /** Runs a code capability with the same checkout and transport as native requests. */
   async capability(
     principal: Principal,
     definitionId: string,
@@ -263,7 +263,7 @@ export class NativeRouter {
     if (!definition || !capability) throw notFound("capability-not-found", "No such capability");
     const lease = await this.#connections.checkout(principal, definitionId, signal);
     return await capability.run({
-      ...this.#connections.presetContext(lease.definition, signal),
+      ...this.#connections.extensionContext(lease.definition, signal),
       lease,
       principal,
       input,

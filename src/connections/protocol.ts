@@ -3,7 +3,7 @@ import type { Readable } from "node:stream";
 import { invalid, ServiceError } from "../platform/errors.ts";
 import type { Outbound } from "../platform/outbound.ts";
 import { fieldErrors } from "../platform/validation.ts";
-import type { Account } from "./provider-types.ts";
+import type { Account } from "./extensions.ts";
 import { firstText, matches, select } from "./selectors.ts";
 import { leaseFor } from "./store.ts";
 import type {
@@ -284,7 +284,7 @@ export async function tokenRequest(
       body.set(
         "client_assertion",
         createJwt(
-          client.jwt,
+          { ...client.jwt, issuer: client.clientId, subject: client.clientId },
           secrets.signingPrivateKey,
           undefined,
           definition.scopes,

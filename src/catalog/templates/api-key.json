@@ -1,0 +1,20 @@
+{
+  "id": "api-key",
+  "name": "API key",
+  "description": "A shared or personal static key with declarative credential placement.",
+  "definition": {
+    "ownership": "shared",
+    "scopes": [],
+    "audience": [],
+    "enabled": true,
+    "privateHosts": false,
+    "credentialPlacement": {
+      "kind": "header",
+      "name": "X-API-Key"
+    },
+    "displayName": "API key",
+    "authentication": {
+      "method": "static"
+    }
+  }
+}

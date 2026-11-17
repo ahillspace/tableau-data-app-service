@@ -10,6 +10,7 @@ import type { Outbound } from "../platform/outbound.ts";
 import { hashToken, pkceChallenge, randomToken } from "../platform/secrets.ts";
 import type { Sealer } from "../sealing/sealer.ts";
 import { type DefinitionStore, definitionFromRow } from "./definitions.ts";
+import type { Account, ExtensionContext } from "./extensions.ts";
 import { selectApiHost } from "./hosts.ts";
 import {
   configuredRequest,
@@ -18,7 +19,6 @@ import {
   readTokens,
   tokenRequest,
 } from "./protocol.ts";
-import type { Account, PresetContext } from "./provider-types.ts";
 import { firstText } from "./selectors.ts";
 import {
   leaseFor,
@@ -143,7 +143,7 @@ export class ConnectionService {
   get definitions(): DefinitionStore {
     return this.#definitions;
   }
-  presetContext(definition: ConnectionDefinition, signal: AbortSignal): PresetContext {
+  extensionContext(definition: ConnectionDefinition, signal: AbortSignal): ExtensionContext {
     return { fetch: this.#outbound.fetcher(definition.privateHosts), signal };
   }
   async #live(id: string): Promise<ConnectionDefinition> {
