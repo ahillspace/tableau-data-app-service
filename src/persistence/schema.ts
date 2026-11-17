@@ -1,4 +1,5 @@
 import type { ColumnType, Generated } from "kysely";
+import type { Definition } from "../contracts/operator.ts";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 type CreatedAt = ColumnType<Date, Date | string | undefined, never>;
@@ -87,6 +88,7 @@ export interface Database {
     id: Generated<string>;
     bearer_hash: string;
     kind: "app" | "operator";
+    last_seen_at: ColumnType<Date, Date | string | undefined, Date | string>;
     identity_id: string;
     sign_in_session_id: string;
     app_id: string | null;
@@ -113,51 +115,31 @@ export interface Database {
   apps: {
     app_id: string;
     first_seen_at: Timestamp;
-    last_seen_at: Timestamp;
+    last_seen_at: ColumnType<Date, Date | string | undefined, Date | string>;
     session_count: ColumnType<string, number | string, number | string>;
     site_ids: ColumnType<string[], string[], string[]>;
     workbooks: ColumnType<string[], string[], string[]>;
   };
   definitions: {
     id: string;
+    configuration: Json<Definition>;
     display_name: string;
-    type: string;
     ownership: "shared" | "personal";
-    api_hosts: Json<string[]>;
-    authorization_endpoint: string | null;
-    token_endpoint: string | null;
-    client_id: string | null;
-    token_authentication: "basic" | "post" | null;
-    scopes: Json<string[]>;
-    preset_options: Json<Record<string, unknown>>;
-    credential_placement: Json<Placement>;
     audience: Json<string[]>;
-    reauthorization_interval: number | null;
-    private_hosts: boolean;
     enabled: boolean;
     retired: Generated<boolean>;
     generation: Generated<number>;
+    version: Generated<number>;
+    secret_generation: Generated<number>;
     created_at: CreatedAt;
     updated_at: Timestamp;
     retired_at: Timestamp | null;
   };
   definition_secrets: {
     definition_id: string;
-    field: "clientSecret" | "signingSecret";
+    field: "clientSecret" | "signingSecret" | "signingPrivateKey";
     sealed: Json<SealedJson>;
     set_at: Timestamp;
-  };
-  secret_links: {
-    id: Generated<string>;
-    token_hash: string;
-    definition_id: string;
-    /** The definition generation the link was created for; a redefinition makes the link unusable. */
-    generation: number;
-    field: "clientSecret" | "signingSecret" | "credential";
-    created_by: string;
-    expires_at: Timestamp;
-    used_at: Timestamp | null;
-    created_at: CreatedAt;
   };
   connections: {
     id: Generated<string>;
@@ -171,6 +153,8 @@ export interface Database {
     scopes: Json<string[]>;
     authorized_at: Timestamp;
     credential_expires_at: Timestamp | null;
+    credential_generation: Generated<number>;
+    credential_set_at: ColumnType<Date, Date | string | undefined, Date | string>;
     disconnected_at: Timestamp | null;
     disconnect_reason: string | null;
     created_at: CreatedAt;
@@ -224,6 +208,26 @@ export interface Database {
     record_expires_at: Timestamp | null;
   };
   job_results: { job_id: string; result: Json; size: number; expires_at: Timestamp };
+  metric_snapshots: {
+    instance_id: string;
+    minute: Timestamp;
+    definition_id: string;
+    status: string;
+    sequence: ColumnType<string, string | number, string | number>;
+    requests: ColumnType<string, string | number, string | number>;
+    errors: ColumnType<string, string | number, string | number>;
+    upstream_histogram: ColumnType<string[], (string | number)[], (string | number)[]>;
+    refresh_failures: ColumnType<string, string | number, string | number>;
+    exchange_failures: ColumnType<string, string | number, string | number>;
+  };
+  process_heartbeats: {
+    instance_id: string;
+    role: "api" | "worker";
+    started_at: Timestamp;
+    heartbeat_at: Timestamp;
+    flushed_through: Timestamp | null;
+    degraded: Generated<boolean>;
+  };
   audit: {
     id: Generated<string>;
     at: CreatedAt;
@@ -243,7 +247,4 @@ export type JobStateColumn =
   | "cancelled"
   | "interrupted";
 export type SealedJson = { keyId: string; nonce: string; ciphertext: string; tag: string };
-export type Placement =
-  | { kind: "bearer" }
-  | { kind: "header"; name: string; prefix?: string }
-  | { kind: "query"; name: string };
+export type { Placement } from "../contracts/operator.ts";
