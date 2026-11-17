@@ -166,7 +166,7 @@ export class Providers {
     const workflow = ++this.#workflow;
     element("peekBody").innerHTML =
       `<h1 id="peekTitle">Provider properties</h1>${stateBox("Loading properties", "Reading current version and setup state.")}`;
-    this.#dialogs.peek.showModal();
+    this.#dialogs.showPeek();
     try {
       const { definition: d } = await this.#api.request<{ definition: DefinitionView }>(
         "GET",

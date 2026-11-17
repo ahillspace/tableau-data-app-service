@@ -135,6 +135,7 @@ export function showFormError(form: HTMLFormElement, error: unknown): void {
 export class Dialogs {
   readonly modal = element<HTMLDialogElement>("modal");
   readonly peek = element<HTMLDialogElement>("peek");
+  #opener: HTMLElement | undefined;
   constructor() {
     for (const dialog of [this.modal, this.peek]) {
       dialog.addEventListener("click", (e) => {
@@ -152,6 +153,16 @@ export class Dialogs {
           element<HTMLFormElement>("form").onsubmit = null;
           element<HTMLFormElement>("form").oninput = null;
         } else element("peekBody").replaceChildren();
+        if (!this.modal.open && !this.peek.open) {
+          const opener = this.#opener;
+          this.#opener = undefined;
+          const target =
+            opener?.isConnected && opener.getClientRects().length
+              ? opener
+              : document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+          if (target?.getClientRects().length) target.focus();
+          else document.querySelector<HTMLElement>("#auth a")?.focus();
+        }
       });
     }
   }
@@ -159,7 +170,17 @@ export class Dialogs {
     this.modal.close();
     this.peek.close();
   }
+  showPeek(): void {
+    this.#rememberOpener();
+    this.peek.showModal();
+  }
+  #rememberOpener(): void {
+    if (!this.modal.open && !this.peek.open)
+      this.#opener =
+        document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+  }
   open(title: string, body: string, submit = "Save"): HTMLFormElement {
+    this.#rememberOpener();
     this.peek.close();
     element<HTMLFormElement>("form").oninput = null;
     element<HTMLFormElement>("form").onsubmit = null;
