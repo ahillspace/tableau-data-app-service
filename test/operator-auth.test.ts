@@ -187,7 +187,10 @@ test("console denial, non-operator, removed authority, expiry and disabled helpe
     viewer.jar.set("__Host-tdas-sign-in", nonOperator.cookie);
     const refused = await viewer.consent();
     assert.equal(refused.status, 403);
-    assert.match(await refused.text(), /not an operator/);
+    const refusal = await refused.text();
+    assert.match(refusal, /not an operator/);
+    assert.match(refusal, /<h1>Operator access required<\/h1>/);
+    assert.match(refusal, /Tableau sign-in succeeded/);
     assert.equal(viewer.jar.has("__Host-tdas-operator"), false);
     assert.equal((await browser.consent()).status, 303);
     await f.db.deleteFrom("operators").where("user_id", "=", "user-op").execute();

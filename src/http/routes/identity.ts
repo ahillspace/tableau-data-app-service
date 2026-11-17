@@ -70,6 +70,18 @@ function sendDeploymentChoice(
   });
 }
 
+/** Operator refusal follows verified Tableau identity and preserves the opener failure signal. */
+function operatorSignInError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (!(error instanceof ServiceError) || error.code !== "operator-required")
+    return sendErrorPage(reply, error);
+  return sendPage(reply, {
+    status: 403,
+    title: "Operator access required",
+    body: '<h1>Operator access required</h1><p>Tableau sign-in succeeded, but this identity is not an operator of this service. An existing operator can grant access.</p><p class="code">operator-required</p>',
+    script: `if (window.opener) window.opener.postMessage(${scriptJson({ type: "tableau-service:error", code: "operator-required" })}, "*");`,
+  });
+}
+
 export async function signInSession(services: Services, request: FastifyRequest) {
   return await services.identity.readSignInSession(readCookie(request, SIGN_IN_COOKIE));
 }
@@ -242,7 +254,7 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         body: `<h1>Approve operator access</h1><p>${escapeHtml(session.userName)}, this gives ${target} full operator access to this Tableau Data App Service: definitions, credentials, trusted sites, operators and every Job.</p><form method="post" action="/operator-sign-in"><input type="hidden" name="transaction" value="${escapeHtml(transaction)}"><input type="hidden" name="consent" value="${escapeHtml(prepared.consent)}"><div class="actions"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></div></form>`,
       });
     } catch (error) {
-      return sendErrorPage(reply, error);
+      return operatorSignInError(reply, error);
     }
   });
 
@@ -295,7 +307,7 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         "Return to the tool that opened this window.",
       );
     } catch (error) {
-      return sendErrorPage(reply, error);
+      return operatorSignInError(reply, error);
     }
   });
 
