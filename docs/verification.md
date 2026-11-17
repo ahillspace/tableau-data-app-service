@@ -1,12 +1,12 @@
 # Verification
 
 This document separates the current verification contract from evidence produced by an integrated implementation.
-The provider-intake and console specification is authorized; specification convergence and prototype inspection do not establish implementation correctness or live acceptance.
+The provider-intake and console implementation has been integrated and exercised against synthetic Tableau and provider servers with real Postgres and Redis.
+Specification convergence, prototype inspection and synthetic verification remain distinct from independent substantive review and live acceptance.
 
 ## Automated tests
 
-The following checks describe the established baseline suite and the behavior integration must preserve.
-They are not a claim that the complete revised implementation has passed in this documentation change.
+The following checks describe the retained correctness suite and its production-path fixtures.
 Run npm test against real Postgres and real Redis where events are involved.
 Tableau and providers are stood in for by local servers.
 Test names carry the check's ID.
@@ -45,21 +45,25 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 
 ## Provider intake and console gates
 
-These are required behavioral gates, pending evidence from the final integrated implementation.
+These behavioral gates are exercised by the integrated implementation.
+All listed automated fixtures run under Node 26.13.1, Postgres 18.6 and Redis 7.2.4.
+Browser checks use task-owned Chromium against the same HTTPS origin declared by the actual API, with a throwaway certificate exception limited to its synthetic leaf key.
 Use production API/CLI/browser/worker composition with synthetic Tableau/provider servers and real Postgres/Redis fixtures.
 Establish a distinguishing failing behavior before substantive deterministic changes where practical.
 
 | Gate | Required evidence | State |
 | --- | --- | --- |
-| V28 | Actual API and CLI create/update/set/clear, piped/file/TTY/value conflicts, multiline keys, safe errors and no submitted values in output. | Pending integration. |
-| V29 | Every acquisition method, client authentication and placement, nested and refresh mappings, HTTP 200 failures and data-only JSON import with endpoint mismatch. | Pending integration. |
-| V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. | Pending integration. |
-| V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. | Pending integration. |
-| V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. | Pending integration. |
-| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. | Pending integration. |
-| V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. | Pending integration. |
-| V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. | Pending integration. |
+| V28 | Actual API and CLI create/update/set/clear, piped/file/TTY/value conflicts, multiline keys, safe errors and no submitted values in output. Evidence: test/intake.test.ts, test/cli-secret.test.ts and test/http.test.ts; actual PTY no-echo/editing check. | Synthetic pass. |
+| V29 | Every acquisition method, client authentication and placement, nested and refresh mappings, HTTP 200 failures and data-only JSON import with endpoint mismatch. Evidence: test/intake-protocol.test.ts verifies provider-observed grants, independent RS256/ES256 signatures and normal/SSE calls; test/catalog.test.ts validates JSON sources. | Synthetic pass. |
+| V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. Evidence: test/intake-protocol.test.ts and test/connections.test.ts use distinct pools and observed row-lock waits. | Synthetic pass. |
+| V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. Evidence: test/intake-protocol.test.ts, test/router.test.ts and test/outbound.test.ts; actual bundled-SDK browser shared/personal calls and normal/SSE delivery. | Synthetic pass. |
+| V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. Evidence: test/intake-webhook.test.ts exercises actual HTTP ingress and cross-replica Redis delivery; test/slack.test.ts retains catalog mapping coverage. | Synthetic pass. |
+| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. Evidence: test/operator-auth.test.ts and test/console.test.ts; actual Chromium sign-in, denied/approved consent, both tabs and generic SDK; final owned UI browser evidence recorded separately. | Synthetic pass. |
+| V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. Evidence: test/operations.test.ts plus test/composition.test.ts with two actual API child processes, a worker, real ten-second flushes and the observed minute closing. | Synthetic pass. |
+| V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. Evidence: Initial-schema fixtures, retained regression suite and package checks; built catalog JSON, local console assets and 8,042-byte SDK verified. | Synthetic pass. |
 
+The synthetic evidence covers finite fixtures, not universal vendor conformance or a proof that every possible secret value can never be disclosed.
+The browser fixture emits its synthetic business event through the actual verification owner and Redis; actual HTTP ingress and multi-replica event fan-out are independently exercised by the automated protocol fixtures.
 A single final independent substantive review evaluates the integrated frozen revision after implementation checks pass.
 Review findings are reported separately from implementation verification and user acceptance.
 No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.

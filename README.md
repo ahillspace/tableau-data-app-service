@@ -9,7 +9,9 @@ Built with TypeScript on Node 26, Fastify, Kysely and Postgres, with Redis only 
 
 ## Status
 
-Every automated check in [verification](docs/verification.md) passes against real Postgres and Redis.
+The automated suite exercises synthetic Tableau/provider servers with real Postgres and Redis.
+The optional same-server operator console is disabled by default; set CONSOLE_ENABLED=true to enable its Providers and Status & analytics tabs.
+[Verification](docs/verification.md) records the integrated checks and separates synthetic evidence from live acceptance.
 The service has not yet been run against a live Tableau Cloud site or real provider accounts; [verification](docs/verification.md#known-limitations) lists what that leaves unproven.
 
 ## Quick start

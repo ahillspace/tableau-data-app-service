@@ -17,6 +17,7 @@ The app code is the same for both; only the definition ID changes whose credenti
 
 One Slack app can back both definitions, because one Slack install returns a bot token and a user token.
 In the Slack app, add `{service origin}/v1/oauth/callback` as a redirect URL, and request the bot and user scopes the two definition files list.
+Regenerate the example definition files from the JSON catalog with `npm run examples:slack` before customizing your own copies.
 As an operator, fill in the Slack client ID in [definitions/slack-bot.json](definitions/slack-bot.json) and [definitions/slack-user.json](definitions/slack-user.json), and replace the audience placeholder with trusted site record IDs from `tdas sites list`, then create them with the `tdas` CLI.
 The `secret` command reads piped stdin, `--from-file PATH`, or a hidden terminal prompt.
 File and stdin input preserve trailing newlines, so a single-line token must be supplied without an added newline.

@@ -17,7 +17,7 @@
     "format": "biome check --write src test scripts/build-sdk.ts scripts/build-console.ts scripts/build-slack-definitions.ts examples/slack",
     "test": "node --test --test-global-setup=test/support/global.ts --test-concurrency=1 'test/**/*.test.ts'",
     "example": "node examples/slack/dev.ts",
-    "examples:slack": "node scripts/build-slack-definitions.ts"
+    "examples:slack": "node scripts/build-slack-definitions.ts && biome format --write examples/slack/definitions"
   },
   "dependencies": {
     "@napi-rs/keyring": "2.1.2",

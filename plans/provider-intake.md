@@ -1,6 +1,6 @@
 # Plan: provider intake, secret entry and operator console
 
-Status: execution authorized, shared design contract established, implementation proof pending integration.
+Status: implementation integrated and synthetic verification recorded in docs/verification.md; the final independent substantive review and live acceptance remain separate.
 The current documents in docs describe the intended product directly.
 Design convergence, implementation verification and live acceptance are separate outcomes.
 The system is undeployed and has no existing users, stored credentials or compatibility contracts to preserve.
