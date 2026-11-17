@@ -28,9 +28,7 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
-    "scripts/build-sdk.ts",
     "examples/slack/**/*.ts",
-    "scripts/build-console.ts",
-    "scripts/build-slack-definitions.ts"
+    "scripts/*.ts"
   ]
 }

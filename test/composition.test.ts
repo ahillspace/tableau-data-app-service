@@ -12,7 +12,7 @@ import { standIn } from "./support/https.ts";
 import { appSignIn, identityHarness, operatorSignIn, tableauSignIn } from "./support/identity.ts";
 import { TableauStandIn } from "./support/tableau.ts";
 
-const MAIN = new URL("../src/main.ts", import.meta.url).pathname;
+const MAIN = new URL("../dist/main.js", import.meta.url).pathname;
 async function port() {
   const server = createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
