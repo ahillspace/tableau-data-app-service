@@ -216,6 +216,7 @@ table {
   min-width: 920px;
 }
 th {
+  white-space: nowrap;
   text-align: left;
   font-weight: 500;
   color: var(--muted);
@@ -363,22 +364,6 @@ td small {
 .notice.error {
   color: var(--red);
   background: #fff8f6;
-}
-.prototype-bar {
-  border-top: 1px solid var(--line);
-  padding: 12px 0;
-  margin-top: 36px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.prototype-bar select {
-  font-size: 12px;
-  padding: 4px 8px;
-}
-.prototype-bar .hint {
-  margin-right: auto;
 }
 dialog {
   padding: 0;
@@ -629,7 +614,7 @@ code {
 .scroll-x table {
   min-width: 680px;
 }
-.field textarea.secret {
+textarea.secret {
   font-family: ui-monospace, monospace;
   -webkit-text-security: disc;
 }
