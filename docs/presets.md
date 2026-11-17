@@ -1,48 +1,96 @@
-# Preset connections and capabilities
+# Provider catalog and code extensions
 
-A preset is a [provider type](connections.md#provider-types) written for one provider.
-It fills in that provider's defaults and adds behavior the generic types cannot describe.
-Presets are registered in `src/presets/index.ts`, and a new preset is added there and nowhere else.
-Any provider the generic `oauth2`, `static` or `none` types can describe needs no preset.
+The catalog owns data templates that prefill independent runtime connection definitions.
+A template does not execute authentication code, and catalog edits never mutate existing definitions.
+Operators can start from a template or configure the same finite protocol schema from scratch.
 
-## What a preset can add
+## Template fields
 
-| Hook | Does |
+| Field | Does |
 | --- | --- |
-| `defaults` | Fills in API hosts, endpoints and credential placement. |
-| `validate` | Checks the preset's own `presetOptions`. |
-| `authorizationParameters` | Adds provider-specific parameters to the authorization request. |
-| `readTokenResponse` | Reads a token response the generic OAuth reader cannot. |
-| `describeAccount` | Names the provider account a connection belongs to. |
-| `revoke` | Asks the provider to revoke a grant on disconnect. |
-| `capabilities` | Named operations called at `/v1/capabilities/{definitionId}/{name}`. |
-| `jobHandlers` | Durable work run by the worker; see [Jobs](jobs.md). |
-| `eventSource` | Receives and verifies provider deliveries; see [Events](events-sdk.md#event-sources). |
+| id, name, description | Identify the catalog entry without implying runtime provider identity. |
+| definition | Prefill hosts, ownership, acquisition, client authentication and credential placement. |
+| response mappings | Extract nested tokens, scopes, expiry and optional account metadata. |
+| account lookup and revocation | Describe fixed requests using shared outbound transport. |
+| credential import | Map JSON fields into the owner credential and compare an imported token endpoint. |
+| webhook | Select finite verification, handshake and event extraction primitives. |
 
-## Installed presets
+Templates contain no real tenant IDs, deployment URLs, audience sites, credentials or personal setup data.
+The runtime connection definition is the source of authority after creation.
 
-### Slack
+## Templates
 
-- `type: slack`, with `presetOptions.tokenMode` of `bot` or `user`.
-- API hosts `https://slack.com/api` for Web API methods and `https://files.slack.com` for file downloads; OAuth endpoints `https://slack.com/oauth/v2/authorize` and `https://slack.com/api/oauth.v2.access`.
-- A Data App downloads a Slack-hosted file through the router by naming `https://files.slack.com` in `Tableau-Service-Host` and passing the path of the file's `url_private` or thumbnail URL; the definition needs the `files:read` scope.
-  A remote file's `url_private` is an external link on another host, so the router refuses it and the token never leaves Slack.
-- Bot mode requests `scope` and stores the bot token; user mode requests `user_scope` and stores the installing user's token.
-- One Slack app can back a shared bot definition and a personal user definition at the same time, because one install returns both tokens.
-- A definition without a client ID takes static tokens only, and static tokens are accepted in either mode.
-- The account recorded is the workspace, or the enterprise for an organization-wide Enterprise Grid install that returns no team; `auth.test` names it.
-- Token rotation works when the Slack app enables it.
-- Disconnecting calls `auth.revoke`.
-- No capabilities and no Job handlers.
+### Slack bot
 
-#### Slack event source
+- Uses authorization_code with a shared connection by default.
+- API hosts are https://slack.com/api and https://files.slack.com.
+- Requests bot scopes in scope and reads the top-level bot token.
+- Maps token expiry and refresh credentials, and treats an HTTP 200 response with ok:false as a failure.
+- Describes account lookup, revocation and timestamped raw-body HMAC verification as data.
 
-- Verifies `X-Slack-Signature` with the definition's sealed signing secret, and refuses deliveries more than five minutes old.
-  A bad signature answers `event-signature-invalid` and an old delivery `event-too-old`, both with status 401.
-- Answers Slack's URL verification challenge.
-- Acknowledges before fan-out, inside Slack's three-second window.
-- The event's account is its team, or its enterprise when no team is present.
-- Works the same on bot and user definitions.
-  Each definition that receives events needs its own signing secret and its own Request URL in a Slack app.
+### Slack user
 
-The [Slack example](../examples/slack/README.md) is a Data App that uses a shared bot definition and a personal user definition side by side.
+- Uses authorization_code with personal ownership by default.
+- Requests user_scope and reads the initial token from authed_user, with a distinct refresh-response mapping.
+- Keeps the same Slack API/file hosts and verification primitives.
+- A Data App can use shared bot and personal user definitions side by side, without an SDK provider branch.
+
+The nested user token and scope distinction follows [Slack OAuth installation](https://docs.slack.dev/authentication/installing-with-oauth/), and refresh responses follow [Slack token rotation](https://docs.slack.dev/authentication/using-token-rotation/).
+Use a static definition with these hosts when a token is entered directly; a missing client ID never changes the configured grant method.
+A failed account lookup is informational, and failed remote revocation does not keep the local credential.
+
+### Google service account
+
+- Uses jwt_bearer with RS256 and an explicit token audience and endpoint.
+- Maps client_email, private_key and private_key_id from service-account JSON into the owner-bound credential.
+- Compares imported token_uri with the configured endpoint rather than adopting it as a destination.
+- Includes the exact global https://aiplatform.googleapis.com host and the constrained https://*-aiplatform.googleapis.com regional pattern.
+
+The service-account assertion exchange follows [Google's OAuth service-account protocol](https://developers.google.com/identity/protocols/oauth2/service-account).
+The service does not provision projects, IAM grants, keys, models or provider resources.
+Live calls require an authorized project, service-account identity, model and location supplied for that test.
+
+### Generic API key
+
+- Uses static acquisition with explicit bearer, named header, query parameter or HTTP Basic placement.
+- Accepts a shared operator credential or a personal owner credential through the same connections owner.
+
+### Generic OAuth 2.0
+
+- Uses authorization_code with configurable endpoints, PKCE, client authentication, scopes and response mappings.
+- Describes provider differences as finite data rather than scripts or an arbitrary expression language.
+
+## Native request recipes
+
+A definition can include several exact hosts and constrained wildcard hosts.
+Select a concrete host in the native request; never send the wildcard literal as the selection.
+
+```ts
+const file = await service.fetch("workspace-chat", "/files/example", {
+  headers: { "Tableau-Service-Host": "https://files.slack.com" }
+});
+const response = await service.fetch("models", "/v1/projects/PROJECT/locations/LOCATION/publishers/google/models/MODEL:streamGenerateContent?alt=sse", {
+  method: "POST",
+  headers: {
+    "Tableau-Service-Host": "https://us-central1-aiplatform.googleapis.com",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Example prompt" }] }] })
+});
+const reader = response.body?.getReader();
+```
+
+PROJECT, LOCATION and MODEL are placeholders for an explicitly authorized provider test.
+The Data App owns response parsing and UI; a response stream remains a native stream.
+For a global call select the exact global host and the matching provider path.
+For a personal definition call service.connect for authorization_code, or service.setCredential with a typed owner credential, before the same native request.
+A shared definition is connected by an operator and requires no provider sign-in by each viewer.
+The [Slack example](../examples/slack/README.md) demonstrates shared and personal use.
+
+## Failure and extension
+
+Invalid template data fails catalog validation rather than partially populating a definition.
+A provider using supported methods requires only another data template.
+A genuinely new acquisition or verification protocol adds one shared engine primitive with bounded contracts and behavioral tests.
+Capabilities and Job handlers remain code extension points for named business work and use the same credential lease and outbound transport.
+They do not grant or restrict native endpoint access.

@@ -24,10 +24,12 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   Operators add, change and retire providers at runtime through the operator API, with no redeploy and no change to host configuration.
 - One installation is one administrative boundary, and it may trust several Tableau sites.
 - Client secrets, signing secrets and provider credentials are sealed in Postgres and never shown again.
-  They are entered on a one-time secret page the service serves, never through configuration, environment variables, command arguments or logs.
+  Operators enter them through write-only API fields, normal CLI input or the optional console.
+  Reads expose only whether a value is set and when; logs and diagnostics never contain it.
   The one secret the host holds is the sealing key.
 - Operators run the installation with the `tdas` command-line tool, which calls the operator API.
-  Any other browser tool can call the same API with an operator bearer from the operator sign-in page.
+  The optional console uses the same API and operator grant through a same-origin protected cookie.
+  Other tools can use an operator bearer from the existing sign-in flow.
 - The bootstrap file names the Tableau Cloud pods, the first trusted site and the first operator, and may set the public origin and the sign-in limit.
   Everything else is runtime data.
 
@@ -35,14 +37,18 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 
 - Once a provider is connected, its native API is available to Data Apps through the service.
   The service does not gate requests by capability or scope.
-- Code defines provider types: generic OAuth 2.0 (`oauth2`), a static token or API key (`static`), no credential (`none`), and [presets](presets.md) written for one provider.
-  Any provider that a generic type can describe is connected with no code.
-- A preset can add provider-specific defaults, token handling, account naming, revocation, capabilities, Job handlers and an event source.
-- A connection definition is data: an instance of a provider type with its API hosts, endpoints, client ID, sealed client secret, scopes, ownership mode, audience and optional reauthorization interval.
+- Definitions select authorization_code, client_credentials, jwt_bearer, signed_jwt_direct, static or none from one shared protocol engine.
+  Grant acquisition, OAuth client authentication and native credential placement are separate.
+- [Catalog templates](presets.md) prefill independent definitions, including token mappings, account lookup, revocation, JSON credential import and inbound verification.
+  A supported provider needs data only; capabilities and Jobs retain explicit code extension points.
+- A connection definition is data with API hosts, typed protocol configuration, scopes, ownership, audience and an optional reauthorization interval.
+  Application secrets and connection credentials have separate owners.
 - Ownership mode is either **shared**, where an operator connects one account that the definition's audience uses, or **personal**, where each viewer connects their own account.
 - A definition's audience is a set of trusted sites.
   Trusting a new site never widens an existing definition's audience.
-- Display name, scopes, audience, reauthorization interval, enabled state and the client secret change in place and keep existing connections.
+- Display name, scopes, audience, reauthorization interval, enabled state and secret values change in place.
+  Secret rotation invalidates superseded derived credentials across replicas without redefining the provider.
+  Concurrent writes require the safe view version and fail on conflict.
 - Every other change is a redefinition: it starts a new generation, disconnects every connection of the old generation and deletes its credentials.
   The definition ID stays the same, so Data Apps that refer to it keep working once users reconnect.
   A change to any endpoint or API host is always a redefinition, so a stored credential is never sent to a host it was not issued for.
@@ -50,7 +56,7 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - Every replica picks up definition changes through one installation revision number in Postgres, checked at most once a second before a checkout.
 - A failed operation on a personal connection never falls back to a shared connection.
 - A Data App lists the definitions its viewer's site may use, with each one's ownership mode, how it can be set up and the viewer's connection status, and decides what setup, if any, to show.
-- A Data App can send a personal static token or API key through the SDK, however the app obtained it.
+- A Data App can send a typed personal static or JWT credential through the generic SDK interface, however the app obtained it.
   The service seals and stores it, and never returns it.
 - One OAuth callback route serves every definition, keyed by the authorization `state`.
 
@@ -93,7 +99,8 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   The bearer never appears in a URL or a cross-window message.
 - Restored and app sessions never carry operator authority; operator bearers come only from the operator sign-in page.
 - Any Data App shown under the same Tableau host can restore a viewer's session, because the service records the app's declared site and workbook but does not verify which Tableau site the app runs on.
-- Service API responses allow any calling origin, including the opaque origins that Cloud and Desktop present.
+- Data App API responses allow any calling origin, including the opaque origins that Cloud and Desktop present.
+  Cookie-authenticated operator requests remain same-origin only.
 
 ### Hosts
 
@@ -110,7 +117,8 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - No provider endpoint is blocked, including endpoints that create or return provider credentials.
 - Bodies stream in both directions with backpressure.
 - Neither the service nor the SDK retries a business request.
-- Each definition names the API hosts it may reach.
+- Each definition names the HTTPS base URLs it may reach, including constrained patterns within the leftmost DNS label.
+  A selected host is always concrete; the global host and regional wildcard are separate entries.
   Destinations are checked when each connection opens against private, loopback and metadata addresses, TLS is always verified, and redirects are returned to the app rather than followed.
   An operator may allow private addresses for a definition; metadata addresses are always refused.
 
@@ -135,6 +143,16 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   Delivery is lossy, and clients are told when they may have missed events.
 - A Redis failure affects events only.
 
+### Operator console and observations
+
+- The console is served at /console by the same API server and is disabled by default.
+  It reuses Tableau sign-in, explicit operator consent and server-side operator checks.
+- Providers is a searchable table with property side peeks, template/scratch creation, edits, secret rotation, shared connect and retirement.
+- Status & analytics shows health, process heartbeat freshness, connections, Jobs, explicitly defined activity, native request aggregates and audit events.
+- Postgres stores bounded minute snapshots; percentiles are computed from merged histogram counts across replicas.
+  Metrics are best-effort operational estimates and never become a native-routing dependency.
+- The UI distinguishes disabled, unavailable, stale and unknown observations and does not treat events disabled as a Redis outage.
+
 ### Operability
 
 - One TypeScript codebase on Node with Fastify, Kysely and Postgres runs as API and worker roles that each scale to several replicas.
@@ -152,7 +170,7 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 | Shared provider | A viewer on a site in a shared definition's audience calls the provider's native API with no provider sign-in. |
 | Personal provider | A viewer connects their own provider account once in the popup, then calls the native API as themselves from any Data App. |
 | Static token | A Data App sends a viewer's API key through the SDK, however it obtained the key, and later calls the provider as that viewer. |
-| Add a provider | An operator creates a definition with the command-line tool, opens the one-time link to enter its client secret, and Data Apps can use it at once on every replica. |
+| Add a provider | An operator creates a definition from catalog data or scratch, sets write-only secrets through CLI/API/console and completes its shared or personal setup. |
 | Redefine a provider | An operator changes a definition's endpoint, old connections disconnect, and users reconnect to the same definition ID. |
 | Retire a provider | An operator retires a definition, its connections disconnect, and its history remains. |
 | Long-running work | A Data App admits a Job, the viewer closes the page, and the viewer later reads the result from any Data App. |
@@ -168,4 +186,5 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - No workflow builder, sync engine, arbitrary code hosting or agent runtime.
 - No request quotas, rate shaping or fairness scheduling.
 - No hosting platform, price, traffic level or service level is selected.
-- No setup web page ships; operators use the command-line tool or their own tool on the operator API.
+- The optional console has exactly two top-level tabs: Providers and Status & analytics.
+  It is not an app builder, permission portal or provider workflow engine.

@@ -27,18 +27,20 @@ This document covers the data the service keeps, how it is stored, and how an in
 | `operator_sign_ins` | Identity | Operator sign-in transaction in loopback or popup mode, PKCE challenge, consent and code hashes. |
 | `apps` | Identity | App registry. |
 | `definitions` | Connections | Connection definitions. |
-| `definition_secrets` | Connections | Sealed client and signing secrets. |
-| `secret_links` | Connections | One-time secret link hashes. |
-| `connections` | Connections | Connections and sealed credentials. |
+| `definition_secrets` | Connections | Sealed application client secrets, signing keys and inbound verification secrets with authority generations. |
+| `connections` | Connections | Owner-bound sealed source credentials, derived tokens and credential generations. |
 | `connect_transactions` | Connections | Provider OAuth state, PKCE verifier, definition generation. |
 | `jobs` | Jobs | Jobs and inputs. |
 | `job_results` | Jobs | Results, deleted on expiry. |
 | `audit` | Persistence | Operator and recovery actions, with no secret values. |
+| `metric_buckets` | Operations | Bounded cumulative minute snapshots keyed by process restart identity and finite dimensions. |
+| `process_heartbeats` | Operations | API/worker start identity, last heartbeat and safe process observations. |
 | `schema_migrations`, `schema_migrations_lock` | Persistence | Applied migrations and the migration lock. |
 
 ## Migrations
 
-Migrations live in `src/persistence/migrations`, and `0001-initial` creates the schema.
+The complete undeployed product schema is defined directly in src/persistence/migrations/0001-initial.
+Fresh installation is the proof target; there are no upgrade migrations, backfills, credential conversions or compatibility flags for earlier designs.
 The `migrate` role runs pending migrations and exits; API and worker roles refuse to start when the schema is behind.
 
 ## Postgres TLS
@@ -63,18 +65,26 @@ The sealing key is the one secret the host holds, and it seals no provider value
 It replaces each value with a compare-and-swap on the old sealed value, so a concurrent write is never overwritten, and finishes with a second pass that confirms no value still names an old key.
 It exits with status 1 if any value still names an old key, and it is safe to rerun after an interruption.
 
-Only secrets are sealed: client secrets, signing secrets and credentials.
+Only secrets are sealed: application client secrets and signing keys, webhook verification secrets, owner credentials and cached derived tokens.
 Job inputs, results and progress are app data and are stored as ordinary rows, covered by the database's own protection at rest.
 
 ## Maintenance
 
-Every 60 seconds the worker recovers expired Job leases and deletes expired transactions, sessions, secret links, Job results and Job records in batches of 500.
+Every 60 seconds the worker recovers expired Job leases and deletes expired transactions, sessions, Job results and Job records in batches of 500.
 
 ## Health
 
 `GET /health/live` reports the process is up.
 `GET /health/ready` reports the database is reachable, the schema is current and, with events on, the event bus is connected; any failing check answers 503.
 The worker role serves the same two routes on its own port, `WORKER_HEALTH_PORT`, and reports ready when the database is reachable and maintenance has run within the last three intervals plus 30 seconds.
+
+## Telemetry maintenance
+
+API and worker processes publish heartbeats every 15 seconds, with a unique ID per process start.
+API collectors flush cumulative minute snapshots every 10 seconds, retrying identical sequence numbers idempotently.
+The worker prunes metric data after seven days and stale process history after 24 hours.
+No native request waits for a synchronous metric write.
+[Metrics](metrics.md) defines counters, histogram merging, freshness, bounded buffers and crash loss.
 
 ## Backup
 
@@ -93,6 +103,7 @@ An empty value counts as unset.
 | `SEALING_KEYS` | Required | [Sealing keys](#sealing-key). |
 | `BOOTSTRAP` | Required | Path to the bootstrap file (see [identity](identity.md#bootstrap)). |
 | `PUBLIC_ORIGIN` | From bootstrap | The service's own HTTPS origin; HTTP is allowed on loopback. When it is set in both places the two must match. |
+| `CONSOLE_ENABLED` | false | Serve the optional same-origin operator console. |
 | `REDIS_URL` | None | Redis for events, `redis://` or `rediss://`; events are off when unset. |
 | `PORT` | 3000 | API role listening port. |
 | `WORKER_HEALTH_PORT` | 3001 | Worker health routes port. |

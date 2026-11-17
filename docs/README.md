@@ -1,6 +1,7 @@
 # Documentation
 
-These documents describe the service as it is built.
+These documents specify the current service contract.
+The provider-intake and console changes are authorized for implementation; [verification](verification.md) distinguishes required gates from completed implementation and live evidence.
 [specification.json](../specification.json) lists them, and [specification.html](specification.html) is an offline view generated from them.
 
 | Document | Owns |
@@ -9,8 +10,11 @@ These documents describe the service as it is built.
 | [Architecture](architecture.md) | Topology, trust boundaries, components and dependency direction. |
 | [Shared contracts](contracts.md) | Types and rules shared across components. |
 | [Identity](identity.md) | Tableau sign-in, sessions, app sign-in, verify app location, operators and bootstrap. |
-| [Connections](connections.md) | Provider types, connection definitions, connections, credentials and setup. |
-| [Presets](presets.md) | What a preset can add and the presets installed. |
+| [Connections](connections.md) | Definition, application-secret and owner-credential boundaries, setup and generations. |
+| [Provider protocol data](provider-protocol.md) | Typed acquisition, client authentication, response mapping, import, hosts and inbound verification. |
+| [Provider catalog](presets.md) | Independent templates, provider recipes and code extension boundaries. |
+| [Operator console](console.md) | Optional two-tab UI, shared operator transport and failure states. |
+| [Metrics](metrics.md) | Minute counts, merged histograms, freshness, boundedness and loss semantics. |
 | [Routing](routing.md) | Native request forwarding, streaming and destination checks. |
 | [Jobs](jobs.md) | Durable work. |
 | [Events and SDK](events-sdk.md) | Live events and the browser SDK. |

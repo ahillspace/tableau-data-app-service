@@ -114,12 +114,12 @@ def dependency_graph(direction, components):
     A sentence naming components before "depend(s) on" and after it adds those edges; "every
     component" means every component listed above the subject, as the component order defines.
     """
-    names = components + ['Presets']
+    names = components + ['Catalog']
     lower = {n.lower(): n for n in names}
     found = lambda part: [lower[k] for k in sorted(lower, key=lambda k: part.lower().find(k))
                           if re.search(rf'\b{re.escape(k)}\b', part.lower())]
     graph = {n: [] for n in names}
-    # Presets are provider types written in code (docs/presets.md), so the direction sentences name them too.
+    # Catalog templates are data validated by Connections; the direction sentences name that boundary.
     for sentence in direction:
         match = re.search(r'\bdepends? (?:only )?on\b', sentence)
         if not match:
@@ -176,14 +176,15 @@ def flows(text):
     return result
 
 
-def presets(text):
+def catalog(text):
     intro = prose_lines(text.split('\n## ', 1)[0].split('\n', 1)[1])
-    hooks = [{'hook': plain(r['Hook']), 'does': plain(r['Does'])} for r in tables(section(text, 'What a preset can add'))[0]]
-    installed = [{'name': name, 'points': bullets(re.split(r'^#### ', body, flags=re.M)[0])}
-                 for name, body in subsections(section(text, 'Installed presets'), 3)]
-    if not hooks or not installed:
-        raise ShapeError('expected a hook table under "What a preset can add" and presets under "Installed presets"')
-    return {'intro': intro, 'hooks': hooks, 'installed': installed}
+    fields = [{'field': plain(r['Field']), 'does': plain(r['Does'])}
+              for r in tables(section(text, 'Template fields'))[0]]
+    templates = [{'name': name, 'points': bullets(body)}
+                 for name, body in subsections(section(text, 'Templates'), 3)]
+    if not fields or not templates:
+        raise ShapeError('expected a field table under "Template fields" and entries under "Templates"')
+    return {'intro': intro, 'fields': fields, 'templates': templates}
 
 
 def operations(text):
@@ -200,14 +201,18 @@ def verification(text):
               for r in tables(section(text, 'Automated tests'))[0]]
     if not checks:
         raise ShapeError('no checks under "Automated tests"')
+    gates = [{'id': plain(r['Gate']), 'evidence': plain(r['Required evidence']), 'state': plain(r['State'])}
+             for r in tables(section(text, 'Provider intake and console gates'))[0]]
+    if not gates:
+        raise ShapeError('no gates under "Provider intake and console gates"')
     unverified = section(text, 'Not verified live')
-    return {'intro': intro, 'checks': checks, 'unverifiedIntro': ' '.join(prose_lines(unverified.split('\n- ', 1)[0])),
+    return {'intro': intro, 'checks': checks, 'gates': gates, 'unverifiedIntro': ' '.join(prose_lines(unverified.split('\n- ', 1)[0])),
             'unverified': bullets(unverified),
             'limitations': bullets(section(text, 'Known limitations'))}
 
 
 PARSERS = {'docs/product.md': ('product', product), 'docs/architecture.md': ('architecture', architecture),
-           'docs/presets.md': ('presets', presets), 'docs/operations.md': ('operations', operations),
+           'docs/presets.md': ('catalog', catalog), 'docs/operations.md': ('operations', operations),
            'docs/api.md': ('api', api), 'docs/flows.md': ('flows', flows), 'docs/verification.md': ('verification', verification)}
 
 
@@ -278,13 +283,13 @@ def system_map(layout, model):
                         dependsOn=graph[name], calledBy=called_by[name])
             facts += [('Owns', c['owns']), ('Interface', c['interface']), ('Invariants', c['invariants']),
                       ('Failure and recovery', c['failure']), ('Extension path', c['extension'])]
-        elif node.get('presets'):
-            p = model['presets']
-            node.update(name=node.get('title', 'Presets'), category='presets', detail='docs/presets.md',
-                        dependsOn=graph['Presets'], calledBy=called_by['Presets'])
-            facts += [('What a preset is', ' '.join(p['intro'])),
-                      ('What a preset can add', '; '.join(f"{h['hook']}: {h['does']}" for h in p['hooks'])),
-                      ('Installed presets', ', '.join(i['name'] for i in p['installed']))]
+        elif node.get('catalog'):
+            p = model['catalog']
+            node.update(name=node.get('title', 'Catalog'), category='catalog', detail='docs/presets.md',
+                        dependsOn=graph['Catalog'], calledBy=called_by['Catalog'])
+            facts += [('What a template is', ' '.join(p['intro'])),
+                      ('Template fields', '; '.join(f"{h['field']}: {h['does']}" for h in p['fields'])),
+                      ('Catalog entries', ', '.join(i['name'] for i in p['templates']))]
         elif 'role' in node and 'title' not in node:
             name = node['role']
             if name not in roles:
@@ -369,7 +374,7 @@ def trace_flows(model):
             local = all(nodes[o].get('caller') for o in owners)
             path = []
             add = lambda a, b: (a != b and [a, b] not in path) and path.append([a, b])
-            acting = [o for o in owners if not nodes[o].get('caller') and nodes[o]['category'] in ('component', 'presets')]
+            acting = [o for o in owners if not nodes[o].get('caller') and nodes[o]['category'] in ('component', 'catalog')]
             first = acting[0] if acting else (owners[0] if owners else None)
             if local:
                 for c in callers:

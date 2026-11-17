@@ -7,10 +7,13 @@ Credentials come from [connections](connections.md).
 ## Request shape
 
 A Data App calls `/v1/native/{definitionId}/{path}`, or `/v1/native/{definitionId}` with no path, with any HTTP method, query, headers and body.
-The router joins `{path}` and the query to the definition's first API host, or to the host the app names with the `Tableau-Service-Host` request header when that host is one of the definition's `apiHosts`.
+The router joins path and query to the first exact API host, or to the concrete host selected with Tableau-Service-Host when it matches a configured exact or constrained-pattern base URL.
+If all hosts are patterns, a concrete selection is required; a wildcard literal is never an outbound destination.
 The path is forwarded byte for byte as the app sent it.
 The joined URL must stay on the chosen API host and under its base path; that is the only path rule.
-A `Tableau-Service-Host` that is not one of the API hosts, or a path that leaves the API host, fails with `invalid-request` and status 400.
+A selected host must preserve scheme, effective port and base-path segment boundaries.
+A wildcard occurs only inside the leftmost DNS label and cannot cross labels.
+A nonmatching host or escaping path fails before sending credentials; see [host patterns](provider-protocol.md#host-patterns).
 
 ## What the router changes
 
@@ -64,19 +67,20 @@ The router protects the credentials it holds and the network it runs in.
 | `bearer` | `Authorization: Bearer <token>`. |
 | `header` | A named header with an optional prefix. |
 | `query` | A named query parameter. |
+| `basic` | HTTP Basic from a structured username/password credential. |
 
 ## Capabilities
 
-A preset may register capabilities: named operations, written in code, that run inside an API request with the same checkout and transport as native requests.
+An explicit code extension may register capabilities: named operations, written in code, that run inside an API request with the same checkout and transport as native requests.
 They are called at `/v1/capabilities/{definitionId}/{name}`.
-They exist for preset convenience; every native endpoint stays reachable through the router.
-The [installed presets](presets.md#installed-presets) list the capabilities each registers.
+They support named business work; every native endpoint stays reachable through the router.
+The catalog does not execute capability or authentication code.
 
 ## Failure and recovery
 
 | Failure | Behavior |
 | --- | --- |
-| Checkout fails | The checkout's code and status from [connections](connections.md#checkout) are returned; nothing is sent upstream. |
+| Checkout fails | The checkout's code and status from [connections](connections.md#connections-and-checkout) are returned; nothing is sent upstream. |
 | Service bearer missing or invalid | `sign-in-required` with status 401; nothing is sent upstream. |
 | Destination refused | `destination-refused` with status 502, naming the host, not the address. |
 | TLS verification fails | `upstream-tls-failed` with status 502. |
@@ -84,5 +88,5 @@ The [installed presets](presets.md#installed-presets) list the capabilities each
 
 ## Extension
 
-A preset may set its API hosts, its credential placement, and capabilities.
+A definition declares its hosts and placement; an explicit code extension supplies capabilities.
 A new placement is a new entry in the placement table, implemented once in the router.

@@ -11,12 +11,24 @@ With events off, the service creates no Redis client and needs no Redis, and the
 
 ### Event sources
 
-An event source is [preset](presets.md) code that receives provider deliveries at `POST /v1/events/ingest/{definitionId}`, verifies them, and turns each into an event.
+A definition selects [typed verification, handshake and extraction data](provider-protocol.md#inbound-verification) for deliveries at POST /v1/events/ingest/{definitionId}.
+The shared Events owner interprets that data and never runs an operator-authored script.
 A source that needs one verifies deliveries with the definition's sealed signing secret, and a delivery that fails verification is refused before anything is published.
 The ingest route reads the body as raw bytes, because provider signatures cover the exact bytes.
 An event carries an ID, its definition ID, an event type, the provider account it concerns, the provider's payload, and a receive time.
 An event on a definition reaches every stream subscribed to that definition whose identity's site is in the definition's audience.
 The rule is the same for shared and personal definitions; the Data App decides what to do with each event.
+
+### Verification boundaries
+
+Slack uses timestamped raw-body HMAC; GitHub uses raw-body HMAC without an invented timestamp requirement.
+Stripe supports compound timestamp headers and multiple candidate signatures.
+Graph basic notifications compare each clientState in constant time and remove verification material before fan-out.
+The Graph validationToken handshake returns URL-decoded plain text and emits no business event.
+Rich encrypted Graph notifications and automatic subscription lifecycle are not implemented.
+A missing webhook signing secret refuses ingress but never blocks normal native checkout.
+Verification uses original request bytes, bounded selectors and constant-time comparisons.
+Handshake requests never enter fan-out or business-event duplicate suppression.
 
 ### Fan-out
 
@@ -62,7 +74,7 @@ await service.signIn();                       // first sign-in; call from a user
 const res = await service.fetch("crm", "/v2/contacts", { method: "POST", body });
 const defs = await service.definitions();     // ownership, setup options, connection status
 await service.connect("crm");                 // OAuth popup; user gesture
-await service.setCredential("my-api", key);   // static personal credential
+await service.setCredential("my-api", { kind: "token", value: key }); // owner-bound input
 await service.disconnect("crm");
 const job = await service.jobs.submit("handler", input, { definition: "my-api", key });
 const sub = service.events.subscribe(["chat"], onEvent, { onLoss, onEnd });
@@ -79,10 +91,10 @@ const sub = service.events.subscribe(["chat"], onEvent, { onLoss, onEnd });
 | `attribution()` | The site content URL, workbook and view the SDK declares. |
 | `signOut()` | Discards the bearer in this page; nothing ends on the server. |
 | `fetch(definitionId, path, init)` | A native request; `path` starts with `/`. |
-| `capability(definitionId, name, input)` | Calls a preset capability. |
+| `capability(definitionId, name, input)` | Calls a registered code capability. |
 | `definitions()`, `definition(id)` | Definitions the viewer's site may use, with ownership, setup options, connection status and account. |
 | `connect(definitionId)` | Runs the OAuth connect popup for a personal definition; call from a user gesture. |
-| `setCredential(definitionId, credential)` | Stores a personal static credential. |
+| `setCredential(definitionId, credential)` | Stores a typed personal static/JWT credential or catalog JSON import. |
 | `disconnect(definitionId)` | Disconnects the viewer's own connection. |
 | `jobs.submit(handler, input, { definition, key? })` | Admits a Job; a random UUID key is used when `key` is omitted. |
 | `jobs.get`, `jobs.list`, `jobs.result`, `jobs.cancel`, `jobs.wait` | Reads, lists, fetches the result of, cancels, or polls a Job until it finishes. |

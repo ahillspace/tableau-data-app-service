@@ -41,14 +41,14 @@
       "title": "Connections",
       "path": "docs/connections.md",
       "kind": "Component",
-      "description": "Definitions, connections and credentials."
+      "description": "Definitions, owner-bound credentials, write-only secrets, setup and generation authority."
     },
     {
       "id": "presets",
-      "title": "Presets",
+      "title": "Provider catalog",
       "path": "docs/presets.md",
       "kind": "Component",
-      "description": "Preset connections and capabilities, and the presets installed."
+      "description": "Data templates, native request recipes and explicit code extensions."
     },
     {
       "id": "routing",
@@ -105,6 +105,27 @@
       "path": "docs/running.md",
       "kind": "Operations guide",
       "description": "Install, configure, run and operate."
+    },
+    {
+      "id": "protocol",
+      "title": "Provider protocol data",
+      "path": "docs/provider-protocol.md",
+      "kind": "Component",
+      "description": "Finite credential, import, host and inbound verification schemas."
+    },
+    {
+      "id": "console",
+      "title": "Operator console",
+      "path": "docs/console.md",
+      "kind": "Component",
+      "description": "Optional two-tab console and shared operator authority."
+    },
+    {
+      "id": "metrics",
+      "title": "Operational metrics",
+      "path": "docs/metrics.md",
+      "kind": "Component",
+      "description": "Bounded minute aggregates, process observations and freshness."
     }
   ]
 }

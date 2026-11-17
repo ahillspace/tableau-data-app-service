@@ -41,13 +41,13 @@ See [app sign-in](identity.md#app-sign-in).
 
 1. Operator runs `tdas definitions create` with a definition file; the CLI calls `POST /v1/admin/definitions` (Connections).
 2. The service validates every field, stores the definition and bumps the revision (Connections).
-3. The operator runs `tdas definitions secret <id> clientSecret`; the CLI asks for a secret link and opens it, and the operator enters the client secret on the service page (Connections).
+3. The operator runs tdas definitions secret with piped input, a file or a hidden prompt; the shared API validates, seals and stores the value and returns metadata only (Connections).
 4. Every replica sees the new revision on its next checkout and loads the definition (Connections).
 
 ## Redefine a provider
 
 1. Operator changes an endpoint with `tdas definitions redefine <id> <file.json>`; the CLI calls `PUT /v1/admin/definitions/{id}` (Connections).
-2. One transaction increments the generation, disconnects old connections, deletes their credentials and bumps the revision (Connections).
+2. After expectedVersion matches, one transaction increments the generation, disconnects old connections, deletes their credentials and bumps the revision (Connections).
 3. Apps calling the definition get `not-connected` and offer reconnect; the definition ID is unchanged (Connections).
 
 ## Long-running work
@@ -61,7 +61,7 @@ See [app sign-in](identity.md#app-sign-in).
 ## Live events
 
 1. App opens `service.events.subscribe(["chat"], …)` (Events).
-2. The provider posts to `/v1/events/ingest/chat`; the preset's event source verifies the delivery and acknowledges (Events).
+2. The provider posts to `/v1/events/ingest/chat`; the configured shared verifier checks original bytes and strips verification material and acknowledges (Events).
 3. The receiving replica publishes to Redis; every replica delivers to matching streams (Events).
 
 ## Operator CLI sign-in
@@ -74,3 +74,17 @@ See [app sign-in](identity.md#app-sign-in).
 
 1. On the service host, `tdas-admin operators add --deployment <id> --site <content-url> --user <username>` writes an operator record and an audit entry (Identity).
 2. That person signs in and the record binds to their IDs (Identity).
+
+## Operator console
+
+1. The operator opens /console and starts the fixed console sign-in, reusing Tableau verification and explicit operator consent (Identity).
+2. Identity issues a protected operator cookie; the console reads GET /v1/admin/session for safe display and CSRF proof (Identity).
+3. The Providers tab reads the shared API and posts mutations with the current version and CSRF header (Connections).
+4. Status and analytics reads safe process observations and merged minute aggregates without becoming a native request dependency (Persistence).
+
+## Credential rotation across replicas
+
+1. An operator submits a write-only replacement with expectedVersion (Connections).
+2. One transaction replaces the sealed material, advances its authority generation and invalidates derived credentials (Connections).
+3. A concurrent old exchange fails its generation check instead of committing superseded material (Connections).
+4. The next checkout obtains current authority on whichever API replica receives it (Connections).

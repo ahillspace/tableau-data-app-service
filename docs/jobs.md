@@ -6,17 +6,17 @@ Shared types are in [contracts](contracts.md).
 
 ## Handlers
 
-A Job handler is code a provider type declares in its `jobHandlers`, under a name unique across the installation.
+A Job handler is code registered under a name unique across the installation.
 A handler declares how its input is validated, whether an attempt may be replayed (`retrySafe`), any retries for settled failures, and any limits lower than the installation's.
-No provider type in this codebase declares a handler, so an installation has no Job handlers until one is added.
-A Data App submits a Job by handler name and the definition it runs against, which must be of the handler's provider type; it cannot submit code.
+The catalog supplies no executable handlers; an installation has none until an explicit code extension registers one.
+A Data App submits a Job by handler name and the definition it runs against, which must satisfy the handler registration's explicit applicability contract; it cannot submit code.
 
 ## Admission
 
 `POST /v1/jobs` takes a handler name, the ID of the definition the Job runs against, input and a submission key chosen by the app.
 
 - The caller's app session must be able to check out that definition at admission time.
-- An unknown handler is refused with `handler-not-found`, and a definition of another provider type with `invalid-request`.
+- An unknown handler is refused with `handler-not-found`, and an inapplicable definition with `invalid-request`.
 - Input larger than the input cap, 100 MiB by default, is refused with `input-too-large`.
 - The submission key is printable ASCII of 1 to 200 characters, unique per owner identity and handler.
   A second submission with the same key returns the existing Job if the definition and input match, and `submission-key-conflict` if either differs.
@@ -104,4 +104,4 @@ Operators can list and cancel any Job.
 
 ## Extension
 
-A new handler is a `JobHandlerDefinition` added to a provider type's `jobHandlers`.
+A new handler is a JobHandlerDefinition added through the explicit code extension registry.

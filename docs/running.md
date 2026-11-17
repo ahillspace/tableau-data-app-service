@@ -62,7 +62,7 @@ tdas login --service https://service.example
 tdas whoami
 tdas sites list                                     # trusted site record IDs for audiences
 tdas definitions create crm.json
-tdas definitions secret crm clientSecret      # opens a one-time secret link
+tdas definitions secret crm clientSecret      # hidden prompt on a TTY
 tdas definitions connect crm                  # shared OAuth connect
 tdas definitions update crm --audience add example-site
 tdas definitions redefine crm crm.json  # ends existing connections
@@ -77,7 +77,7 @@ tdas apps
 | `login --service <origin>`, `logout`, `whoami` | Operator sign-in through the browser, sign-out, and the signed-in operator. |
 | `definitions list`, `definitions show <id>` | Read definitions. |
 | `definitions create <file.json>` | Create a definition. |
-| `definitions secret <id> <field>` | Open a one-time secret link for `clientSecret`, `signingSecret` or `credential`. |
+| `definitions secret <id> <field>` | Write clientSecret, signingSecret, signingPrivateKey or a shared credential using piped stdin, --from-file, hidden prompt or warned --value. |
 | `definitions connect <id>` | Shared OAuth connect in the browser. |
 | `definitions update <id> [<changes.json>] [--audience add\|remove <site>] [--enable] [--disable]` | Change in place. |
 | `definitions redefine <id> <file.json>`, `definitions retire <id>` | Redefine or retire; both end existing connections. |
@@ -95,6 +95,46 @@ Host-local commands, run where the service runs with the same settings:
 tdas-admin operators add --deployment cloud-west --site example-site --user operator@example.com
 tdas-admin reseal
 ```
+
+## Normal secret input
+
+```sh
+# Keep the input file outside the repository and use ordinary filesystem protection.
+tdas definitions secret crm clientSecret --from-file ./client-secret.txt
+tdas definitions secret models credential < ./service-account.json
+tdas definitions secret crm signingSecret --clear
+```
+
+Piped stdin is the default input source when stdin is not a TTY.
+With no explicit source on a TTY, the CLI prompts without echoing.
+The --value option warns on stderr that shell history and process listings can expose the argument.
+Conflicting sources fail before submission, including piped stdin plus an explicit source.
+File and stdin input preserve multiline keys and JSON; no secret is printed on success or failure.
+Blank input never clears a value; --clear explicitly clears it and cannot be combined with a value source.
+The CLI fetches the safe version before mutation and reports a concurrent edit instead of silently overwriting it.
+Create and update accept the same write-only API fields, but real secret-bearing files never belong in the repository.
+
+## Console
+
+Set CONSOLE_ENABLED=true to serve /console and the locally bundled assets on the API server.
+Open /console, sign in through Tableau and approve operator access using the same grant and consent owner as tdas.
+A Tableau administrator role alone grants no operator access.
+Providers supports catalog/scratch setup, properties, edits, write-only rotation, shared OAuth connect and retirement.
+Status & analytics reads the same protected status, metric and audit JSON available to other operator tools.
+Disabled events, unavailable dependencies, stale data and unknown observations are distinct.
+The console stores no bearer in browser storage.
+See [console](console.md) for cookie/CSRF requirements and [metrics](metrics.md) for count and latency meanings.
+
+## Provider setup
+
+Read the catalog with GET /v1/admin/catalog, copy a template's definition and supply its required public fields and audience site IDs.
+Submit it through tdas definitions create or POST /v1/admin/definitions.
+Set application secrets separately from shared connection credentials.
+For service-account JSON, the selected catalog mapping imports only supported credential fields and verifies token_uri against the configured token endpoint.
+Complete shared authorization_code setup with tdas definitions connect, or let each viewer connect a personal definition through the generic Data App interface.
+Client_credentials exchanges lazily after its application prerequisites are set; static/JWT credentials are sealed through normal secret entry.
+A missing optional webhook signingSecret affects ingress only, not native checkout.
+[Catalog recipes](presets.md#native-request-recipes) demonstrate concrete multi-host selection, shared/personal use and streamed responses.
 
 ## Test
 

@@ -2,7 +2,7 @@
 
 These types and rules are shared across components.
 The architecture owns them.
-They are shown as TypeScript, condensed from the source; the code is authoritative.
+The types specify the current shared contract; implementation verification is recorded separately in [verification](verification.md).
 
 ## Identity and principal
 
@@ -34,7 +34,8 @@ An identity is written as `deploymentId:siteId:userId` where a route or command 
 
 ## Service bearer
 
-Every authenticated service request carries `Tableau-Service-Authorization: Bearer <token>`.
+App and CLI requests carry `Tableau-Service-Authorization: Bearer <token>`.
+The optional same-origin console uses an operator cookie on the same admin API, with the checks in [console](console.md).
 The service never reads its bearer from `Authorization`, so the native `Authorization` header stays the app's and the provider's.
 Bearers are random 256-bit values; Postgres stores their SHA-256 hash.
 App bearers and operator bearers use the same header and are told apart by the `kind` of their session record.
@@ -42,41 +43,53 @@ App bearers and operator bearers use the same header and are told apart by the `
 ## Connection definition
 
 ```ts
-type Ownership = "shared" | "personal";
-
-type Placement =
-  | { kind: "bearer" }
+type Method = "authorization_code" | "client_credentials" | "jwt_bearer"
+  | "signed_jwt_direct" | "static" | "none";
+type Placement = { kind: "bearer" }
   | { kind: "header"; name: string; prefix?: string }
-  | { kind: "query"; name: string };
-
-type ConnectionDefinition = {
-  id: string;
-  displayName: string;
-  type: string;                     // "oauth2", "static", "none" or a preset name
-  ownership: Ownership;
-  apiHosts: string[];
-  authorizationEndpoint?: string;
-  tokenEndpoint?: string;
-  clientId?: string;
-  tokenAuthentication?: "basic" | "post";
-  scopes: string[];
-  presetOptions: Record<string, unknown>;
-  credentialPlacement: Placement;
-  audience: string[];               // trusted site record IDs
-  reauthorizationInterval?: number; // seconds
-  privateHosts: boolean;
-  enabled: boolean;
-  retired: boolean;
-  generation: number;
+  | { kind: "query"; name: string }
+  | { kind: "basic" };
+type SecretField = "clientSecret" | "signingSecret" | "signingPrivateKey";
+type SecretMeta = { set: boolean; setAt: string | null };
+type Definition = {
+  id: string; displayName: string; ownership: "shared" | "personal";
+  apiHosts: string[]; credentialPlacement: Placement;
+  authentication: Authentication;
+  audience: string[]; scopes: string[]; reauthorizationInterval?: number;
+  privateHosts: boolean; enabled: boolean;
+  accountLookup?: AccountLookup; revocation?: ProtocolRequest;
+  webhook?: Webhook;
+  credentialImport?: CredentialImport;
 };
-
-// What operators read: sealed values are never returned.
-type DefinitionView = ConnectionDefinition & {
-  clientSecretSet: boolean;
-  signingSecretSet: boolean;
-  secretsSetAt: Partial<Record<"clientSecret" | "signingSecret", string>>;
+type DefinitionView = Definition & {
+  retired: boolean; generation: number; version: number;
+  secrets: Record<SecretField, SecretMeta>;
+  credential: SecretMeta;
+  connectionCounts: { connected: number; needsAuthorization: number; disconnected: number };
+  setup: { state: "ready" | "needs-setup" | "disabled" | "retired";
+    missing: string[]; actions: ("connect" | "set-credential" | "set-secrets")[] };
+};
+type DefinitionWrite = Definition & {
+  secrets?: Partial<Record<SecretField, string | null>>;
+  credential?: CredentialInput | null;
 };
 ```
+
+Dates are ISO 8601 UTC strings and numeric generations/versions are positive integers.
+`version` changes on each definition or secret mutation; `generation` changes only when the credential destination or interpretation changes.
+`credential` metadata refers only to a shared connection; personal credentials are never exposed in an operator definition view.
+For a personal or credentialless definition its safe credential metadata is `{set:false,setAt:null}`.
+Connection records expose their own `credentialGeneration` and credential metadata without returning sealed or open values.
+Missing setup prerequisites are a usable configuration state, shown as “Needs setup”; checkout fails closed with a stable error.
+Name, audience, scopes, enabled state, reauthorization interval and secret values change in place.
+All other definition changes require PUT redefinition, including hosts, ownership, acquisition/client authentication, placement, import mappings, lookup, revocation and webhook protocol configuration.
+Redefinition atomically increments generation, disconnects existing connections, deletes their credentials and invalidates in-progress setup.
+Secret rotation never redefines a provider or changes its ID.
+Retirement is irreversible for that ID and ends all connection authority.
+
+Safe setup metadata is described in [connections](connections.md#setup-readiness).
+Authentication, lookup, revoke, import and webhook types are specified in [provider protocol data](provider-protocol.md).
+Shared browser-safe data types are exported from `src/contracts/operator.ts`; consumers use type-only imports.
 
 ## Credential lease
 
@@ -84,8 +97,8 @@ type DefinitionView = ConnectionDefinition & {
 type OutgoingRequest = { target: string; headers: [string, string][] };
 
 type CredentialLease = {
-  definition: ConnectionDefinition;
-  connectionId: string | null;      // null for type "none"
+  definition: DefinitionView;
+  connectionId: string | null;      // null for method "none"
   apply(request: OutgoingRequest): void;
 };
 ```
@@ -125,7 +138,8 @@ type SealedJson = { keyId: string; nonce: string; ciphertext: string; tag: strin
 ```
 
 Sealing uses AES-256-GCM with a 12-byte nonce, a 16-byte tag and additional data of `[1, purpose, recordId, keyId]`.
-Purposes are `client-secret`, `signing-secret` and `credential`.
+Purposes distinguish client secrets, webhook verification secrets, application signing keys and connection credentials.
+A connection credential is bound to its connection record, while application secrets are bound to their definition and field.
 
 ## Job
 
@@ -166,37 +180,13 @@ type ServiceEvent = {
 };
 ```
 
-## Provider type
+## Credential protocol owner
 
-A provider type is code; the built-in types and each preset implement this interface.
-
-```ts
-interface ProviderType {
-  name: string;
-  oauth: "required" | "optional" | "none";  // optional: no client ID means static credentials only
-  staticCredential: boolean;
-  credentialless: boolean;
-  defaults?(input: Record<string, unknown>): Record<string, unknown>;
-  validate?(definition: ConnectionDefinition): FieldError[];
-  authorizationParameters?(definition: ConnectionDefinition): Record<string, string>;
-  readTokenResponse?(response: { status: number; body: unknown },
-    context: { definition: ConnectionDefinition; refresh: boolean; now: Date }): TokenReading;
-  describeAccount?(lease: CredentialLease, context: PresetContext): Promise<{ id: string; name: string | null } | null>;
-  revoke?(lease: CredentialLease, context: PresetContext): Promise<void>;
-  capabilities?: Capability[];
-  jobHandlers?: JobHandlerDefinition[];
-  eventSource?: EventSource;
-}
-
-type TokenReading =
-  | { kind: "ok"; credential: StoredCredential; account: Account | null; scopes: string[] }
-  | { kind: "error"; error: string; definitive: boolean; rejectsGrant: boolean };
-
-type PresetContext = { fetch: typeof fetch; signal: AbortSignal };
-```
-
-`definitive` means the provider clearly refused, so nothing changed on its side.
-`rejectsGrant` means the grant itself is gone and the user must authorize again.
+The connections owner interprets [typed protocol data](provider-protocol.md) through one acquisition/client-authentication/placement pipeline.
+A catalog template contains data, with no executable authentication, lookup, revocation or verification hook.
+Capability and Job implementations remain explicit code extension points with shared checkout and outbound transport.
+A token response distinguishes usable credentials, definitive refusal, rejected grant and uncertain exchange.
+Only rejected grants require a new authorization; uncertain outcomes never become claimed provider refusal.
 
 ## Job handler
 
@@ -230,15 +220,9 @@ type JobStepResult =
   | { kind: "cancelled"; remoteEffectsUnknown: boolean };
 ```
 
-## Event source
+## Event verification
 
-```ts
-type EventSource = {
-  signingSecret: "required" | "optional";
-  ingest(delivery: { headers: Record<string, string | string[] | undefined>; body: Buffer; now: Date },
-    context: { definition: ConnectionDefinition; signingSecret: string | undefined }): {
-    response: { status: number; contentType?: string; body?: string };  // what the provider receives
-    events: { id: string; type: string; account: string; payload: unknown }[];
-  };
-};
-```
+The configured Webhook union is in [provider protocol data](provider-protocol.md#webhook-schema).
+The Events owner receives original bytes and returns a protocol response plus zero or more verified, sanitized events.
+A handshake returns zero events.
+Verification secrets and raw verification-only fields are never present in a ServiceEvent or diagnostic.

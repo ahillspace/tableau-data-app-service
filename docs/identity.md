@@ -110,7 +110,8 @@ When the browser already has a sign-in session, for example from a Data App unde
 
 Restore and redeem are the only routes that read or set a cookie from a Data App frame.
 They answer CORS by echoing the request's `Origin`, including `null`, with `Access-Control-Allow-Credentials: true`.
-Every other API route is called without credentials.
+Every other Data App API route is called without credentials.
+The separate operator console cookie is accepted only by same-origin admin routes.
 
 ### What restore trusts
 
@@ -142,8 +143,9 @@ No Tableau role makes anyone an operator.
 Operators add and remove other operators through the operator API.
 The last operator cannot be removed through the API.
 
-Operators sign in with Tableau through two paths:
+Operators sign in with Tableau through the same identity and consent owner:
 
+- **Console** uses a fixed console destination and a protected operator cookie, as specified in [console](console.md).
 - **Browser tools** open the service's operator sign-in page in a popup with `?mode=popup` and receive an operator bearer the same way the SDK redeems a completion code.
 - **The command-line tool** uses a loopback sign-in, as many developer command-line tools do.
   It listens on a random port on `127.0.0.1`, creates a PKCE verifier, and opens the browser at the service's operator sign-in page with the loopback address and the PKCE challenge.
@@ -153,7 +155,7 @@ Operators sign in with Tableau through two paths:
 
 Operator bearers come only from the operator sign-in page, which runs in a top-level service window and asks the operator to approve operator access.
 App sessions, including restored ones, never carry operator authority, so a Data App that restores an operator's session cannot use the operator API.
-The operator API checks the bearer's identity against the operators table on every call.
+The operator API checks the resolved bearer or cookie identity against the operators table on every call.
 Operator bearers expire with the operator's sign-in limit.
 
 ### Recovery

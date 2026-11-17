@@ -2,9 +2,10 @@
 
 All routes are under the service's public origin.
 JSON routes accept and return `application/json`, and errors use the [error shape](contracts.md#errors).
-Authenticated routes take `Tableau-Service-Authorization: Bearer <token>`.
-API routes answer CORS for any origin, echo the requested method and headers on preflight with a ten-minute max age, allow private network access, and expose every response header.
-Routes marked credentialed echo the request's `Origin`, including `null`, and allow credentials; every other API route is called without credentials.
+Authenticated app and CLI routes take `Tableau-Service-Authorization: Bearer <token>`.
+App bearer routes answer CORS for any origin, echo the requested method and headers on preflight with a ten-minute max age, allow private network access, and expose every response header.
+Cookie-authenticated admin routes are same-origin only and do not enable credentialed cross-origin admin CORS.
+App routes marked credentialed echo the request's `Origin`, including `null`, and allow credentials; every other app API route is called without credentials.
 Responses other than native streams carry `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 Pages are top-level service windows that read the sign-in cookie; they are served with no-store, no-referrer and a restrictive content security policy.
 
@@ -44,7 +45,7 @@ Pages are top-level service windows that read the sign-in cookie; they are serve
 | `POST /v1/definitions/{id}/connect` | Bearer | Connections | Start OAuth connect for a personal definition; returns a connect transaction ID. A shared definition answers `shared-definition` with status 409. |
 | `GET /connect/{transactionId}` | Cookie | Connections | Connect page; requires the transaction's identity and redirects to the provider. |
 | `GET /v1/oauth/callback` | Cookie and `state` | Connections | The one provider OAuth callback; requires a sign-in session for the connecting identity. Not a CORS route. |
-| `PUT /v1/definitions/{id}/credential` | Bearer | Connections | Store a personal static credential. |
+| `PUT /v1/definitions/{id}/credential` | Bearer | Connections | Store a typed personal static/JWT credential or mapped JSON import. |
 | `DELETE /v1/definitions/{id}/connection` | Bearer | Connections | Disconnect the caller's personal connection. |
 
 ## Native routing and capabilities
@@ -52,7 +53,7 @@ Pages are top-level service windows that read the sign-in cookie; they are serve
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
 | `ANY /v1/native/{definitionId}` and `ANY /v1/native/{definitionId}/{path}` | Bearer | Router | Forward a native request. |
-| `POST /v1/capabilities/{definitionId}/{name}` | Bearer | Router | Call a preset capability. |
+| `POST /v1/capabilities/{definitionId}/{name}` | Bearer | Router | Call a registered code capability. |
 
 ## Jobs
 
@@ -76,7 +77,8 @@ With events off, both answer `events-off` with status 404.
 
 ## Operator API
 
-Every operator route needs an operator bearer; app and restored bearers are refused.
+Every operator route needs a current operator session, carried as a CLI bearer or the protected same-origin console cookie; app and restored bearers are refused.
+Cookie mutations additionally require exact Origin and X-TDAS-CSRF as described in [console](console.md).
 These are the routes the CLI calls, and any other operator tool can call them the same way.
 
 | Method and path | Purpose |
@@ -87,7 +89,7 @@ These are the routes the CLI calls, and any other operator tool can call them th
 | `PATCH /v1/admin/definitions/{id}` | Change in place; refuses fields that need a redefinition. |
 | `PUT /v1/admin/definitions/{id}` | Redefine; returns the new generation and the number of connections ended. |
 | `POST /v1/admin/definitions/{id}/retire` | Retire. |
-| `POST /v1/admin/definitions/{id}/secret-links` | Create a one-time secret link for `clientSecret`, `signingSecret` or `credential`. |
+| `PUT /v1/admin/definitions/{id}/secrets` | Atomically set/clear application secrets or a shared connection credential using expectedVersion; omission preserves a value. |
 | `POST /v1/admin/definitions/{id}/connect` | Start OAuth connect for a shared definition. A personal definition answers `personal-definition` with status 409. |
 | `GET /v1/admin/connections` | List connections, filtered by `definition` and `status`. |
 | `DELETE /v1/admin/connections/{connectionId}` | Disconnect any connection. |
@@ -96,13 +98,29 @@ These are the routes the CLI calls, and any other operator tool can call them th
 | `GET /v1/admin/apps` | App registry. |
 | `POST /v1/admin/identities/{deploymentId:siteId:userId}/revoke-sessions` | End every session for an identity. |
 | `GET /v1/admin/jobs` and `POST /v1/admin/jobs/{id}/cancel` | Every Job. |
-| `GET /v1/admin/audit` | Audit log, paged with `limit` and `before`. |
+| `GET /v1/admin/audit` | Audit log, paged with limit and before, filtered by action and definition. |
+| `GET /v1/admin/catalog` | Repository data templates for independent definitions. |
+| `GET /v1/admin/session` | Safe operator display, expiry and session-bound CSRF token. |
+| `POST /v1/admin/session/logout` | Revoke the operator session and expire its cookie. |
+| `GET /v1/admin/status` | Safe process/dependency/state observations. |
+| `GET /v1/admin/metrics` | Bounded minute aggregates filtered by from, to and definition. |
 
-## Secret entry page
+## Console
 
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
-| `GET /secret/{token}` and `POST /secret/{token}` | Cookie of an operator | Connections | One-time secret entry form; seals the value and spends the link. |
+| `GET /console` | Operator session or sign-in landing | HTTP surface | Optional same-server operator console. |
+| `GET /console/assets/index.js` and `GET /console/assets/index.css` | None | HTTP surface | Fixed locally bundled assets, only when the console is enabled. |
+| `GET /operator-sign-in?mode=console` | Sign-in cookie and operator grant | Identity | Existing Tableau/consent flow with a fixed console return. |
+
+## Operator write and response rules
+
+Create/PATCH/PUT accept write-only secrets and shared credential fields through the connections owner.
+PATCH, PUT, retire and dedicated secret writes require expectedVersion; a stale safe version returns 409 definition-conflict.
+Secret-management routes reject query input and never echo submitted fields.
+Definitions use the definitions/definition wrappers and safe metadata in [contracts](contracts.md).
+Redefinition additionally returns generation and connectionsEnded; retirement returns connectionsEnded.
+Catalog returns templates, audit returns entries, and status/metrics use the exact [observation contracts](metrics.md).
 
 ## Health
 

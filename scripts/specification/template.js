@@ -16,11 +16,11 @@ for (const n of SYSTEM.nodes) for (const name of [n.name, ...(n.aliases || [])])
 const SOURCES = new Map(MODEL.sources.map((s) => [s.id, s]));
 const SOURCE_BY_PATH = new Map(MODEL.sources.map((s) => [s.path, s]));
 const ROUTES = MODEL.api.routes;
-const CATEGORY = { component: "Component", presets: "Provider code", role: "Role", external: "Outside the service", optional: "Optional store" };
+const CATEGORY = { component: "Component", catalog: "Catalog data", role: "Role", external: "Outside the service", optional: "Optional store" };
 const MODULE_ORDER = (() => {
   const names = MODEL.architecture.components.map((c) => c.name);
   const at = names.indexOf("Connections");
-  if (BY_NAME.has("Presets")) names.splice(at + 1, 0, "Presets");
+  if (BY_NAME.has("Catalog")) names.splice(at + 1, 0, "Catalog");
   return names.map((name) => BY_NAME.get(name)).filter(Boolean);
 })();
 
@@ -206,7 +206,7 @@ function diagramSvg(uid, { selected = null, active = null, path = [] } = {}) {
       const tall = n.h >= 66;
       const [ky, ny, sy] = tall ? [20, 42, 60] : [17, 34, 48];
       const classes = ["component", n.category, on ? "selected" : "", dim ? "dimmed" : ""].filter(Boolean).join(" ");
-      const dot = n.category === "component" || n.category === "presets" || n.category === "role" ? "accent" : "dim";
+      const dot = n.category === "component" || n.category === "catalog" || n.category === "role" ? "accent" : "dim";
       return `<g class="${classes}" data-component="${esc(n.id)}" role="button" tabindex="0" aria-label="Inspect ${esc(n.name)}"><rect class="component-box" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4"/><text x="${n.x + 13}" y="${n.y + ky}" font-size="8" fill="var(--dim)" letter-spacing="1">${esc(n.kind)}</text><text x="${n.x + 13}" y="${n.y + ny}" font-size="12" fill="var(--fg)" font-weight="600">${esc(n.name)}</text><text x="${n.x + 13}" y="${n.y + sy}" font-size="9" fill="var(--muted)">${esc(n.subtitle)}</text><circle cx="${n.x + n.w - 13}" cy="${n.y + 15}" r="3" fill="var(--${dot})"/></g>`;
     })
     .join("");
@@ -357,7 +357,8 @@ function selectApi(i) {
 function renderVerification() {
   const v = MODEL.verification;
   $("#verification-summary").innerHTML = [
-    ["Automated tests", v.checks.length, "Checks that run with npm test."],
+    ["Baseline checks", v.checks.length, "Behavior the integrated implementation must preserve."],
+    ["Integration gates", v.gates.length, "Required evidence; see each gate state below."],
     ["Not verified live", v.unverified.length, "Behavior not yet run against a deployed installation."],
     ["Known limitations", v.limitations.length, "What the service does not do today."],
   ]
@@ -365,6 +366,7 @@ function renderVerification() {
     .join("");
   $("#check-count").textContent = `${v.checks.length} checks`;
   $("#verification-intro").textContent = v.intro.join(" ");
+  $("#gate-rows").innerHTML = v.gates.map((g) => `<tr><td>${esc(g.id)}</td><td>${esc(g.evidence)}</td><td>${esc(g.state)}</td></tr>`).join("");
   $("#unverified-count").textContent = String(v.unverified.length);
   $("#unverified-intro").textContent = v.unverifiedIntro;
   $("#unverified").innerHTML = v.unverified.map((item) => `<li>${esc(item)}</li>`).join("");
@@ -416,8 +418,8 @@ function renderOverview() {
   $("#exclusions").innerHTML = p.exclusions.map((x) => `<li>${esc(x)}</li>`).join("");
   const components = SYSTEM.nodes.filter((n) => n.category === "component").length;
   const steps = MODEL.flows.reduce((sum, f) => sum + f.steps.length, 0);
-  $("#overview-callout").textContent = `${MODEL.sources.length} documents, ${components} components, ${ROUTES.length} routes, ${MODEL.flows.length} flows in ${steps} steps and ${MODEL.verification.checks.length} automated checks, all read from the current documents when this file was built.`;
-  $("#heading-meta").innerHTML = `<div class="eyebrow">Current documents</div><p style="margin-top:14px">${MODEL.sources.length} documents · ${components} components<br>${ROUTES.length} routes · ${MODEL.verification.checks.length} automated checks</p>`;
+  $("#overview-callout").textContent = `${MODEL.sources.length} documents, ${components} components, ${ROUTES.length} routes, ${MODEL.flows.length} flows in ${steps} steps and ${MODEL.verification.checks.length} baseline checks and ${MODEL.verification.gates.length} integration gates, all read from the current documents when this file was built.`;
+  $("#heading-meta").innerHTML = `<div class="eyebrow">Current documents</div><p style="margin-top:14px">${MODEL.sources.length} documents · ${components} components<br>${ROUTES.length} routes · ${MODEL.verification.checks.length} baseline checks and ${MODEL.verification.gates.length} integration gates</p>`;
   $("#rail-note").innerHTML = `<div class="eyebrow">Generated view</div><p style="margin-top:12px">Inspect a component.<br>Trace a request.<br>Read the documents.</p>`;
 }
 function renderPrintReview() {
@@ -434,7 +436,7 @@ function renderPrintReview() {
     page("4. API", `<p class="print-note">${esc(MODEL.api.preamble)}</p>${table(["Route", "Auth", "Owner"], ROUTES.map((r) => [r.route, r.auth, r.owner || "HTTP surface"]))}`) +
     page(
       "5. Verification",
-      `<p class="print-note">${esc(v.intro.join(" "))}</p>${table(["Check", "Shows", "Tests"], v.checks.map((c) => [c.id, c.shows, c.tests]))}<div class="print-columns"><div><h3>Not verified live</h3>${v.unverified.map((x) => `<article class="print-card">${esc(x)}</article>`).join("")}</div><div><h3>Known limitations</h3>${v.limitations.map((x) => `<article class="print-card">${esc(x)}</article>`).join("")}</div></div><p class="print-note">The interactive file embeds all ${MODEL.sources.length} documents in full with their content hashes; this summary omits their bodies.</p>`,
+      `<p class="print-note">${esc(v.intro.join(" "))}</p>${table(["Check", "Shows", "Tests"], v.checks.map((c) => [c.id, c.shows, c.tests]))}<h3>Integration gates</h3>${table(["Gate", "Required evidence", "State"], v.gates.map((g) => [g.id, g.evidence, g.state]))}<div class="print-columns"><div><h3>Not verified live</h3>${v.unverified.map((x) => `<article class="print-card">${esc(x)}</article>`).join("")}</div><div><h3>Known limitations</h3>${v.limitations.map((x) => `<article class="print-card">${esc(x)}</article>`).join("")}</div></div><p class="print-note">The interactive file embeds all ${MODEL.sources.length} documents in full with their content hashes; this summary omits their bodies.</p>`,
     );
 }
 

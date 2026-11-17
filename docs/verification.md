@@ -1,10 +1,13 @@
 # Verification
 
-This document lists what the automated tests show, what has not been checked against live services, and the service's known limitations.
+This document separates the current verification contract from evidence produced by an integrated implementation.
+The provider-intake and console specification is authorized; specification convergence and prototype inspection do not establish implementation correctness or live acceptance.
 
 ## Automated tests
 
-`npm test` runs these checks against a real Postgres, and a real Redis where events are involved.
+The following checks describe the established baseline suite and the behavior integration must preserve.
+They are not a claim that the complete revised implementation has passed in this documentation change.
+Run npm test against real Postgres and real Redis where events are involved.
 Tableau and providers are stood in for by local servers.
 Test names carry the check's ID.
 V17 measures bytes in flight on each leg rather than process memory, which tells a streaming router from a buffering one regardless of when garbage is collected.
@@ -36,9 +39,30 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 | V22 | Waiting Jobs release their slot and resume on a verified callback. | `test/jobs.test.ts`, `test/http.test.ts` |
 | V23 | Job caps and retention windows are enforced; a success committed at or after the runtime deadline is not published, and a cancel recorded before an attempt's commit wins over its outcome, including an attempt that worker shutdown interrupts or lease recovery settles, and a success whose result cannot be stored. | `test/jobs.test.ts` |
 | V24 | With events off, no Redis client is created; with Redis down, everything except events works. | `test/events.test.ts` |
-| V25 | Event source signatures and ages are verified; stale or forged deliveries are refused. | `test/slack.test.ts`, `test/events.test.ts` |
+| V25 | Configured event signatures are verified on original bytes; age checks apply only when the configured protocol supplies timestamps. | `test/slack.test.ts`, `test/events.test.ts` |
 | V26 | No log line or error contains a secret value. | `test/platform.test.ts`, `test/roles.test.ts`, `test/http.test.ts` |
 | V27 | The SDK minifies to under 15 KiB. | `test/sdk.test.ts` |
+
+## Provider intake and console gates
+
+These are required behavioral gates, pending evidence from the final integrated implementation.
+Use production API/CLI/browser/worker composition with synthetic Tableau/provider servers and real Postgres/Redis fixtures.
+Establish a distinguishing failing behavior before substantive deterministic changes where practical.
+
+| Gate | Required evidence | State |
+| --- | --- | --- |
+| V28 | Actual API and CLI create/update/set/clear, piped/file/TTY/value conflicts, multiline keys, safe errors and no submitted values in output. | Pending integration. |
+| V29 | Every acquisition method, client authentication and placement, nested and refresh mappings, HTTP 200 failures and data-only JSON import with endpoint mismatch. | Pending integration. |
+| V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. | Pending integration. |
+| V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. | Pending integration. |
+| V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. | Pending integration. |
+| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. | Pending integration. |
+| V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. | Pending integration. |
+| V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. | Pending integration. |
+
+A single final independent substantive review evaluates the integrated frozen revision after implementation checks pass.
+Review findings are reported separately from implementation verification and user acceptance.
+No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.
 
 ## Not verified live
 
@@ -48,17 +72,17 @@ These have not yet been run against a deployed installation with a published Tab
 - The same journeys from Tableau Desktop.
 - The restore cookie in a Cloud Data App frame, partitioned by the Tableau host, across two sites on one pod and a site on another pod.
 - Shared and personal calls to the same provider from one Data App.
-- Each installed preset against its provider, including its event source.
+- Each catalog definition against its provider, including the particular configured webhook primitives.
 - Adding, redefining and retiring a definition with no redeploy.
 - CLI sign-in and operator recovery.
 - A Job that outlives the page.
 - Provider events reaching a Data App.
 - Verified TLS to a hosted Postgres.
-- The test suite on Linux; it has been run on macOS.
+- Both supported development operating systems on the final integrated revision; prior runs do not prove a changed revision.
 
 ## Known limitations
 
 - The service does not verify which Tableau site the calling app runs on.
 - Whether Tableau's central sign-in can reuse an existing Tableau Cloud session is unknown.
 - Tableau Server is not supported.
-- No provider type installs a Job handler, so Jobs have nothing to run until one does.
+- The data catalog installs no Job handler; Jobs require an explicit code extension.

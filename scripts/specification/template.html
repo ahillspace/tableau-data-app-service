@@ -52,7 +52,7 @@
           <div class="callout">
             <h3>One view of the current documents.</h3>
             <p id="overview-callout"></p>
-            <div class="linkrow"><a href="#system">Explore the system map →</a><a href="#flows">Trace a request →</a><a href="#verification">See what is verified →</a><a href="#documents">Read the documents →</a></div>
+            <div class="linkrow"><a href="#system">Explore the system map →</a><a href="#flows">Trace a request →</a><a href="#verification">Inspect verification gates →</a><a href="#documents">Read the documents →</a></div>
           </div>
           <h3 class="section-title eyebrow">Who uses it</h3>
           <div class="strip audience" id="audience" style="margin-top:0"></div>
@@ -133,12 +133,15 @@
         </section>
 
         <section id="view-verification" class="view" hidden aria-labelledby="verification-title">
-          <div class="view-head"><div><h2 id="verification-title">What the tests show, and what is not yet verified.</h2><p class="muted">Automated checks, items not yet run against live services, and known limitations.</p></div></div>
+          <div class="view-head"><div><h2 id="verification-title">Verification requirements and evidence.</h2><p class="muted">Baseline checks, current integration gates, live acceptance and known limitations.</p></div></div>
           <div class="strip verification-strip" id="verification-summary" style="margin:0 0 16px"></div>
           <div class="surface">
-            <div class="surface-head"><h3>Automated tests</h3><span class="eyebrow" id="check-count"></span></div>
+            <div class="surface-head"><h3>Baseline behavioral checks</h3><span class="eyebrow" id="check-count"></span></div>
             <div class="surface-body" style="padding-bottom:0"><p class="prose muted" id="verification-intro"></p><div class="toolbar" style="margin-top:14px"><input id="check-search" type="search" aria-label="Filter checks" placeholder="Filter checks by ID, behavior or test file…" /></div></div>
             <div class="table-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0"><table class="verification-table"><thead><tr><th>Check</th><th>Shows</th><th>Tests</th></tr></thead><tbody id="check-rows"></tbody></table></div>
+          </div>
+          <div class="surface" style="margin-top:16px"><div class="surface-head"><h3>Provider intake and console gates</h3></div>
+            <div class="table-wrap"><table class="verification-table"><thead><tr><th>Gate</th><th>Required evidence</th><th>State</th></tr></thead><tbody id="gate-rows"></tbody></table></div>
           </div>
           <div class="verification-columns">
             <div class="surface"><div class="surface-head"><h3>Not verified live</h3><span class="eyebrow" id="unverified-count"></span></div><div class="surface-body"><p class="muted" id="unverified-intro" style="font-size:12px;margin-bottom:12px"></p><ul id="unverified"></ul></div></div>
