@@ -11,10 +11,10 @@
     "tdas-admin": "dist/admin/bin.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/build-sdk.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-sdk.ts && node scripts/build-console.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src test scripts/build-sdk.ts examples/slack",
-    "format": "biome check --write src test scripts/build-sdk.ts examples/slack",
+    "lint": "biome check src test scripts/build-sdk.ts scripts/build-console.ts examples/slack",
+    "format": "biome check --write src test scripts/build-sdk.ts scripts/build-console.ts examples/slack",
     "test": "node --test --test-global-setup=test/support/global.ts --test-concurrency=1 'test/**/*.test.ts'",
     "example": "node examples/slack/dev.ts"
   },

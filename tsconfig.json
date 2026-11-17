@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -13,10 +17,18 @@
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "outDir": "dist",
     "sourceMap": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/build-sdk.ts", "examples/slack/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/build-sdk.ts",
+    "examples/slack/**/*.ts",
+    "scripts/build-console.ts"
+  ]
 }

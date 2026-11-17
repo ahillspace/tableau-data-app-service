@@ -1,6 +1,14 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "rootDir": "src", "noEmit": false },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/sdk/**"]
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": false
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/sdk/**",
+    "src/console/**"
+  ]
 }
