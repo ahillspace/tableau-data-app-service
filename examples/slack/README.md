@@ -9,7 +9,7 @@ The app code is the same for both; only the definition ID changes whose credenti
 
 - Restoring an existing session on load with no prompt, and signing in with Tableau from a click when there is none.
 - Listing both definitions with their ownership and this user's connection status.
-- Connecting, reconnecting and disconnecting the personal definition through the service's OAuth popup, or storing a Slack token the user pastes.
+- Connecting, reconnecting and disconnecting the personal definition through the service's OAuth popup, with a static definition offering write-only token entry instead when configured that way.
 - Sending any native Slack request, such as `GET /auth.test` or `POST /chat.postMessage`, and showing Slack's own response with its status and headers.
 - Listening for live Slack events for both definitions, and noting when events may have been missed.
 
@@ -18,7 +18,9 @@ The app code is the same for both; only the definition ID changes whose credenti
 One Slack app can back both definitions, because one Slack install returns a bot token and a user token.
 In the Slack app, add `{service origin}/v1/oauth/callback` as a redirect URL, and request the bot and user scopes the two definition files list.
 As an operator, fill in the Slack client ID in [definitions/slack-bot.json](definitions/slack-bot.json) and [definitions/slack-user.json](definitions/slack-user.json), and replace the audience placeholder with trusted site record IDs from `tdas sites list`, then create them with the `tdas` CLI.
-Type the Slack client secret on the one-time secret page each `secret` command opens.
+The `secret` command reads piped stdin, `--from-file PATH`, or a hidden terminal prompt.
+File and stdin input preserve trailing newlines, so a single-line token must be supplied without an added newline.
+The API seals every value and returns only set/setAt metadata.
 
 ```sh
 tdas definitions create examples/slack/definitions/slack-bot.json

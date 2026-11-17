@@ -40,7 +40,7 @@ const b64 = (value: Buffer | string) => Buffer.from(value).toString("base64url")
 export class TableauStandIn {
   server!: StandIn;
   /** The service's client ID in tests: its metadata document URL under the test public origin. */
-  readonly clientId = `${SERVICE_ORIGIN}/tableau/client.json`;
+  readonly clientId: string;
   faults: Faults = {};
   readonly #codes = new Map<string, Pending>();
   readonly #tokens = new Map<string, { user: TableauUser; sub: string }>();
@@ -49,7 +49,8 @@ export class TableauStandIn {
   readonly #jwk: Record<string, unknown>;
   tokenCalls = 0;
 
-  constructor() {
+  constructor(serviceOrigin = SERVICE_ORIGIN) {
+    this.clientId = `${serviceOrigin}/tableau/client.json`;
     const pair = generateKeyPairSync("ec", { namedCurve: "P-256" });
     this.#key = pair.privateKey;
     this.#other = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey;

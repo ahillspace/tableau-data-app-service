@@ -26,9 +26,7 @@ async function hidden(input: SecretStream, output: Writable): Promise<string> {
     );
   const wasRaw = input.isRaw ?? false;
   emitKeypressEvents(input);
-  output.write("Secret (hidden): ");
   input.setRawMode(true);
-  input.resume();
   return new Promise((resolve, reject) => {
     let value = "";
     const cleanup = () => {
@@ -69,6 +67,8 @@ async function hidden(input: SecretStream, output: Writable): Promise<string> {
     input.on("keypress", keypress);
     input.once("end", ended);
     input.once("error", failed);
+    input.resume();
+    output.write("Secret (hidden): ");
   });
 }
 /** File and pipe bytes retain every newline; blank input is rejected, never interpreted as clearing. */

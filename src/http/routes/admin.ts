@@ -97,13 +97,11 @@ export function adminRoutes(app: FastifyInstance, services: Services): void {
   });
   app.post("/v1/admin/definitions", async (request, reply) => {
     const principal = await op(request);
-    return reply
-      .status(201)
-      .send({
-        definition: await connections.afterDefinitionMutation(
-          await definitions.create(actorOf(principal), request.body),
-        ),
-      });
+    return reply.status(201).send({
+      definition: await connections.afterDefinitionMutation(
+        await definitions.create(actorOf(principal), request.body),
+      ),
+    });
   });
   app.patch("/v1/admin/definitions/:id", async (request) => {
     const principal = await op(request);

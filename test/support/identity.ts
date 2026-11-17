@@ -44,6 +44,7 @@ export async function identityHarness(
     site?: string;
     operator?: { site: string; username: string };
     signInLimitSeconds?: number;
+    publicOrigin?: string;
   } = {},
 ): Promise<IdentityHarness> {
   const lines: string[] = [];
@@ -71,7 +72,7 @@ export async function identityHarness(
   const adapter = new TableauCloudAdapter({
     deploymentId: DEPLOYMENT,
     podOrigin: tableau.origin,
-    clientId: tableauClientMetadata(SERVICE_ORIGIN).client_id,
+    clientId: tableauClientMetadata(options.publicOrigin ?? SERVICE_ORIGIN).client_id,
     fetch: outbound.fetcher(true),
     metadata: tableau.metadata,
   });
@@ -79,7 +80,7 @@ export async function identityHarness(
   const identity = new IdentityService({
     db,
     adapters: new Map([[DEPLOYMENT, adapter]]),
-    publicOrigin: SERVICE_ORIGIN,
+    publicOrigin: options.publicOrigin ?? SERVICE_ORIGIN,
     signInLimitSeconds: options.signInLimitSeconds ?? 7 * 86400,
     clock,
     log,

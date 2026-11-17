@@ -28,6 +28,7 @@ export function connectionsHarness(
     clock: MovableClock;
     jobHandlers?: JobHandlerDefinition[];
     capabilities?: Capability[];
+    publicOrigin?: string;
   },
 ): ConnectionsHarness {
   const lines: string[] = [];
@@ -43,7 +44,7 @@ export function connectionsHarness(
     definitions,
     sealer,
     outbound: options.outbound,
-    publicOrigin: "https://service.test",
+    publicOrigin: options.publicOrigin ?? "https://service.test",
     clock: options.clock,
     log,
   });
