@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import type { ConnectResult } from "../contracts/operator.ts";
 import { isOperator } from "../identity/directory.ts";
 import { actorOf, identityKey, type Principal, type SignInSession } from "../identity/types.ts";
 import { writeAudit } from "../persistence/audit.ts";
@@ -443,11 +444,21 @@ export class ConnectionService {
         };
       });
   }
+  startConnect(
+    principal: Principal,
+    id: string,
+    mode: "personal",
+  ): Promise<Extract<ConnectResult, { kind: "redirect" }>>;
+  startConnect(
+    principal: Principal,
+    id: string,
+    mode: "personal" | "shared",
+  ): Promise<ConnectResult>;
   async startConnect(
     principal: Principal,
     id: string,
     mode: "personal" | "shared",
-  ): Promise<{ transactionId: string; url: string; expiresAt: Date }> {
+  ): Promise<ConnectResult> {
     const d = await this.#live(id);
     if (d.ownership !== mode)
       throw new ServiceError(
@@ -457,6 +468,8 @@ export class ConnectionService {
       );
     if (mode === "personal" && !d.audience.includes(principal.trustedSiteId))
       throw checkoutError("not-in-audience");
+    if (mode === "shared" && d.authentication.method === "client_credentials")
+      return this.#definitions.connectMachine(principal, id);
     if (d.authentication.method !== "authorization_code")
       throw new ServiceError(
         409,
@@ -475,7 +488,12 @@ export class ConnectionService {
       })
       .returning("id")
       .executeTakeFirstOrThrow();
-    return { transactionId: row.id, url: `${this.#origin}/connect/${row.id}`, expiresAt };
+    return {
+      kind: "redirect",
+      transactionId: row.id,
+      url: `${this.#origin}/connect/${row.id}`,
+      expiresAt: expiresAt.toISOString(),
+    };
   }
   async beginConnect(id: string, session: SignInSession): Promise<URL> {
     if (!uuid(id)) throw connectInvalid();

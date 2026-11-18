@@ -42,7 +42,7 @@ Pages are top-level service windows that read the sign-in cookie; they are serve
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
 | `GET /v1/definitions` | Bearer | Connections | Definitions the identity's site may use, with ownership, setup options, the caller's connection status and account. |
-| `POST /v1/definitions/{id}/connect` | Bearer | Connections | Start OAuth connect for a personal definition; returns a connect transaction ID. A shared definition answers `shared-definition` with status 409. |
+| `POST /v1/definitions/{id}/connect` | Bearer | Connections | Start OAuth connect for a personal definition; returns `{kind:"redirect",transactionId,url,expiresAt}`. A shared definition answers `shared-definition` with status 409. |
 | `GET /connect/{transactionId}` | Cookie | Connections | Connect page; requires the transaction's identity and redirects to the provider. |
 | `GET /v1/oauth/callback` | Cookie and `state` | Connections | The one provider OAuth callback; requires a sign-in session for the connecting identity. Not a CORS route. |
 | `PUT /v1/definitions/{id}/credential` | Bearer | Connections | Store a typed personal static/JWT credential or mapped JSON import. |
@@ -90,7 +90,7 @@ These are the routes the CLI calls, and any other operator tool can call them th
 | `PUT /v1/admin/definitions/{id}` | Redefine; returns the new generation and the number of connections ended. |
 | `POST /v1/admin/definitions/{id}/retire` | Retire. |
 | `PUT /v1/admin/definitions/{id}/secrets` | Atomically set/clear application secrets or a shared connection credential using expectedVersion; omission preserves a value. |
-| `POST /v1/admin/definitions/{id}/connect` | Start OAuth connect for a shared definition. A personal definition answers `personal-definition` with status 409. |
+| `POST /v1/admin/definitions/{id}/connect` | Connect a shared definition: authorization_code returns `{kind:"redirect",transactionId,url,expiresAt}` for browser setup; client_credentials returns `{kind:"connected",definitionId,connectionId}` after local authorization, with exchange deferred until checkout. A personal definition answers `personal-definition` with status 409. |
 | `GET /v1/admin/connections` | List connections, filtered by `definition` and `status`. |
 | `DELETE /v1/admin/connections/{connectionId}` | Disconnect any connection. |
 | `GET`, `POST`, `PATCH`, `DELETE /v1/admin/sites` | Manage trusted sites; `PATCH` sets `enabled` and `DELETE` takes `id`. |

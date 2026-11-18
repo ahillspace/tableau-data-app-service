@@ -8,12 +8,26 @@ import type { Sealer } from "../sealing/sealer.ts";
 import type { Account } from "./extensions.ts";
 import { placeCredential } from "./placement.ts";
 import type {
+  Authentication,
   ConnectionDefinition,
   CredentialLease,
   Definition,
   SecretField,
   StoredCredential,
 } from "./types.ts";
+
+export function requiredApplicationSecret(authentication: Authentication): SecretField | undefined {
+  if (!("clientAuthentication" in authentication)) return undefined;
+  switch (authentication.clientAuthentication.method) {
+    case "client_secret_basic":
+    case "client_secret_post":
+      return "clientSecret";
+    case "private_key_jwt":
+      return "signingPrivateKey";
+    case "none":
+      return undefined;
+  }
+}
 
 /** Known authorization state and the configured interval agree in checkout and safe reads. */
 export function connectionNeedsAuthorization(

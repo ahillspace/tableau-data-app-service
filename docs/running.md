@@ -63,7 +63,7 @@ tdas whoami
 tdas sites list                                     # trusted site record IDs for audiences
 tdas definitions create crm.json
 tdas definitions secret crm clientSecret      # hidden prompt on a TTY
-tdas definitions connect crm                  # shared OAuth connect
+tdas definitions connect crm                  # shared browser or machine setup
 tdas definitions update crm --audience add example-site
 tdas definitions redefine crm crm.json  # ends existing connections
 tdas definitions retire crm                   # ends existing connections
@@ -78,7 +78,7 @@ tdas apps
 | `definitions list`, `definitions show <id>` | Read definitions. |
 | `definitions create <file.json>` | Create a definition. |
 | `definitions secret <id> <field>` | Write clientSecret, signingSecret, signingPrivateKey or a shared credential using piped stdin, --from-file, hidden prompt or warned --value. |
-| `definitions connect <id>` | Shared OAuth connect in the browser. |
+| `definitions connect <id>` | Shared authorization_code setup in the browser, or synchronous local client_credentials setup with no browser. |
 | `definitions update <id> [<changes.json>] [--audience add\|remove <site>] [--enable] [--disable]` | Change in place. |
 | `definitions redefine <id> <file.json>`, `definitions retire <id>` | Redefine or retire; both end existing connections. |
 | `connections list [--definition <id>] [--status <status>]`, `connections disconnect <connectionId>` | Read and end connections. |
@@ -119,7 +119,7 @@ Create and update accept the same write-only API fields, but real secret-bearing
 Set CONSOLE_ENABLED=true to serve /console and the locally bundled assets on the API server.
 Open /console, sign in through Tableau and approve operator access using the same grant and consent owner as tdas.
 A Tableau administrator role alone grants no operator access.
-Providers supports catalog/scratch setup, properties, edits, write-only rotation, shared OAuth connect and retirement.
+Providers supports catalog/scratch setup, properties, edits, write-only rotation, shared browser or machine connect and retirement.
 Status & analytics reads the same protected status, metric and audit JSON available to other operator tools.
 Disabled events, unavailable dependencies, stale data and unknown observations are distinct.
 The console stores no bearer in browser storage.
@@ -132,7 +132,11 @@ Submit it through tdas definitions create or POST /v1/admin/definitions.
 Set application secrets separately from shared connection credentials.
 For service-account JSON, the selected catalog mapping imports only supported credential fields and verifies token_uri against the configured token endpoint.
 Complete shared authorization_code setup with tdas definitions connect, or let each viewer connect a personal definition through the generic Data App interface.
-Client_credentials exchanges lazily after its application prerequisites are set; static/JWT credentials are sealed through normal secret entry.
+Creating or redefining client_credentials with complete application prerequisites establishes initial local authorization unless credential is explicitly null.
+If application secrets are supplied later, run tdas definitions connect after setting them.
+Use the same command to reconnect after disconnect, a rejected grant or the configured reauthorization interval; ordinary edits and secret rotation never renew machine authorization.
+Machine Connect confirms local setup without a browser or provider request, and exchanges lazily at checkout.
+Static/JWT credentials are sealed through normal secret entry.
 A missing optional webhook signingSecret affects ingress only, not native checkout.
 [Catalog recipes](presets.md#native-request-recipes) demonstrate concrete multi-host selection, shared/personal use and streamed responses.
 

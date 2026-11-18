@@ -2,6 +2,7 @@ import type {
   Authentication,
   CatalogTemplate,
   ClientAuthentication,
+  ConnectResult,
   Definition,
   DefinitionView,
   Placement,
@@ -185,7 +186,7 @@ export class Providers {
           )
           .join(
             "",
-          )}<dt>Placement</dt><dd>${esc(d.credentialPlacement.kind)}</dd><dt>Private hosts</dt><dd>${d.privateHosts ? "Allowed; metadata addresses remain refused" : "Refused"}</dd></dl>${d.setup.missing.length ? `<div class="notice">Needs setup: ${d.setup.missing.map((p) => esc(SECRET_LABELS[p.replace("secrets.", "") as keyof typeof SECRET_LABELS] ?? p)).join(", ")}</div>` : ""}<div class="divider"></div><div class="actions"><button id="editProvider" ${d.retired ? "disabled" : ""}>Edit properties</button><button id="setSecret" ${d.retired ? "disabled" : ""}>Set or rotate secret</button>${d.setup.actions.includes("connect") ? '<button id="connectProvider">Connect shared account</button>' : ""}</div><div class="notice">${d.ownership === "personal" ? "Viewers connect their own accounts from a Data App." : "Data Apps in the audience use this shared connection."}</div><p class="hint">Changing hosts or authentication starts a new generation and disconnects existing accounts. Secret rotation keeps the definition generation. Webhook secret setup is separate from native credential readiness.</p><button class="flat danger" id="retireProvider" ${d.retired ? "disabled" : ""}>Retire provider</button>`;
+          )}<dt>Placement</dt><dd>${esc(d.credentialPlacement.kind)}</dd><dt>Private hosts</dt><dd>${d.privateHosts ? "Allowed; metadata addresses remain refused" : "Refused"}</dd></dl>${d.setup.missing.length ? `<div class="notice">Needs setup: ${d.setup.missing.map((p) => esc(p === "authorization" ? "Shared connection authorization" : (SECRET_LABELS[p.replace("secrets.", "") as keyof typeof SECRET_LABELS] ?? p))).join(", ")}</div>` : ""}<div class="divider"></div><div class="actions"><button id="editProvider" ${d.retired ? "disabled" : ""}>Edit properties</button><button id="setSecret" ${d.retired ? "disabled" : ""}>Set or rotate secret</button>${d.setup.actions.includes("connect") ? `<button id="connectProvider">${d.authentication.method === "client_credentials" ? "Authorize machine connection" : "Connect shared account"}</button>` : ""}</div><div class="notice">${d.ownership === "personal" ? "Viewers connect their own accounts from a Data App." : "Data Apps in the audience use this shared connection."}</div><p class="hint">Changing hosts or authentication starts a new generation and disconnects existing accounts. Secret rotation keeps the definition generation. Webhook secret setup is separate from native credential readiness.</p><button class="flat danger" id="retireProvider" ${d.retired ? "disabled" : ""}>Retire provider</button>`;
       element("editProvider").onclick = () => {
         void this.#editor(editableDefinition(d), d);
       };
@@ -576,16 +577,21 @@ export class Providers {
   }
 
   #connect(d: DefinitionView): void {
+    const machine = d.authentication.method === "client_credentials";
     const form = this.#dialogs.open(
-      "Connect shared account",
-      `<p>Connect an account to <b>${esc(d.displayName)}</b>.</p><p class="muted">A provider sign-in opens in a separate window. Data Apps in the audience will use this shared account. A successful connection replaces its current shared connection.</p>`,
-      "Open provider sign-in",
+      machine ? "Authorize machine connection" : "Connect shared account",
+      machine
+        ? `<p>Authorize <b>${esc(d.displayName)}</b> using its configured application authentication?</p><p class="muted">Data Apps in the audience will use this shared connection. Authorization replaces the current connection. The service acquires a provider token on the next request.</p>`
+        : `<p>Connect an account to <b>${esc(d.displayName)}</b>.</p><p class="muted">A provider sign-in opens in a separate window. Data Apps in the audience will use this shared account. A successful connection replaces its current shared connection.</p>`,
+      machine ? "Authorize connection" : "Open provider sign-in",
     );
     const workflow = ++this.#workflow;
     form.onsubmit = async (e) => {
       e.preventDefault();
-      const popup = window.open("about:blank", "_blank", "popup,width=620,height=760");
-      if (!popup) {
+      const popup = machine
+        ? null
+        : window.open("about:blank", "_blank", "popup,width=620,height=760");
+      if (!machine && !popup) {
         showFormError(
           form,
           new Error("The sign-in window was blocked. Allow popups and try again."),
@@ -595,15 +601,23 @@ export class Providers {
       const submit = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
       submit.disabled = true;
       try {
-        const started = await this.#api.request<{
-          transactionId: string;
-          url: string;
-          expiresAt: string;
-        }>("POST", `/v1/admin/definitions/${encodeURIComponent(d.id)}/connect`);
+        const started = await this.#api.request<ConnectResult>(
+          "POST",
+          `/v1/admin/definitions/${encodeURIComponent(d.id)}/connect`,
+        );
         if (workflow !== this.#workflow) {
-          popup.close();
+          popup?.close();
           return;
         }
+        if (started.kind === "connected") {
+          popup?.close();
+          this.#dialogs.modal.close();
+          await this.load();
+          this.#notify("Machine connection authorized.");
+          return;
+        }
+        if (!popup)
+          throw new Error("The provider configuration changed. Refresh properties and try again.");
         const url = new URL(started.url);
         if (url.origin !== location.origin || !url.pathname.startsWith("/connect/"))
           throw new Error("The service returned an unexpected connect destination.");
@@ -649,7 +663,7 @@ export class Providers {
         window.addEventListener("message", message);
         this.#popupCleanup = cleanup;
       } catch (error) {
-        popup.close();
+        popup?.close();
         if (workflow === this.#workflow) {
           showFormError(form, error);
           submit.disabled = false;

@@ -1,7 +1,7 @@
 # Connections
 
 The connections component owns definitions, application secrets, owner-bound connection credentials, setup, refresh, exchange and disconnect.
-Its operator interface creates, patches, redefines and retires definitions, and sets write-only secrets.
+Its operator interface creates, patches, redefines and retires definitions, sets write-only secrets and connects shared definitions.
 Its app interface lists usable definitions, connects a personal account, sets an owner-bound credential and returns one request-scoped credential lease.
 Shared types are in [contracts](contracts.md) and the finite protocol schema is in [provider protocol data](provider-protocol.md).
 
@@ -67,6 +67,8 @@ Keep protocol-derived tokens sealed in the owner connection; a connection row lo
 The cache key covers definition generation, application-secret generation, credential generation, normalized scopes and effective audience.
 The simplest implementation caches one current derived variant per connection and replaces it under that lock.
 Already-issued authorization-code tokens retain their grant identity; client-secret rotation changes future token authentication and invalidates in-memory secret copies, not the viewer's consent.
+Application secret writes never establish or renew client_credentials authorization, including when the first required secret is supplied after creation.
+Ordinary definition edits and secret rotation preserve a disconnected or needs-authorization machine connection and never move its authorization time.
 Requests that already acquired a lease may finish; no new checkout after rotation commits may acquire superseded material.
 
 ## Connections and checkout
@@ -84,17 +86,27 @@ No native request is sent when checkout fails.
 ## Setup readiness
 
 The server returns setup with state ready, needs-setup, disabled or retired, finite missing paths and supported actions connect, set-credential and set-secrets.
+Supported actions describe the setup operations for the method; their presence does not waive missing prerequisites or enabled-state checks.
+Shared authorization_code and client_credentials definitions support connect, including when required application material is missing.
 Stored credential metadata can remain set while shared authorization requires setup after a known rejected grant or the configured reauthorization interval.
 Operator setup and connection counts, app status and checkout use the same inclusive interval boundary measured from authorizedAt.
 An expiring access token with automatic refresh or exchange does not itself require operator setup, and safe reads never poll the provider.
+Setup reads use stored metadata without opening secrets or changing connection authority.
 For a personal definition this describes application prerequisites, not every viewer's connection state.
 For a shared definition it also describes the shared credential prerequisites.
-Missing paths are secrets.clientSecret, secrets.signingPrivateKey and credential.
+Missing paths are secrets.clientSecret, secrets.signingPrivateKey, credential and authorization.
+Required application secret paths are reported first; once those prerequisites are complete, a shared client_credentials definition without usable local authorization reports authorization, while other shared methods report credential.
 An optional webhook signingSecret is displayed separately and never blocks native readiness or checkout.
 Only authorization_code uses the browser connect flow.
 The existing connect transaction, identity match, state, callback and generation checks remain authoritative.
 Static or JWT credential input validates and seals a connection without making a provider business request.
-Shared client_credentials establishes its connection when required application secrets are set and exchanges lazily at checkout.
+Creating or redefining shared client_credentials establishes initial local authorization when its application prerequisites are complete, unless the request explicitly clears credential with null.
+Later secret entry, rotation and ordinary definition edits never establish or renew that authorization.
+The operator uses the existing shared Connect operation after staging secrets, disconnecting, a rejected grant or the configured reauthorization interval.
+Connect requires an enabled shared client_credentials definition, current operator authority and the application material required by none, client_secret_basic, client_secret_post or private_key_jwt authentication.
+Under the definition lock, it rechecks these conditions and atomically replaces the shared connection with fresh local authorization, clearing old derived tokens, expiry and account metadata while preserving connection history.
+The synchronous connected result confirms local setup only; Connect makes no provider request and token exchange remains lazy at checkout.
+Connect moves the authorization time but does not change the configured reauthorization interval, and later automatic exchange never renews that authorization time.
 None needs no connection.
 
 ## Refresh and exchange
@@ -131,6 +143,7 @@ Failed revocation records only a safe code and never restores local access.
 | Definition changed during setup | definition-changed; start a new setup transaction. |
 | Required secret missing or sealing key unavailable | credential-unavailable; restore the prerequisite without exposing its value. |
 | Grant rejected | needs-authorization; reconnect the owner. |
+| Machine authorization missing, disconnected or expired | Restore any missing application material, then run the operator Connect operation; ordinary edits and secret rotation do not reconnect it. |
 | Refresh/exchange result unknown | Return the uncertain code and upstream provenance; preserve uncertainty. |
 | Imported endpoint mismatch | Reject before persistence or network use. |
 | Optional webhook secret missing | Refuse ingress while ordinary native checkout remains usable. |

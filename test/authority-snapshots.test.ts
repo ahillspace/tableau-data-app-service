@@ -150,6 +150,7 @@ for (const method of ["client_secret_post", "private_key_jwt"] as const) {
     });
     const original = await h.create(definition);
     const started = await h.connections.startConnect(h.operator.principal, original.id, "shared");
+    assert.equal(started.kind, "redirect");
     const session = await h.identity.identity.readSignInSession(h.cookie.split("=")[1]);
     assert.ok(session);
     const authorize = await h.connections.beginConnect(started.transactionId, session);
@@ -221,6 +222,7 @@ for (const method of ["client_secret_post", "private_key_jwt"] as const) {
     assert.equal(provider.count("/old-token"), 1);
     assert.equal((await h.connections.listConnections({ definitionId: original.id })).length, 0);
     const restarted = await h.connections.startConnect(h.operator.principal, original.id, "shared");
+    assert.equal(restarted.kind, "redirect");
     const currentAuthorize = await h.connections.beginConnect(restarted.transactionId, session);
     provider.expect(
       "/new-token",

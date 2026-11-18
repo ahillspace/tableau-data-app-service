@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { CredentialInput, DefinitionView } from "../contracts/operator.ts";
+import type { ConnectResult, CredentialInput, DefinitionView } from "../contracts/operator.ts";
 import { pkceChallenge, randomToken } from "../platform/secrets.ts";
 import { canonicalOrigin } from "../platform/settings.ts";
 import { readSecret, type SecretInput, SecretInputError } from "./secret-input.ts";
@@ -77,7 +77,7 @@ const USAGE = `Usage: tdas <command>
   definitions show <id>
   definitions create <file.json>
   definitions secret <id> <field>          Set a write-only clientSecret, signingSecret, signingPrivateKey or credential
-  definitions connect <id>                 Shared OAuth connect in the browser
+  definitions connect <id>                 Authorize a shared connection
   definitions update <id> [<changes.json>] [--audience add|remove <site>] [--enable] [--disable]
   definitions redefine <id> <file.json>    Ends existing connections
   definitions retire <id>                  Ends existing connections
@@ -397,10 +397,11 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
       );
     }
     case "definitions connect": {
-      const started = await client.call<{ url: string; expiresAt: string }>(
+      const started = await client.call<ConnectResult>(
         "POST",
         `/v1/admin/definitions/${enc(need(first, "definition ID"))}/connect`,
       );
+      if (started.kind === "connected") return print(started);
       deps.err("Approve the shared connection in the browser:");
       deps.out(started.url);
       return await deps.open(started.url);

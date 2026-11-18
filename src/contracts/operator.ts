@@ -182,6 +182,9 @@ export type SetupView = {
   missing: string[];
   actions: ("connect" | "set-credential" | "set-secrets")[];
 };
+export type ConnectResult =
+  | { kind: "connected"; definitionId: string; connectionId: string }
+  | { kind: "redirect"; transactionId: string; url: string; expiresAt: string };
 export type OperatorSessionView = {
   operator: { displayName: string };
   expiresAt: string;

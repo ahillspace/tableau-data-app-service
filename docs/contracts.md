@@ -73,6 +73,9 @@ type DefinitionWrite = Definition & {
   secrets?: Partial<Record<SecretField, string | null>>;
   credential?: CredentialInput | null;
 };
+type ConnectResult =
+  | { kind: "connected"; definitionId: string; connectionId: string }
+  | { kind: "redirect"; transactionId: string; url: string; expiresAt: string };
 ```
 
 Dates are ISO 8601 UTC strings and numeric generations/versions are positive integers.
@@ -85,7 +88,12 @@ Name, audience, scopes, enabled state, reauthorization interval and secret value
 All other definition changes require PUT redefinition, including hosts, ownership, acquisition/client authentication, placement, import mappings, lookup, revocation and webhook protocol configuration.
 Redefinition atomically increments generation, disconnects existing connections, deletes their credentials and invalidates in-progress setup.
 Secret rotation never redefines a provider or changes its ID.
+For client_credentials, ordinary definition edits and application secret writes never establish or renew connection authorization.
 Retirement is irreversible for that ID and ends all connection authority.
+
+The existing shared Connect operation returns connected after synchronous local client_credentials setup or redirect for authorization_code browser setup.
+The connected result confirms local authorization, with token exchange deferred until checkout.
+Personal Connect returns only the redirect variant and retains the existing browser completion flow.
 
 Safe setup metadata is described in [connections](connections.md#setup-readiness).
 Authentication, lookup, revoke, import and webhook types are specified in [provider protocol data](provider-protocol.md).

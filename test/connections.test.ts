@@ -127,6 +127,7 @@ describe("connections", () => {
     service = c,
   ) {
     const started = await service.connections.startConnect(who.principal, defId, mode);
+    assert.equal(started.kind, "redirect");
     const url = await service.connections.beginConnect(started.transactionId, who.session);
     const query = provider.authorize(url);
     await service.connections.completeConnect({ query, session: who.session });
@@ -308,6 +309,7 @@ describe("connections", () => {
     await c.definitions.create("test", oauthDefinition());
     await setClientSecret(op, "crm");
     const started = await c.connections.startConnect(a.principal, "crm", "personal");
+    assert.equal(started.kind, "redirect");
     const url = await c.connections.beginConnect(started.transactionId, a.session);
     await c.definitions.redefine(
       "test",
@@ -328,6 +330,7 @@ describe("connections", () => {
 
     // Redefinition between the token exchange and storing is caught by the generation recheck.
     const second = await c.connections.startConnect(a.principal, "crm", "personal");
+    assert.equal(second.kind, "redirect");
     const url2 = await c.connections.beginConnect(second.transactionId, a.session);
     const query2 = provider.authorize(url2);
     provider.faults = { delayMs: 300 };
@@ -496,6 +499,7 @@ describe("connections", () => {
     await c.definitions.create("test", oauthDefinition());
     await setClientSecret(op, "crm");
     const started = await c.connections.startConnect(a.principal, "crm", "personal");
+    assert.equal(started.kind, "redirect");
     assert.match(started.url, /^https:\/\/service\.test\/connect\//);
     // Bob opens Alice's link.
     assert.equal(
@@ -521,6 +525,7 @@ describe("connections", () => {
     await c.definitions.create("test", oauthDefinition({ id: "crm-shared", ownership: "shared" }));
     await setClientSecret(op, "crm-shared");
     const shared = await c.connections.startConnect(op.principal, "crm-shared", "shared");
+    assert.equal(shared.kind, "redirect");
     assert.equal(
       await code(c.connections.beginConnect(shared.transactionId, a.session)),
       "identity-mismatch",
@@ -633,6 +638,7 @@ describe("connections", () => {
     await c.definitions.create("test", oauthDefinition({ id: "crm-shared", ownership: "shared" }));
     await setClientSecret(op, "crm-shared");
     const started = await c.connections.startConnect(op.principal, "crm-shared", "shared");
+    assert.equal(started.kind, "redirect");
     const url = await c.connections.beginConnect(started.transactionId, op.session);
     const query = provider.authorize(url);
     // Another operator removes this one while the provider shows its consent screen.
@@ -669,6 +675,7 @@ describe("connections", () => {
     const self = (await listOperators(db)).find((o) => o.username === operatorUser.userName);
     assert.ok(self);
     const started = await c.connections.startConnect(op.principal, "crm-shared", "shared");
+    assert.equal(started.kind, "redirect");
     const query = provider.authorize(
       await c.connections.beginConnect(started.transactionId, op.session),
     );

@@ -16,7 +16,7 @@ export function connectionRoutes(app: FastifyInstance, services: Services): void
   app.post("/v1/definitions/:id/connect", async (request, reply) => {
     const principal = await caller(identity, request);
     const started = await connections.startConnect(principal, param(request, "id"), "personal");
-    return reply.status(201).send({ ...started, expiresAt: started.expiresAt.toISOString() });
+    return reply.status(201).send(started);
   });
 
   app.put("/v1/definitions/:id/credential", async (request) => {

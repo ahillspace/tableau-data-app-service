@@ -48,6 +48,7 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   Trusting a new site never widens an existing definition's audience.
 - Display name, scopes, audience, reauthorization interval, enabled state and secret values change in place.
   Secret rotation invalidates superseded derived credentials across replicas without redefining the provider.
+  Ordinary edits and application secret writes never establish or renew machine connection authorization; operators use Connect for local setup or recovery, with token exchange deferred until use.
   Concurrent writes require the safe view version and fail on conflict.
 - Every other change is a redefinition: it starts a new generation, disconnects every connection of the old generation and deletes its credentials.
   The definition ID stays the same, so Data Apps that refer to it keep working once users reconnect.

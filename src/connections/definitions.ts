@@ -1,4 +1,7 @@
 import type { Selectable } from "kysely";
+import type { ConnectResult } from "../contracts/operator.ts";
+import { isOperator } from "../identity/directory.ts";
+import { actorOf, type Principal } from "../identity/types.ts";
 import { writeAudit } from "../persistence/audit.ts";
 import {
   type Db,
@@ -20,6 +23,7 @@ import {
   connectionNeedsAuthorization,
   readDefinitionSecret,
   replaceConnection,
+  requiredApplicationSecret,
   SECRET_PURPOSE,
 } from "./store.ts";
 import {
@@ -201,24 +205,18 @@ export class DefinitionStore {
     const missing: string[] = [],
       actions: DefinitionView["setup"]["actions"] = [];
     const a = d.authentication;
-    if ("clientAuthentication" in a) {
-      if (
-        ["client_secret_basic", "client_secret_post"].includes(a.clientAuthentication.method) &&
-        !secrets.clientSecret.set
-      )
-        missing.push("secrets.clientSecret");
-      if (a.clientAuthentication.method === "private_key_jwt" && !secrets.signingPrivateKey.set)
-        missing.push("secrets.signingPrivateKey");
-    }
+    const required = requiredApplicationSecret(a);
+    if (required && !secrets[required].set) missing.push(`secrets.${required}`);
     if (
       d.ownership === "shared" &&
       a.method !== "none" &&
       (!shared || connectionNeedsAuthorization(d, shared, now)) &&
       !missing.length
     )
-      missing.push("credential");
+      missing.push(a.method === "client_credentials" ? "authorization" : "credential");
     if (missing.some((p) => p.startsWith("secrets."))) actions.push("set-secrets");
-    if (d.ownership === "shared" && a.method === "authorization_code") actions.push("connect");
+    if (d.ownership === "shared" && ["authorization_code", "client_credentials"].includes(a.method))
+      actions.push("connect");
     if (
       d.ownership === "shared" &&
       ["static", "jwt_bearer", "signed_jwt_direct"].includes(a.method)
@@ -367,28 +365,6 @@ export class DefinitionStore {
         .set({ secret_generation: d.secretGeneration + 1 })
         .where("id", "=", d.id)
         .execute();
-    if (auth.method === "client_credentials" && credential !== null) {
-      const ready =
-        auth.clientAuthentication.method === "none" ||
-        (auth.clientAuthentication.method === "private_key_jwt"
-          ? await readDefinitionSecret(tx, this.#sealer, d.id, "signingPrivateKey")
-          : await readDefinitionSecret(tx, this.#sealer, d.id, "clientSecret"));
-      const connection = await tx
-        .selectFrom("connections")
-        .select("id")
-        .where("definition_id", "=", d.id)
-        .where("status", "<>", "disconnected")
-        .executeTakeFirst();
-      if (ready && !connection)
-        await replaceConnection(tx, this.#sealer, {
-          definition: d,
-          ownerIdentityId: null,
-          credential: {},
-          account: null,
-          scopes: d.scopes,
-          now,
-        });
-    }
     if (changed.length || write.credential !== undefined)
       await writeAudit(tx, {
         actor,
@@ -396,6 +372,60 @@ export class DefinitionStore {
         target: d.id,
         detail: { fields: changed, credentialChanged: write.credential !== undefined },
       });
+  }
+  async #initializeMachine(tx: Tx, d: ConnectionDefinition): Promise<string | undefined> {
+    if (d.authentication.method !== "client_credentials") return;
+    const required = requiredApplicationSecret(d.authentication);
+    if (required && !(await readDefinitionSecret(tx, this.#sealer, d.id, required))) return;
+    return replaceConnection(tx, this.#sealer, {
+      definition: d,
+      ownerIdentityId: null,
+      credential: {},
+      account: null,
+      scopes: d.scopes,
+      now: this.#clock.now(),
+    });
+  }
+  async connectMachine(
+    principal: Principal,
+    id: string,
+  ): Promise<Extract<ConnectResult, { kind: "connected" }>> {
+    return transaction(this.#db, async (tx) => {
+      const row = await tx
+        .selectFrom("definitions")
+        .selectAll()
+        .where("id", "=", id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) throw notFound("definition-not-found", "No such definition");
+      if (!row.enabled || row.retired)
+        throw new ServiceError(403, "definition-disabled", "The definition is disabled");
+      const d = definitionFromRow(row);
+      if (d.ownership !== "shared")
+        throw new ServiceError(
+          409,
+          "personal-definition",
+          "The definition uses personal connections",
+        );
+      if (d.authentication.method !== "client_credentials")
+        throw new ServiceError(
+          409,
+          "connect-not-supported",
+          "The definition does not use machine authorization",
+        );
+      if (
+        principal.kind !== "operator" ||
+        !(await isOperator(tx, principal.identity, { hold: true }))
+      )
+        throw new ServiceError(403, "operator-required", "Operator access is required");
+      const connectionId = await this.#initializeMachine(tx, d);
+      if (!connectionId)
+        throw invalid([
+          { path: `secrets.${requiredApplicationSecret(d.authentication)}`, rule: "required" },
+        ]);
+      await writeAudit(tx, { actor: actorOf(principal), action: "connection.connect", target: id });
+      return { kind: "connected", definitionId: id, connectionId };
+    });
   }
   async create(actor: string, raw: unknown): Promise<DefinitionView> {
     const input = object(raw),
@@ -410,7 +440,9 @@ export class DefinitionStore {
           .values({ id: d.id, ...columns(d), updated_at: this.#clock.now() })
           .returningAll()
           .executeTakeFirstOrThrow();
-        await this.#writeSecrets(tx, definitionFromRow(row), write, actor);
+        const created = definitionFromRow(row);
+        await this.#writeSecrets(tx, created, write, actor);
+        if (write.credential !== null) await this.#initializeMachine(tx, created);
         await bumpRevision(tx);
         await writeAudit(tx, {
           actor,
@@ -479,7 +511,9 @@ export class DefinitionStore {
         .execute();
       const connectionsEnded = await endConnections(tx, id, "redefined", now);
       await failPendingConnects(tx, id);
-      await this.#writeSecrets(tx, { ...existing, ...d, generation }, write, actor);
+      const redefined = { ...existing, ...d, generation };
+      await this.#writeSecrets(tx, redefined, write, actor);
+      if (write.credential !== null) await this.#initializeMachine(tx, redefined);
       await bumpRevision(tx);
       await writeAudit(tx, {
         actor,

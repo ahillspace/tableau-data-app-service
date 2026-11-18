@@ -47,10 +47,13 @@ The session endpoint returns 401 sign-in-required for missing, expired or revoke
 A verified non-operator receives an operator-required page or 403 without protected data.
 A plain sign-in cookie cannot be promoted through a session read.
 The UI clears protected state on 401/403 and requires explicit resubmission after sign-in or a concurrent-edit conflict.
-Shared authorization_code connect returns transactionId, url and expiresAt and keeps the existing tableau-service:connect completion message.
+Shared authorization_code connect returns kind redirect with transactionId, url and expiresAt and keeps the existing tableau-service:connect completion message.
 The UI checks message origin, source and transaction before reloading the safe connection state.
 Blocked, closed and failed popups leave the current connection unchanged.
-Machine credentials are set through write-only input and exchanged lazily at checkout.
+Shared client_credentials Connect returns kind connected with definitionId and connectionId after local authorization, opens no provider window and reloads the safe setup state.
+Its setup view distinguishes missing application secrets from missing shared connection authorization; Connect remains a supported action while the server enforces prerequisites.
+Application secrets are set through write-only input; later entry or rotation never establishes or renews machine authorization.
+After staging secrets, disconnecting or reaching the reauthorization interval, the operator explicitly connects again, and token exchange remains lazy at checkout.
 
 ## Assets and accessibility
 
