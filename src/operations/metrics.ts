@@ -254,16 +254,20 @@ export class Metrics {
     if (fields.length) throw invalid(fields);
     const selection = sql`minute >= ${new Date(from)} and minute < ${new Date(to)}
       ${filter.definition === undefined ? sql`` : sql`and definition_id = ${filter.definition}`}`;
-    const result = await sql<{
-      minute: Date;
-      definition_id: string;
-      status: string;
-      requests: string;
-      errors: string;
-      histogram: string[];
-      refresh: string;
-      exchange: string;
-    }>`with selected as (select * from metric_snapshots where ${selection}),
+    const { result, members } = await this.#db
+      .transaction()
+      .setIsolationLevel("repeatable read")
+      .execute(async (tx) => {
+        const result = await sql<{
+          minute: Date;
+          definition_id: string;
+          status: string;
+          requests: string;
+          errors: string;
+          histogram: string[];
+          refresh: string;
+          exchange: string;
+        }>`with selected as (select * from metric_snapshots where ${selection}),
       counters as (
         select minute, definition_id, status, sum(requests)::text as requests,
           sum(errors)::text as errors, sum(refresh_failures)::text as refresh,
@@ -277,7 +281,15 @@ export class Metrics {
         select minute, definition_id, status, array_agg(value::text order by position) as histogram
         from buckets group by minute, definition_id, status
       ) select * from counters join histograms using (minute, definition_id, status)
-      order by minute, definition_id, status`.execute(this.#db);
+      order by minute, definition_id, status`.execute(tx);
+        const members = await tx
+          .selectFrom("process_heartbeats")
+          .selectAll()
+          .where("started_at", "<", new Date(to))
+          .where("heartbeat_at", ">=", new Date(from - HEARTBEAT_FRESH_MS))
+          .execute();
+        return { result, members };
+      });
     const combined = empty();
     const series: MetricSeries[] = result.rows.map((row) => {
       const status = statusOf(/^\d{3}$/.test(row.status) ? Number(row.status) : row.status);
@@ -303,12 +315,6 @@ export class Metrics {
         ...totals(c),
       };
     });
-    const members = await this.#db
-      .selectFrom("process_heartbeats")
-      .selectAll()
-      .where("started_at", "<", new Date(to))
-      .where("heartbeat_at", ">=", new Date(from - HEARTBEAT_FRESH_MS))
-      .execute();
     const fresh = members.filter(
       (p) => now.getTime() - p.heartbeat_at.getTime() <= HEARTBEAT_FRESH_MS,
     );

@@ -21,6 +21,7 @@ import {
   stateBox,
 } from "./dom.ts";
 import {
+  clientAuthenticationReader,
   defaultAuthentication,
   definitionChanges,
   editableDefinition,
@@ -255,6 +256,7 @@ export class Providers {
     ) => form.elements.namedItem(name) as T;
     if (original) input<HTMLInputElement>("id").readOnly = true;
     let auth = structuredClone(draft.authentication);
+    let readClientAuthentication = clientAuthenticationReader(auth);
     let advancedMode = false;
     let locked = false;
     const protocol = () => ({
@@ -286,25 +288,11 @@ export class Providers {
       if ("clientAuthentication" in a) {
         const method = value("clientAuth") as ClientAuthentication["method"];
         const clientId = value("clientId").trim();
-        a.clientAuthentication =
-          method === "none"
-            ? { method, ...(clientId ? { clientId } : {}) }
-            : method === "private_key_jwt"
-              ? {
-                  method,
-                  clientId,
-                  jwt:
-                    a.clientAuthentication.method === "private_key_jwt"
-                      ? a.clientAuthentication.jwt
-                      : {
-                          algorithm: "RS256",
-                          issuer: clientId,
-                          subject: clientId,
-                          audience: "tokenEndpoint" in a ? a.tokenEndpoint : "",
-                          ttlSeconds: 300,
-                        },
-                }
-              : { method, clientId };
+        a.clientAuthentication = readClientAuthentication(a.clientAuthentication, {
+          method,
+          clientId,
+          tokenEndpoint: a.tokenEndpoint,
+        });
       }
       if ("scopeParameter" in a)
         a.scopeParameter = {
@@ -422,6 +410,7 @@ export class Providers {
       auth = defaultAuthentication(
         input<HTMLSelectElement>("method").value as Authentication["method"],
       );
+      readClientAuthentication = clientAuthenticationReader(auth);
       renderMethod();
       input<HTMLTextAreaElement>("advanced").value = JSON.stringify(protocol(), null, 2);
       consequences();

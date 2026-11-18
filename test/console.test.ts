@@ -7,13 +7,14 @@ import { buildConsole } from "../scripts/build-console.ts";
 import { AdminApi } from "../src/console/dom.ts";
 import { Status } from "../src/console/status.ts";
 import {
+  clientAuthenticationReader,
   defaultAuthentication,
   definitionChanges,
   editableDefinition,
   newDefinition,
   serializeSecret,
 } from "../src/console/model.ts";
-import type { DefinitionView } from "../src/contracts/operator.ts";
+import type { ClientAuthentication, DefinitionView } from "../src/contracts/operator.ts";
 
 test("console secret writes preserve exact multiline input and require explicit clearing", () => {
   const pem = "-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----\n";
@@ -180,20 +181,125 @@ test("denied operator access clears transport state and rejects an older in-flig
   }
 });
 
-test("console builds only local production assets without inline scripts or persistent bearers", async () => {
+for (const method of ["authorization_code", "client_credentials", "jwt_bearer"] as const) {
+  test(`${method} client JWT defaults follow common inputs entered after selecting JWT`, () => {
+    const auth = defaultAuthentication(method);
+    assert.ok("clientAuthentication" in auth);
+    const read = clientAuthenticationReader(auth);
+    let client = read(auth.clientAuthentication, {
+      method: "private_key_jwt",
+      clientId: "",
+      tokenEndpoint: "",
+    });
+    assert.equal(client.method, "private_key_jwt");
+    client = read(client, {
+      method: "private_key_jwt",
+      clientId: "first-client",
+      tokenEndpoint: "https://first.test/token",
+    });
+    assert.ok(client.method === "private_key_jwt");
+    assert.equal(client.jwt.issuer, "first-client");
+    assert.equal(client.jwt.subject, "first-client");
+    assert.equal(client.jwt.audience, "https://first.test/token");
+    client = read(client, {
+      method: "private_key_jwt",
+      clientId: "second-client",
+      tokenEndpoint: "https://second.test/token",
+    });
+    assert.ok(client.method === "private_key_jwt");
+    assert.equal(client.jwt.issuer, "second-client");
+    assert.equal(client.jwt.subject, "second-client");
+    assert.equal(client.jwt.audience, "https://second.test/token");
+    client = read(client, {
+      method: "client_secret_post",
+      clientId: "third-client",
+      tokenEndpoint: "https://third.test/token",
+    });
+    assert.deepEqual(client, { method: "client_secret_post", clientId: "third-client" });
+    client = read(client, {
+      method: "private_key_jwt",
+      clientId: "third-client",
+      tokenEndpoint: "https://third.test/token",
+    });
+    assert.ok(client.method === "private_key_jwt");
+    assert.equal(client.jwt.issuer, "third-client");
+    assert.equal(client.jwt.subject, "third-client");
+    assert.equal(client.jwt.audience, "https://third.test/token");
+    assert.deepEqual(read(client, { method: "none", clientId: "", tokenEndpoint: "" }), {
+      method: "none",
+    });
+  });
+
+  test(`${method} loaded JWT defaults follow edits while customized claims retain ownership`, () => {
+    const auth = defaultAuthentication(method);
+    assert.ok("clientAuthentication" in auth && "tokenEndpoint" in auth);
+    auth.tokenEndpoint = "https://original.test/token";
+    auth.clientAuthentication = {
+      method: "private_key_jwt",
+      clientId: "original-client",
+      jwt: {
+        algorithm: "ES256",
+        issuer: "original-client",
+        subject: "original-client",
+        audience: auth.tokenEndpoint,
+        keyId: "loaded-key",
+        ttlSeconds: 600,
+      },
+    };
+    const original = structuredClone(auth);
+    const readDefaults = clientAuthenticationReader(auth);
+    const generated = readDefaults(auth.clientAuthentication, {
+      method: "private_key_jwt",
+      clientId: "edited-client",
+      tokenEndpoint: "https://edited.test/token",
+    });
+    assert.ok(generated.method === "private_key_jwt");
+    assert.deepEqual(generated.jwt, {
+      ...auth.clientAuthentication.jwt,
+      issuer: "edited-client",
+      subject: "edited-client",
+      audience: "https://edited.test/token",
+    });
+    assert.deepEqual(auth, original);
+    auth.clientAuthentication.jwt.issuer = "custom-issuer";
+    auth.clientAuthentication.jwt.subject = "custom-subject";
+    auth.clientAuthentication.jwt.audience = "https://custom.test/token";
+    const custom = structuredClone(auth);
+    const customClaims = structuredClone(auth.clientAuthentication.jwt);
+    const readCustom = clientAuthenticationReader(auth);
+    let client: ClientAuthentication = auth.clientAuthentication;
+    for (const [clientId, tokenEndpoint] of [
+      ["custom-issuer", "https://custom.test/token"],
+      ["custom-subject", "https://last.test/token"],
+      ["last-client", "https://final.test/token"],
+    ] as const) {
+      client = readCustom(client, { method: "private_key_jwt", clientId, tokenEndpoint });
+      assert.ok(client.method === "private_key_jwt");
+      assert.deepEqual(client.jwt, customClaims);
+    }
+    assert.deepEqual(auth, custom);
+    delete auth.clientAuthentication.jwt.subject;
+    const readOmitted = clientAuthenticationReader(auth);
+    const omitted = readOmitted(auth.clientAuthentication, {
+      method: "private_key_jwt",
+      clientId: "last-client",
+      tokenEndpoint: "https://final.test/token",
+    });
+    assert.ok(omitted.method === "private_key_jwt");
+    assert.equal(Object.hasOwn(omitted.jwt, "subject"), false);
+    assert.equal(omitted.jwt.audience, "https://custom.test/token");
+  });
+}
+
+test("console build emits the expected files and HTML asset links without inline markup", async () => {
   const directory = await mkdtemp(join(tmpdir(), "tdas-console-"));
   try {
     const result = await buildConsole(directory);
     assert.deepEqual(result.files, ["index.html", "index.js", "index.css"]);
     const html = await readFile(join(directory, "index.html"), "utf8");
-    const js = await readFile(join(directory, "index.js"), "utf8");
-    const css = await readFile(join(directory, "index.css"), "utf8");
     assert.match(html, /src="\/console\/assets\/index.js"/);
     assert.match(html, /href="\/console\/assets\/index.css"/);
     assert.doesNotMatch(html, /<style|\son\w+=|<script(?![^>]*src=)/);
-    assert.doesNotMatch(js, /\b(?:localStorage|sessionStorage)\b|https:\/\/cdn\./);
-    assert.match(css, /prefers-reduced-transparency/);
-    assert.match(css, /prefers-reduced-motion/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

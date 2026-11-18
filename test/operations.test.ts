@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, test } from "node:test";
-import { sql } from "kysely";
+import { type KyselyPlugin, sql } from "kysely";
 import { Metrics } from "../src/operations/metrics.ts";
 import { Operations } from "../src/operations/status.ts";
 import { type Db, migrate, openDatabase } from "../src/persistence/database.ts";
@@ -40,6 +40,34 @@ const operations = (
     },
     version: "test",
   });
+
+function pauseMetricRead(pool: Db) {
+  let entered!: () => void;
+  const read = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let queryId: object | undefined;
+  const plugin: KyselyPlugin = {
+    transformQuery(args) {
+      const query = JSON.stringify(args.node);
+      if (!queryId && (query.includes("metric_snapshots") || query.includes("process_heartbeats")))
+        queryId = args.queryId;
+      return args.node;
+    },
+    async transformResult(args) {
+      if (args.queryId === queryId) {
+        entered();
+        await gate;
+      }
+      return args.result;
+    },
+  };
+  return { db: pool.withPlugin(plugin), read, release };
+}
 
 beforeEach(async () => {
   now = Date.parse("2026-11-17T07:40:05Z");
@@ -291,9 +319,15 @@ test("cleanup preserves lost worker evidence across historical and oldest retain
     version: "test",
   });
   await api.heartbeat();
-  const interval = { from: new Date(from).toISOString(), to: new Date(from + minute).toISOString() };
+  const interval = {
+    from: new Date(from).toISOString(),
+    to: new Date(from + minute).toISOString(),
+  };
   assert.equal((await apiMetrics.view(interval)).mayBeIncomplete, true);
-  assert.equal((await api.status()).processes.some((p) => p.instanceId === workerId), false);
+  assert.equal(
+    (await api.status()).processes.some((p) => p.instanceId === workerId),
+    false,
+  );
   await api.cleanup();
   const retained = await apiMetrics.view(interval);
   assert.equal(retained.mayBeIncomplete, true);
@@ -315,4 +349,62 @@ test("cleanup preserves lost worker evidence across historical and oldest retain
       .executeTakeFirst(),
     undefined,
   );
+});
+
+test("a flush between metric reads cannot mark an omitted request complete", {
+  timeout: 20_000,
+}, async () => {
+  const id = randomUUID();
+  const writer = metrics(replica, id);
+  const process = operations(replica, id, writer);
+  const interval = range();
+  writer.recordNative({ definitionId: "interleaved", status: 200 });
+  await process.heartbeat();
+  now += minute;
+  const gate = pauseMetricRead(db);
+  const pending = metrics(gate.db).view(interval);
+  await gate.read;
+  try {
+    await writer.flush();
+    await process.heartbeat();
+  } finally {
+    gate.release();
+    await pending;
+  }
+  const during = await pending;
+  assert.ok(
+    during.mayBeIncomplete || during.totals.requests === 1,
+    "a response includes the published request or preserves incomplete coverage",
+  );
+  const after = await writer.view(interval);
+  assert.equal(after.totals.requests, 1);
+  assert.equal(after.mayBeIncomplete, false);
+});
+
+test("retention cleanup between metric reads preserves the accepted window's snapshot", {
+  timeout: 20_000,
+}, async () => {
+  const id = randomUUID();
+  const writer = metrics(replica, id);
+  const process = operations(replica, id, writer);
+  const interval = range();
+  writer.recordNative({ definitionId: "retention-snapshot", status: 200 });
+  await writer.flush();
+  now += 7 * 86400_000;
+  await writer.flush();
+  await process.heartbeat();
+  const gate = pauseMetricRead(db);
+  const pending = metrics(gate.db).view(interval);
+  await gate.read;
+  try {
+    now += 2 * minute;
+    await process.cleanup();
+  } finally {
+    gate.release();
+    await pending;
+  }
+  const during = await pending;
+  assert.equal(during.totals.requests, 1);
+  assert.equal(during.mayBeIncomplete, false);
+  assert.equal((await db.selectFrom("metric_snapshots").selectAll().execute()).length, 0);
 });

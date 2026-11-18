@@ -1,5 +1,6 @@
 import type {
   Authentication,
+  ClientAuthentication,
   CredentialInput,
   Definition,
   DefinitionView,
@@ -77,6 +78,45 @@ export function defaultAuthentication(method: Authentication["method"]): Authent
     default:
       return { method };
   }
+}
+
+export function clientAuthenticationReader(initial: Authentication) {
+  const client = "clientAuthentication" in initial ? initial.clientAuthentication : undefined;
+  let defaults = {
+    issuer: client?.method === "private_key_jwt" && client.jwt.issuer === client.clientId,
+    subject: client?.method === "private_key_jwt" && client.jwt.subject === client.clientId,
+    audience:
+      client?.method === "private_key_jwt" &&
+      "tokenEndpoint" in initial &&
+      client.jwt.audience === initial.tokenEndpoint,
+  };
+  return (
+    previous: ClientAuthentication,
+    fields: { method: ClientAuthentication["method"]; clientId: string; tokenEndpoint: string },
+  ): ClientAuthentication => {
+    const { method, clientId, tokenEndpoint } = fields;
+    if (method === "none") return { method, ...(clientId ? { clientId } : {}) };
+    if (method !== "private_key_jwt") return { method, clientId };
+    if (previous.method !== "private_key_jwt") {
+      defaults = { issuer: true, subject: true, audience: true };
+      return {
+        method,
+        clientId,
+        jwt: {
+          algorithm: "RS256",
+          issuer: clientId,
+          subject: clientId,
+          audience: tokenEndpoint,
+          ttlSeconds: 300,
+        },
+      };
+    }
+    const jwt = structuredClone(previous.jwt);
+    if (defaults.issuer) jwt.issuer = clientId;
+    if (defaults.subject) jwt.subject = clientId;
+    if (defaults.audience) jwt.audience = tokenEndpoint;
+    return { method, clientId, jwt };
+  };
 }
 
 export function newDefinition(template: Partial<Definition> = {}): Definition {
