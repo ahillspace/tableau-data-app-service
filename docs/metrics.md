@@ -28,7 +28,8 @@ Events disabled is state disabled with value null, not unavailable or evidence o
 Unknown means no observation; stale means a prior observation aged out; unavailable means an attempted current observation failed.
 Readiness follows the existing service health contract; events failure affects event readiness without making telemetry a routing dependency.
 API and worker processes write a heartbeat every 15 seconds using a random UUID per process start.
-Heartbeats become stale after 45 seconds; retain stale processes for 24 hours, then prune them.
+Heartbeats become stale after 45 seconds; status displays processes observed within the last 24 hours.
+Retain heartbeat evidence for seven days plus one minute and 45 seconds so cleanup preserves membership evidence throughout the minute-aligned metric horizon.
 Show every process uptime separately rather than inventing one installation uptime after replica restarts.
 Active sessions counts unexpired app/operator session records whose last authenticated request was within 15 minutes, excluding revoked/untrusted sessions.
 Active apps counts distinct registered app IDs attached to those active app sessions, not active people, approved applications or workbook instances.
@@ -57,8 +58,9 @@ Retries resend the same snapshot/sequence, so repeated or out-of-order delivery 
 Keep at most 2 minutes of unflushed data and 4096 series keys per instance, with excess dimensions folded into `_other` and recorded as degraded coverage.
 Drop expired unflushed data rather than delaying native traffic; report gaps/degraded telemetry and keep mayBeIncomplete true when completeness cannot be established.
 With a healthy database, abrupt process loss can lose up to the current 10-second unflushed interval; during an outage all unflushed buffered data can be lost on crash.
-Persisted data is retained for 7 days and pruned by existing worker maintenance.
-`flushedThrough` is the oldest acknowledged complete-minute boundary across fresh reporting API instances; it is null when reporting membership/coverage is unknown.
+Persisted metric snapshots are retained for seven days plus one minute so cleanup preserves the earliest accepted minute-aligned bound.
+Both snapshots and heartbeat evidence are pruned in bounded batches by existing worker maintenance.
+`flushedThrough` is the oldest acknowledged complete-minute boundary across fresh reporting API and worker instances; it is null when reporting membership/coverage is unknown.
 These are operational estimates, not billing or exactly-once business records.
 `GET /v1/admin/audit` retains its entries wrapper and cursor, adding validated action/definition filters and a maximum limit of 200.
 Never introduce a raw URL/body/secret/user-ID metric dimension.

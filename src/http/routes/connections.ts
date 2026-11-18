@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { ServiceError } from "../../platform/errors.ts";
+import { invalid, ServiceError } from "../../platform/errors.ts";
 import { caller } from "../auth.ts";
 import { redirect, sendErrorPage, sendOpenerPage } from "../pages.ts";
 import { objectBody, param } from "../request.ts";
@@ -21,6 +21,7 @@ export function connectionRoutes(app: FastifyInstance, services: Services): void
 
   app.put("/v1/definitions/:id/credential", async (request) => {
     const principal = await caller(identity, request);
+    if (request.url.includes("?")) throw invalid([{ path: "query", rule: "not-allowed" }]);
     const body = objectBody(request);
     return {
       definition: await connections.setPersonalCredential(

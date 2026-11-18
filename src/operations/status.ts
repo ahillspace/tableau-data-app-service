@@ -4,7 +4,7 @@ import { type Db, databaseTime, schemaIsCurrent } from "../persistence/database.
 import { currentRevision } from "../persistence/revision.ts";
 import { type Clock, systemClock } from "../platform/clock.ts";
 import type { Log } from "../platform/log.ts";
-import { HEARTBEAT_FRESH_MS, METRIC_RETENTION_MS, type Metrics } from "./metrics.ts";
+import { HEARTBEAT_FRESH_MS, METRIC_RETENTION_MS, type Metrics, MINUTE_MS } from "./metrics.ts";
 
 type Options = {
   db: Db;
@@ -178,8 +178,8 @@ export class Operations {
     const now = this.#clock.now().getTime();
     const report = { metrics: 0, heartbeats: 0 };
     for (const [table, cutoff, key] of [
-      ["metric_snapshots", now - METRIC_RETENTION_MS, "metrics"],
-      ["process_heartbeats", now - 86400_000, "heartbeats"],
+      ["metric_snapshots", now - METRIC_RETENTION_MS - MINUTE_MS, "metrics"],
+      ["process_heartbeats", now - METRIC_RETENTION_MS - MINUTE_MS - HEARTBEAT_FRESH_MS, "heartbeats"],
     ] as const) {
       const column = table === "metric_snapshots" ? "minute" : "heartbeat_at";
       for (let i = 0; i < 20; i++) {

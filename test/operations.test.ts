@@ -20,11 +20,16 @@ const range = () => ({
 });
 const metrics = (pool = db, instanceId = randomUUID()) =>
   new Metrics({ db: pool, instanceId, clock, log });
-const operations = (pool = db, instanceId = randomUUID(), telemetry?: Metrics) =>
+const operations = (
+  pool = db,
+  instanceId = randomUUID(),
+  telemetry?: Metrics,
+  role: "api" | "worker" = "api",
+) =>
   new Operations({
     db: pool,
     instanceId,
-    role: "api",
+    role,
     startedAt: clock.now(),
     clock,
     log,
@@ -209,4 +214,105 @@ test("retention cleanup deletes old telemetry in bounded batches", async () => {
   await operations().cleanup();
   assert.equal((await db.selectFrom("metric_snapshots").selectAll().execute()).length, 0);
   await assert.rejects(a.view(interval), { code: "invalid-request" });
+});
+
+test("worker watermarks, degradation and loss remain visible beside a healthy API", async () => {
+  const apiId = randomUUID();
+  const workerId = randomUUID();
+  const apiMetrics = metrics(db, apiId);
+  const workerMetrics = metrics(replica, workerId);
+  const api = operations(db, apiId, apiMetrics);
+  const worker = operations(replica, workerId, workerMetrics, "worker");
+  const interval = range();
+  workerMetrics.recordCredentialFailure("worker", "refresh");
+  await workerMetrics.flush();
+  await worker.heartbeat();
+  now += minute;
+  await apiMetrics.flush();
+  await api.heartbeat();
+  await worker.heartbeat();
+  const lagging = await apiMetrics.view(interval);
+  assert.equal(lagging.flushedThrough, interval.from);
+  assert.equal(lagging.mayBeIncomplete, true);
+  await workerMetrics.flush();
+  await worker.heartbeat();
+  assert.equal((await apiMetrics.view(interval)).mayBeIncomplete, false);
+  workerMetrics.recordNative({ definitionId: "worker", status: 200, upstreamMs: -1 });
+  await workerMetrics.flush();
+  await worker.heartbeat();
+  const degraded = await apiMetrics.view(interval);
+  assert.equal(degraded.totals.requests, 0);
+  assert.equal(degraded.totals.refreshFailures, 1);
+  assert.equal(degraded.mayBeIncomplete, true);
+  await db
+    .updateTable("process_heartbeats")
+    .set({ degraded: false })
+    .where("instance_id", "=", workerId)
+    .execute();
+  now += 46_000;
+  await apiMetrics.flush();
+  await api.heartbeat();
+  assert.equal((await apiMetrics.view(interval)).mayBeIncomplete, true);
+});
+
+test("cleanup preserves lost worker evidence across historical and oldest retained windows", async () => {
+  const retention = 7 * 86400_000;
+  const complete = now - (now % minute);
+  const from = complete - retention;
+  const workerId = randomUUID();
+  await db
+    .insertInto("process_heartbeats")
+    .values({
+      instance_id: workerId,
+      role: "worker",
+      started_at: new Date(from - minute),
+      heartbeat_at: new Date(from - 45_000),
+      flushed_through: null,
+      degraded: false,
+    })
+    .execute();
+  await sql`insert into metric_snapshots values (
+    ${workerId}::uuid, ${new Date(from)}, 'worker', 'service-error', 1, 0, 0,
+    ${Array(13).fill(0)}::bigint[], 0, 1
+  )`.execute(db);
+  const apiId = randomUUID();
+  const apiMetrics = metrics(db, apiId);
+  await apiMetrics.flush();
+  const api = new Operations({
+    db,
+    instanceId: apiId,
+    role: "api",
+    startedAt: new Date(from - minute),
+    clock,
+    log,
+    metrics: apiMetrics,
+    eventsEnabled: false,
+    eventsReady: () => false,
+    version: "test",
+  });
+  await api.heartbeat();
+  const interval = { from: new Date(from).toISOString(), to: new Date(from + minute).toISOString() };
+  assert.equal((await apiMetrics.view(interval)).mayBeIncomplete, true);
+  assert.equal((await api.status()).processes.some((p) => p.instanceId === workerId), false);
+  await api.cleanup();
+  const retained = await apiMetrics.view(interval);
+  assert.equal(retained.mayBeIncomplete, true);
+  assert.equal(retained.totals.exchangeFailures, 1);
+  assert.ok(
+    await db
+      .selectFrom("process_heartbeats")
+      .select("instance_id")
+      .where("instance_id", "=", workerId)
+      .executeTakeFirst(),
+  );
+  now += 2 * minute;
+  await api.cleanup();
+  assert.equal(
+    await db
+      .selectFrom("process_heartbeats")
+      .select("instance_id")
+      .where("instance_id", "=", workerId)
+      .executeTakeFirst(),
+    undefined,
+  );
 });

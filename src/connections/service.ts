@@ -620,7 +620,7 @@ export class ConnectionService {
           });
         return id;
       });
-      if (!reading.account) await this.#lookup(d, connectionId, reading.credential);
+      if (!reading.account) await this.#lookup(d, connectionId);
       return { transactionId: tx.id, definitionId: d.id };
     } catch (error) {
       this.#failure(tx.definition_id, "exchange");
@@ -664,7 +664,7 @@ export class ConnectionService {
         now: this.#clock.now(),
       });
     });
-    await this.#lookup(d, connection, credential);
+    await this.#lookup(d, connection);
     return (await this.listForApp(principal)).find((d) => d.id === id);
   }
   /** Enrichment is optional after custody commits; it never changes the mutation's outcome. */
@@ -677,45 +677,100 @@ export class ConnectionService {
       !view.credential.set
     )
       return view;
-    try {
-      const row = await this.#db
-        .selectFrom("connections")
-        .select(["id", "sealed"])
-        .where("definition_id", "=", view.id)
-        .where("status", "=", "connected")
-        .where("owner_identity_id", "is", null)
-        .executeTakeFirst();
-      const d = await this.#live(view.id);
-      if (row?.sealed)
-        await this.#lookup(d, row.id, openCredential(this.#sealer, row.id, row.sealed));
-    } catch {
-      this.#lookupFailed(view.id);
-    }
+    await this.#lookup(view);
     return view;
   }
   #lookupFailed(definitionId: string): void {
-    this.#log.info("account lookup failed", { definitionId, errorCode: "account-lookup-failed" });
-  }
-  async #lookup(d: ConnectionDefinition, id: string, credential: StoredCredential): Promise<void> {
-    if (!d.accountLookup) return;
     try {
+      this.#log.info("account lookup failed", { definitionId, errorCode: "account-lookup-failed" });
+    } catch {}
+  }
+  async #lookup(
+    expected: {
+      id: string;
+      generation: number;
+      secretGeneration?: number;
+      version: number;
+    },
+    connectionId?: string,
+  ): Promise<void> {
+    try {
+      const snapshot = await transaction(this.#db, async (tx) => {
+        const stored = await tx
+          .selectFrom("definitions")
+          .selectAll()
+          .where("id", "=", expected.id)
+          .forShare()
+          .executeTakeFirst();
+        if (
+          !stored ||
+          !stored.enabled ||
+          stored.retired ||
+          stored.generation !== expected.generation ||
+          (expected.secretGeneration !== undefined &&
+            stored.secret_generation !== expected.secretGeneration) ||
+          stored.version !== expected.version
+        )
+          return undefined;
+        const definition = definitionFromRow(stored);
+        if (!definition.accountLookup) return undefined;
+        let query = tx
+          .selectFrom("connections")
+          .selectAll()
+          .where("definition_id", "=", definition.id)
+          .where("generation", "=", definition.generation)
+          .where("status", "=", "connected");
+        query = connectionId
+          ? query.where("id", "=", connectionId)
+          : query.where("owner_identity_id", "is", null);
+        const row = await query.forShare().executeTakeFirst();
+        if (!row?.sealed || connectionNeedsAuthorization(definition, row, this.#clock.now()))
+          return undefined;
+        return {
+          definition,
+          accountLookup: definition.accountLookup,
+          id: row.id,
+          credentialGeneration: row.credential_generation,
+          credential: openCredential(this.#sealer, row.id, row.sealed),
+        };
+      });
+      if (!snapshot) return;
+      const { definition: d, accountLookup, id, credential, credentialGeneration } = snapshot;
       const body = await configuredRequest(
         this.#outbound,
         d,
-        d.accountLookup,
+        accountLookup,
         credential,
         AbortSignal.timeout(5000),
       );
-      const account = firstText(body, d.accountLookup.id);
+      const account = firstText(body, accountLookup.id);
       if (!account) return;
-      await this.#db
-        .updateTable("connections")
-        .set({ account, account_name: firstText(body, d.accountLookup.name) ?? null })
-        .where("id", "=", id)
-        .where("status", "<>", "disconnected")
-        .execute();
+      await transaction(this.#db, async (tx) => {
+        const live = await tx
+          .selectFrom("definitions")
+          .selectAll()
+          .where("id", "=", d.id)
+          .forShare()
+          .executeTakeFirst();
+        if (
+          !live ||
+          !live.enabled ||
+          live.retired ||
+          live.generation !== d.generation ||
+          live.secret_generation !== d.secretGeneration
+        )
+          return;
+        await tx
+          .updateTable("connections")
+          .set({ account, account_name: firstText(body, accountLookup.name) ?? null })
+          .where("id", "=", id)
+          .where("generation", "=", d.generation)
+          .where("credential_generation", "=", credentialGeneration)
+          .where("status", "=", "connected")
+          .execute();
+      });
     } catch {
-      this.#lookupFailed(d.id);
+      this.#lookupFailed(expected.id);
     }
   }
   async signingSecret(id: string): Promise<string | undefined> {

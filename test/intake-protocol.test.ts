@@ -684,7 +684,6 @@ test("data-only service-account import rejects token_uri mismatch and reaches co
         algorithm: "RS256",
         keyId: "google-kid",
         issuer: imported.client_email,
-        subject: imported.client_email,
         audience: tokenEndpoint,
         scope: configured.scopes.join(" "),
         ttl:

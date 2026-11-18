@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildConsole } from "../scripts/build-console.ts";
 import { AdminApi } from "../src/console/dom.ts";
+import { Status } from "../src/console/status.ts";
 import {
   defaultAuthentication,
   definitionChanges,
@@ -195,5 +196,143 @@ test("console builds only local production assets without inline scripts or pers
     assert.match(css, /prefers-reduced-motion/);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("audit pagination keeps applied filters until explicit reset and ignores cleared responses", async () => {
+  const nodes = new Map<string, AuditNode>();
+  class AuditNode {
+    value = "";
+    disabled = false;
+    onclick: ((event: { target: AuditNode }) => void) | null = null;
+    onkeydown: ((event: { key: string }) => void) | null = null;
+    #html = "";
+    readonly #attributes: string;
+    constructor(attributes = "") {
+      this.#attributes = attributes;
+    }
+    get innerHTML(): string {
+      return this.#html;
+    }
+    set innerHTML(html: string) {
+      this.#html = html;
+      for (const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g))
+        nodes.set(match[1]!, new AuditNode(match[0]));
+    }
+    closest(): AuditNode {
+      return this;
+    }
+    hasAttribute(name: string): boolean {
+      return this.#attributes.includes(name);
+    }
+    replaceChildren(): void {
+      this.#html = "";
+      nodes.clear();
+      nodes.set("status", this);
+    }
+  }
+  const node = (id: string): AuditNode => {
+    const result = nodes.get(id);
+    assert.ok(result, `mounted control ${id}`);
+    return result;
+  };
+  nodes.set("status", new AuditNode());
+  const savedDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const savedFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: { getElementById: (id: string) => nodes.get(id) ?? null },
+  });
+  const requests: URLSearchParams[] = [];
+  const responses: ((response: Response) => void)[] = [];
+  globalThis.fetch = (async (url) => {
+    const parsed = new URL(String(url), "https://service.test");
+    if (parsed.pathname !== "/v1/admin/audit") return Response.json({}, { status: 503 });
+    requests.push(parsed.searchParams);
+    return new Promise<Response>((resolve) => responses.push(resolve));
+  }) as typeof fetch;
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const page = (prefix: string, count: number) => ({
+    entries: Array.from({ length: count }, (_, index) => ({
+      id: `${prefix}-${index}`,
+      at: "2026-11-17T07:40:00Z",
+      action: prefix,
+      actor: "operator",
+      subject: "definition",
+      details: {},
+    })),
+  });
+  const answer = async (prefix: string, count = 100) => {
+    const resolve = responses.shift();
+    assert.ok(resolve, "an audit request is pending");
+    resolve(Response.json(page(prefix, count)));
+    await settle();
+  };
+  const click = (attribute: string) =>
+    node("status").onclick!({ target: new AuditNode(attribute) });
+  try {
+    const status = new Status(new AdminApi());
+    status.mount();
+    node("range").value = "1";
+    node("auditAction").value = "first";
+    node("auditDefinition").value = "provider-one";
+    const initial = status.load();
+    await answer("first");
+    await initial;
+    node("auditAction").value = "draft";
+    node("auditDefinition").value = "provider-two";
+    click("data-more-audit");
+    assert.equal(requests.at(-1)!.get("action"), "first");
+    assert.equal(requests.at(-1)!.get("definition"), "provider-one");
+    assert.equal(requests.at(-1)!.get("before"), "first-99");
+    await answer("older", 1);
+    assert.ok(node("auditContent").innerHTML.includes("<td>first</td>"));
+    assert.ok(node("auditContent").innerHTML.includes("older"));
+    node("filterAudit").onclick!({ target: node("filterAudit") });
+    assert.equal(requests.at(-1)!.get("action"), "draft");
+    assert.equal(requests.at(-1)!.get("definition"), "provider-two");
+    assert.equal(requests.at(-1)!.has("before"), false);
+    assert.equal(node("auditContent").innerHTML.includes("older"), false);
+    await answer("applied");
+    node("auditAction").value = "enter";
+    node("auditAction").onkeydown!({ key: "Enter" });
+    assert.equal(requests.at(-1)!.get("action"), "enter");
+    assert.equal(requests.at(-1)!.has("before"), false);
+    const fail = responses.shift();
+    assert.ok(fail);
+    fail(Response.json({}, { status: 503 }));
+    await settle();
+    assert.ok(node("auditContent").innerHTML.includes("Retry audit"));
+    node("auditAction").value = "retry";
+    click("data-retry-audit");
+    assert.equal(requests.at(-1)!.get("action"), "retry");
+    assert.equal(requests.at(-1)!.has("before"), false);
+    await answer("retried");
+    node("auditAction").value = "refreshed";
+    const refreshed = status.load();
+    assert.equal(requests.at(-1)!.get("action"), "refreshed");
+    assert.equal(requests.at(-1)!.has("before"), false);
+    await answer("refreshed");
+    await refreshed;
+    click("data-more-audit");
+    const stale = responses.shift();
+    assert.ok(stale);
+    status.clear();
+    status.mount();
+    node("range").value = "1";
+    const restored = status.load();
+    assert.equal(requests.at(-1)!.has("action"), false);
+    assert.equal(requests.at(-1)!.has("definition"), false);
+    assert.equal(requests.at(-1)!.has("before"), false);
+    await answer("restored", 1);
+    await restored;
+    stale(Response.json(page("stale", 1)));
+    await settle();
+    assert.ok(node("auditContent").innerHTML.includes("restored"));
+    assert.equal(node("auditContent").innerHTML.includes("stale"), false);
+  } finally {
+    globalThis.fetch = savedFetch;
+    if (savedDocument) Object.defineProperty(globalThis, "document", savedDocument);
+    else Reflect.deleteProperty(globalThis, "document");
   }
 });

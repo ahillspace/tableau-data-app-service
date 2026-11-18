@@ -114,7 +114,11 @@ The service does not automatically resend the business request, and refresh neve
 Lookup and revocation are fixed typed requests using the shared outbound transport.
 Lookup failure is informational and cannot discard a valid credential or change the result of a committed definition/secret mutation.
 Post-mutation lookup runs only for an eligible shared static definition with usable authorization; disabled or incomplete staging skips it.
-Preparation, provider and metadata-write failures in that optional path emit only a stable diagnostic code.
+Every lookup captures the definition configuration and matching sealed connection credential under short database locks, then releases those locks before contacting the provider.
+OAuth and personal credential setup select their exact committed connection; shared definition mutations retain the committed view authority.
+A response may update account metadata only while the definition generation, application-secret generation and connection credential generation still match and authorization remains connected.
+Redefinition, retirement, disablement, disconnect and credential rotation prevent stale enrichment from changing current metadata.
+Preparation, provider, metadata-write and diagnostic failures in that optional path cannot reject committed custody; diagnostics use only a stable code.
 Disconnect deletes local credential authority even when remote revocation fails.
 A late refresh or exchange cannot resurrect a disconnected connection.
 Failed revocation records only a safe code and never restores local access.

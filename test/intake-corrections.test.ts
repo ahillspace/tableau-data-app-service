@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
-import { sql } from "kysely";
+import { type KyselyPlugin, sql } from "kysely";
 import type { Authentication } from "../src/contracts/operator.ts";
+import { ConnectionService } from "../src/connections/service.ts";
+import { Log } from "../src/platform/log.ts";
 import { appSignIn } from "./support/identity.ts";
 import {
+  deferred,
   type IntakeHarness,
   IntakeProvider,
   intakeHarness,
@@ -357,5 +360,254 @@ test("R5 activity-only failure preserves native authority while expired, revoked
     "trust remains authoritative for an otherwise live session",
   );
   assert.equal(provider.count("/native"), 1);
+  provider.assertComplete();
+});
+
+test("account enrichment captures credential and destination authority across a concurrent redefinition", {
+  timeout: 20_000,
+}, async (t) => {
+  const { provider, h } = await fixture(t);
+  const definition = h.definition("lookup-destination", {
+    authentication: { method: "static" },
+    accountLookup: lookup(provider),
+    credential: { kind: "token", value: "synthetic-original-custody" },
+  });
+  provider.expect("/account", () => {}, { json: { id: "initial-account" } });
+  const original = await h.create(definition);
+  const read = deferred();
+  const release = deferred();
+  let pendingRead: object | undefined;
+  let paused = false;
+  const plugin: KyselyPlugin = {
+    transformQuery(args) {
+      if (
+        !paused &&
+        args.node.kind === "SelectQueryNode" &&
+        JSON.stringify(args.node).includes('"connections"')
+      ) {
+        paused = true;
+        pendingRead = args.queryId;
+      }
+      return args.node;
+    },
+    async transformResult(args) {
+      if (args.queryId === pendingRead) {
+        read.resolve();
+        await release.promise;
+      }
+      return args.result;
+    },
+  };
+  const outbound = provider.outbound();
+  t.after(() => outbound.close());
+  const service = new ConnectionService({
+    db: h.db.withPlugin(plugin),
+    definitions: h.definitions,
+    sealer: h.sealer,
+    outbound,
+    publicOrigin: "https://service.test",
+    clock: h.identity.clock,
+    log: new Log(() => {}),
+  });
+  provider.expect(
+    "/account",
+    (request) => {
+      assert.equal(request.headers.authorization, "Bearer synthetic-original-custody");
+    },
+    { json: { id: "captured-account" } },
+  );
+  const enrichment = service.afterDefinitionMutation(original);
+  await read.promise;
+  let redefined = false;
+  const replacement = h
+    .request(`/v1/admin/definitions/${original.id}`, {
+      method: "PUT",
+      json: {
+        ...definition,
+        expectedVersion: original.version,
+        accountLookup: { ...lookup(provider), url: `${provider.origin}/replacement-account` },
+        credential: { kind: "token", value: "synthetic-replacement-custody" },
+      },
+    })
+    .then((response) => {
+      redefined = true;
+      return response;
+    });
+  try {
+    const deadline = Date.now() + 5000;
+    while (!redefined) {
+      const waiting = await sql<{ blocked: boolean }>`select exists (
+        select 1 from pg_stat_activity where datname = current_database()
+          and wait_event_type = 'Lock' and query like '%"definitions"%for update%'
+      ) as blocked`.execute(h.db);
+      if (waiting.rows[0]?.blocked) break;
+      assert.ok(Date.now() < deadline, "redefinition commits or waits for captured authority");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  } finally {
+    release.resolve();
+  }
+  await enrichment;
+  const response = await replacement;
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(provider.count("/replacement-account"), 0);
+  assert.equal(provider.count("/account"), 2);
+  const live = await h.db
+    .selectFrom("connections")
+    .selectAll()
+    .where("definition_id", "=", original.id)
+    .where("status", "=", "connected")
+    .executeTakeFirstOrThrow();
+  assert.equal(live.account, null);
+  provider.assertComplete();
+});
+
+test("late account enrichment cannot overwrite metadata from a newer credential rotation", {
+  timeout: 20_000,
+}, async (t) => {
+  const { provider, h } = await fixture(t);
+  provider.expect("/account", () => {}, { json: { id: "initial-account" } });
+  const original = await h.create(
+    h.definition("lookup-rotation", {
+      authentication: { method: "static" },
+      accountLookup: lookup(provider),
+      credential: { kind: "token", value: "synthetic-initial-custody" },
+    }),
+  );
+  const entered = deferred();
+  const finish = deferred();
+  provider.expect(
+    "/account",
+    (request) => {
+      assert.equal(request.headers.authorization, "Bearer synthetic-first-rotation");
+      entered.resolve();
+    },
+    { wait: finish.promise, json: { id: "superseded-account" } },
+  );
+  const first = h.request(`/v1/admin/definitions/${original.id}/secrets`, {
+    method: "PUT",
+    json: {
+      expectedVersion: original.version,
+      credential: { kind: "token", value: "synthetic-first-rotation" },
+    },
+  });
+  await entered.promise;
+  const committed = await h.view(original.id);
+  provider.expect(
+    "/account",
+    (request) => {
+      assert.equal(request.headers.authorization, "Bearer synthetic-second-rotation");
+    },
+    { json: { id: "current-account" } },
+  );
+  try {
+    const second = await h.request(`/v1/admin/definitions/${original.id}/secrets`, {
+      method: "PUT",
+      json: {
+        expectedVersion: committed.version,
+        credential: { kind: "token", value: "synthetic-second-rotation" },
+      },
+    });
+    assert.equal(second.status, 200, await second.clone().text());
+  } finally {
+    finish.resolve();
+  }
+  assert.equal((await first).status, 200);
+  const row = await h.db
+    .selectFrom("connections")
+    .selectAll()
+    .where("definition_id", "=", original.id)
+    .where("status", "=", "connected")
+    .executeTakeFirstOrThrow();
+  assert.equal(row.account, "current-account");
+  assert.equal(row.credential_generation, 3);
+  provider.assertComplete();
+});
+
+test("personal credential intake rejects query parameters and seals JSON body credentials", async (t) => {
+  const { provider, h } = await fixture(t);
+  const definition = await h.create(
+    h.definition("personal-custody", {
+      ownership: "personal",
+      authentication: { method: "static" },
+    }),
+  );
+  const body = { credential: { kind: "token", value: "synthetic-personal-body" } };
+  const rejected = await h.request(
+    `/v1/definitions/${definition.id}/credential?token=synthetic-query-secret`,
+    { method: "PUT", bearer: h.app.bearer, json: body },
+  );
+  assert.equal(rejected.status, 400);
+  const failure = await rejected.json();
+  assert.deepEqual(failure.error.fields, [{ path: "query", rule: "not-allowed" }]);
+  assert.equal(JSON.stringify(failure).includes("synthetic-query-secret"), false);
+  assert.equal(
+    (
+      await h.db
+        .selectFrom("connections")
+        .select("id")
+        .where("definition_id", "=", definition.id)
+        .execute()
+    ).length,
+    0,
+  );
+  const accepted = await h.request(`/v1/definitions/${definition.id}/credential`, {
+    method: "PUT",
+    bearer: h.app.bearer,
+    json: body,
+  });
+  assert.equal(accepted.status, 200, await accepted.clone().text());
+  const row = await h.db
+    .selectFrom("connections")
+    .selectAll()
+    .where("definition_id", "=", definition.id)
+    .executeTakeFirstOrThrow();
+  assert.ok(row.sealed);
+  assert.equal(JSON.stringify(row.sealed).includes(body.credential.value), false);
+  assert.equal(
+    JSON.parse(h.sealer.open("credential", row.id, row.sealed)).input.value,
+    body.credential.value,
+  );
+  provider.expect("/native", (request) => {
+    assert.equal(request.headers.authorization, `Bearer ${body.credential.value}`);
+    assert.equal(request.url.searchParams.get("keep"), "native-query");
+  });
+  assert.equal((await h.native(definition.id, "/native?keep=native-query")).status, 200);
+  provider.assertComplete();
+  await h.assertSafe(["synthetic-query-secret", body.credential.value], [await accepted.text()]);
+});
+
+test("optional lookup diagnostics cannot reject committed personal credential custody", async (t) => {
+  const { provider, h } = await fixture(t);
+  const definition = await h.create(
+    h.definition("lookup-diagnostic", {
+      ownership: "personal",
+      authentication: { method: "static" },
+      accountLookup: lookup(provider),
+    }),
+  );
+  const outbound = provider.outbound();
+  t.after(() => outbound.close());
+  const service = new ConnectionService({
+    db: h.db,
+    definitions: h.definitions,
+    sealer: h.sealer,
+    outbound,
+    publicOrigin: "https://service.test",
+    clock: h.identity.clock,
+    log: new Log(() => {
+      throw new Error("synthetic diagnostic failure");
+    }),
+  });
+  provider.expect("/account", () => {}, { status: 503 });
+  const connected = await service.setPersonalCredential(h.app.principal, definition.id, {
+    kind: "token",
+    value: "synthetic-diagnostic-custody",
+  });
+  assert.equal(connected?.status, "connected");
+  provider.expect("/native", (request) => {
+    assert.equal(request.headers.authorization, "Bearer synthetic-diagnostic-custody");
+  });
+  assert.equal((await h.native(definition.id)).status, 200);
   provider.assertComplete();
 });

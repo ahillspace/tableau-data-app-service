@@ -24,6 +24,7 @@ export class Status {
   #auditEpoch = 0;
   #audit: AuditEntry[] = [];
   #auditMore = false;
+  #auditFilter = { action: "", definition: "" };
   constructor(api: AdminApi) {
     this.#api = api;
   }
@@ -33,6 +34,8 @@ export class Status {
     this.#metricEpoch++;
     this.#auditEpoch++;
     this.#audit = [];
+    this.#auditMore = false;
+    this.#auditFilter = { action: "", definition: "" };
     element("status").replaceChildren();
   }
 
@@ -169,8 +172,12 @@ export class Status {
   async #audits(reset: boolean): Promise<void> {
     const epoch = ++this.#auditEpoch;
     const query = new URLSearchParams({ limit: "100" });
-    const action = element<HTMLInputElement>("auditAction").value.trim();
-    const definition = element<HTMLSelectElement>("auditDefinition").value;
+    if (reset)
+      this.#auditFilter = {
+        action: element<HTMLInputElement>("auditAction").value.trim(),
+        definition: element<HTMLSelectElement>("auditDefinition").value,
+      };
+    const { action, definition } = this.#auditFilter;
     if (action) query.set("action", action);
     if (definition) query.set("definition", definition);
     if (!reset && this.#audit.length) query.set("before", this.#audit.at(-1)!.id);

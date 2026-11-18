@@ -306,7 +306,6 @@ export class Metrics {
     const members = await this.#db
       .selectFrom("process_heartbeats")
       .selectAll()
-      .where("role", "=", "api")
       .where("started_at", "<", new Date(to))
       .where("heartbeat_at", ">=", new Date(from - HEARTBEAT_FRESH_MS))
       .execute();
