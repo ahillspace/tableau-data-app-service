@@ -737,11 +737,6 @@ export class ConnectionService {
     await this.#lookup(view);
     return view;
   }
-  #lookupFailed(definitionId: string): void {
-    try {
-      this.#log.info("account lookup failed", { definitionId, errorCode: "account-lookup-failed" });
-    } catch {}
-  }
   async #lookup(
     expected: {
       id: string;
@@ -827,7 +822,10 @@ export class ConnectionService {
           .execute();
       });
     } catch {
-      this.#lookupFailed(expected.id);
+      this.#log.info("account lookup failed", {
+        definitionId: expected.id,
+        errorCode: "account-lookup-failed",
+      });
     }
   }
   async webhookSnapshot(

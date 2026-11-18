@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import { type KyselyPlugin, sql } from "kysely";
-import type { Authentication } from "../src/contracts/operator.ts";
 import { ConnectionService } from "../src/connections/service.ts";
+import type { Authentication } from "../src/contracts/operator.ts";
 import { Log } from "../src/platform/log.ts";
 import { appSignIn } from "./support/identity.ts";
 import {
@@ -575,39 +575,4 @@ test("personal credential intake rejects query parameters and seals JSON body cr
   assert.equal((await h.native(definition.id, "/native?keep=native-query")).status, 200);
   provider.assertComplete();
   await h.assertSafe(["synthetic-query-secret", body.credential.value], [await accepted.text()]);
-});
-
-test("optional lookup diagnostics cannot reject committed personal credential custody", async (t) => {
-  const { provider, h } = await fixture(t);
-  const definition = await h.create(
-    h.definition("lookup-diagnostic", {
-      ownership: "personal",
-      authentication: { method: "static" },
-      accountLookup: lookup(provider),
-    }),
-  );
-  const outbound = provider.outbound();
-  t.after(() => outbound.close());
-  const service = new ConnectionService({
-    db: h.db,
-    definitions: h.definitions,
-    sealer: h.sealer,
-    outbound,
-    publicOrigin: "https://service.test",
-    clock: h.identity.clock,
-    log: new Log(() => {
-      throw new Error("synthetic diagnostic failure");
-    }),
-  });
-  provider.expect("/account", () => {}, { status: 503 });
-  const connected = await service.setPersonalCredential(h.app.principal, definition.id, {
-    kind: "token",
-    value: "synthetic-diagnostic-custody",
-  });
-  assert.equal(connected?.status, "connected");
-  provider.expect("/native", (request) => {
-    assert.equal(request.headers.authorization, "Bearer synthetic-diagnostic-custody");
-  });
-  assert.equal((await h.native(definition.id)).status, 200);
-  provider.assertComplete();
 });

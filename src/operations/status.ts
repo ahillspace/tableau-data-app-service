@@ -179,7 +179,11 @@ export class Operations {
     const report = { metrics: 0, heartbeats: 0 };
     for (const [table, cutoff, key] of [
       ["metric_snapshots", now - METRIC_RETENTION_MS - MINUTE_MS, "metrics"],
-      ["process_heartbeats", now - METRIC_RETENTION_MS - MINUTE_MS - HEARTBEAT_FRESH_MS, "heartbeats"],
+      [
+        "process_heartbeats",
+        now - METRIC_RETENTION_MS - MINUTE_MS - HEARTBEAT_FRESH_MS,
+        "heartbeats",
+      ],
     ] as const) {
       const column = table === "metric_snapshots" ? "minute" : "heartbeat_at";
       for (let i = 0; i < 20; i++) {

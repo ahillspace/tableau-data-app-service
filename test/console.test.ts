@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildConsole } from "../scripts/build-console.ts";
 import { AdminApi } from "../src/console/dom.ts";
-import { Status } from "../src/console/status.ts";
 import {
   clientAuthenticationReader,
   defaultAuthentication,
@@ -14,6 +13,7 @@ import {
   newDefinition,
   serializeSecret,
 } from "../src/console/model.ts";
+import { Status } from "../src/console/status.ts";
 import type { ClientAuthentication, DefinitionView } from "../src/contracts/operator.ts";
 
 test("console secret writes preserve exact multiline input and require explicit clearing", () => {
