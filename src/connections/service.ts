@@ -33,6 +33,7 @@ import type {
   CredentialLease,
   DefinitionView,
   StoredCredential,
+  Webhook,
 } from "./types.ts";
 
 const REFRESH_SKEW_MS = 60_000;
@@ -545,21 +546,49 @@ export class ConnectionService {
           "authorization-invalid",
           "The provider returned no authorization code",
         );
-      const d = await this.#live(tx.definition_id),
-        auth = d.authentication;
-      if (d.generation !== tx.generation || auth.method !== "authorization_code") throw changed();
+      const {
+        definition: d,
+        authentication: auth,
+        secrets,
+      } = await transaction(this.#db, async (t) => {
+        const row = await t
+          .selectFrom("definitions")
+          .selectAll()
+          .where("id", "=", tx.definition_id)
+          .forShare()
+          .executeTakeFirst();
+        if (!row) throw checkoutError("definition-not-found");
+        if (!row.enabled || row.retired) throw checkoutError("definition-disabled");
+        const definition = definitionFromRow(row),
+          authentication = definition.authentication;
+        if (
+          definition.generation !== tx.generation ||
+          authentication.method !== "authorization_code"
+        )
+          throw changed();
+        return {
+          definition,
+          authentication,
+          secrets: {
+            clientSecret: await readDefinitionSecret(
+              t,
+              this.#sealer,
+              definition.id,
+              "clientSecret",
+            ),
+            signingPrivateKey: await readDefinitionSecret(
+              t,
+              this.#sealer,
+              definition.id,
+              "signingPrivateKey",
+            ),
+          },
+        };
+      });
       const response = await tokenRequest(
         this.#outbound,
         d,
-        {
-          clientSecret: await readDefinitionSecret(this.#db, this.#sealer, d.id, "clientSecret"),
-          signingPrivateKey: await readDefinitionSecret(
-            this.#db,
-            this.#sealer,
-            d.id,
-            "signingPrivateKey",
-          ),
-        },
+        secrets,
         {
           grant_type: "authorization_code",
           code,
@@ -773,8 +802,31 @@ export class ConnectionService {
       this.#lookupFailed(expected.id);
     }
   }
-  async signingSecret(id: string): Promise<string | undefined> {
-    return readDefinitionSecret(this.#db, this.#sealer, id, "signingSecret");
+  async webhookSnapshot(
+    id: string,
+  ): Promise<{ webhook: Webhook; signingSecret: string | undefined }> {
+    return transaction(this.#db, async (tx) => {
+      const row = await tx
+        .selectFrom("definitions")
+        .selectAll()
+        .where("id", "=", id)
+        .forShare()
+        .executeTakeFirst();
+      if (!row) throw notFound("definition-not-found", "No such definition");
+      if (!row.enabled || row.retired)
+        throw new ServiceError(403, "definition-disabled", "The definition is disabled");
+      const definition = definitionFromRow(row);
+      if (!definition.webhook)
+        throw new ServiceError(
+          409,
+          "events-not-supported",
+          "The definition has no webhook configuration",
+        );
+      return {
+        webhook: definition.webhook,
+        signingSecret: await readDefinitionSecret(tx, this.#sealer, id, "signingSecret"),
+      };
+    });
   }
   async disconnectOwn(principal: Principal, id: string): Promise<boolean> {
     const d = await this.#live(id);

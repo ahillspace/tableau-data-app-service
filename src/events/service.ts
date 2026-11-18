@@ -271,19 +271,9 @@ export class EventService {
     response: { status: number; contentType?: string; body?: string };
     publish(): Promise<void>;
   }> {
-    const definition = await this.#connections.definitions.get(definitionId);
-    if (!definition) throw notFound("definition-not-found", "No such definition");
-    if (!definition.enabled || definition.retired)
-      throw new ServiceError(403, "definition-disabled", "The definition is disabled");
-    if (!definition.webhook)
-      throw new ServiceError(
-        409,
-        "events-not-supported",
-        "The definition has no webhook configuration",
-      );
-    const signingSecret = await this.#connections.signingSecret(definitionId);
+    const { webhook, signingSecret } = await this.#connections.webhookSnapshot(definitionId);
     const now = this.#clock.now();
-    const outcome = verifyDelivery(definition.webhook, { ...delivery, now }, signingSecret);
+    const outcome = verifyDelivery(webhook, { ...delivery, now }, signingSecret);
     const events: ServiceEvent[] = outcome.events.map((e) => ({
       id: e.id,
       definitionId,

@@ -73,7 +73,6 @@ const headerValue = z
   .string()
   .max(200)
   .refine((s) => !/[\r\n\0]/.test(s), "header-safe");
-const scopeParameter = z.strictObject({ name: text, separator: z.enum([" ", ","]) });
 const jwt = z.strictObject({
   algorithm: z.enum(["RS256", "ES256"]),
   issuer: z.union([text, z.strictObject({ credential: z.literal("issuer") })]),
@@ -107,6 +106,10 @@ const ownedParameters = new Set([
   "response_type",
   "refresh_token",
 ]);
+const scopeParameter = z.strictObject({
+  name: text.refine((name) => !ownedParameters.has(name), "unreserved-parameter"),
+  separator: z.enum([" ", ","]),
+});
 const parameters = z
   .record(text, z.string().max(2000))
   .refine(

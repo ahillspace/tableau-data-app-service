@@ -88,3 +88,76 @@ test("private_key_jwt binds assertion client claims to the authoritative client 
   definition.authentication.clientAuthentication.jwt.subject = "client-one";
   assert.deepEqual(validateDefinition(definition, { siteIds: new Set() }).errors, []);
 });
+
+test("scope parameter names cannot replace engine-owned protocol parameters", () => {
+  const owned = [
+    "grant_type",
+    "state",
+    "code",
+    "redirect_uri",
+    "code_challenge",
+    "code_challenge_method",
+    "code_verifier",
+    "assertion",
+    "client_assertion",
+    "client_assertion_type",
+    "client_id",
+    "client_secret",
+    "response_type",
+    "refresh_token",
+  ];
+  for (const method of ["authorization_code", "client_credentials"] as const) {
+    const definition = {
+      id: "scope-parameter",
+      displayName: "Scope parameter",
+      ownership: "shared",
+      apiHosts: ["https://provider.example"],
+      audience: [],
+      scopes: ["read", "write"],
+      authentication: {
+        method,
+        tokenEndpoint: "https://provider.example/token",
+        clientAuthentication: { method: "none", clientId: "client" },
+        scopeParameter: { name: "scope", separator: " " },
+        response: standardTokenResponse,
+        ...(method === "authorization_code"
+          ? { authorizationEndpoint: "https://provider.example/authorize", pkce: "S256" }
+          : {}),
+      },
+    };
+    for (const name of owned) {
+      definition.authentication.scopeParameter.name = name;
+      const result = validateDefinition(definition, { siteIds: new Set() });
+      assert.ok(
+        result.errors.some((error) => error.path === "authentication.scopeParameter.name"),
+        `${method} rejects engine-owned scope parameter ${name}`,
+      );
+    }
+    for (const name of ["scope", "user_scope", "permissions"]) {
+      definition.authentication.scopeParameter.name = name;
+      assert.deepEqual(
+        validateDefinition(definition, { siteIds: new Set() }).errors,
+        [],
+        `${method} retains provider scope parameter ${name}`,
+      );
+    }
+    definition.authentication.scopeParameter.name = "scope";
+    for (const field of method === "authorization_code"
+      ? ["authorizeParameters", "tokenParameters", "refreshParameters"]
+      : ["tokenParameters"]) {
+      for (const name of owned) {
+        const result = validateDefinition(
+          {
+            ...definition,
+            authentication: { ...definition.authentication, [field]: { [name]: "literal" } },
+          },
+          { siteIds: new Set() },
+        );
+        assert.ok(
+          result.errors.some((error) => error.path === `authentication.${field}`),
+          `${method} keeps ${name} reserved in ${field}`,
+        );
+      }
+    }
+  }
+});

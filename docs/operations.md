@@ -81,8 +81,9 @@ The worker role serves the same two routes on its own port, `WORKER_HEALTH_PORT`
 ## Telemetry maintenance
 
 API and worker processes publish heartbeats every 15 seconds, with a unique ID per process start.
-API collectors flush cumulative minute snapshots every 10 seconds, retrying identical sequence numbers idempotently.
-The worker prunes metric data after seven days and stale process history after 24 hours.
+API and worker collectors flush cumulative minute snapshots every 10 seconds, retrying identical sequence numbers idempotently.
+The worker retains metric snapshots for seven days plus one minute and heartbeat evidence for seven days plus one minute and 45 seconds before pruning in bounded batches.
+Status displays processes observed within the last 24 hours; this presentation window does not shorten retained metric coverage evidence.
 No native request waits for a synchronous metric write.
 [Metrics](metrics.md) defines counters, histogram merging, freshness, bounded buffers and crash loss.
 
