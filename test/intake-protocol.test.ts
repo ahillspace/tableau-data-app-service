@@ -1052,6 +1052,17 @@ async function assertGrantedScopes(h: IntakeHarness, id: string, expected: strin
   assert.ok(definition);
   assert.deepEqual(connection.scopes, expected);
   assert.deepEqual(definition.scopes, expected);
+  return [JSON.stringify(connection), JSON.stringify(definition)];
+}
+
+async function patchScopes(h: IntakeHarness, id: string, scopes: string[]) {
+  const before = await h.view(id);
+  const response = await h.request(`/v1/admin/definitions/${id}`, {
+    method: "PATCH",
+    json: { expectedVersion: before.version, scopes },
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  return (await response.json()).definition;
 }
 
 test("OAuth renewal replaces expiry and supplied grants while preserving omitted renewal authority", {
@@ -1092,6 +1103,7 @@ test("OAuth renewal replaces expiry and supplied grants while preserving omitted
     { scopes: [] },
   ];
   for (const [index, renewal] of renewals.entries()) {
+    if (index === 1) await patchScopes(h, "oauth-renewal", ["edited-configuration"]);
     h.identity.clock.offsetMs += 70_000;
     provider.expect(
       "/refresh",
@@ -1219,6 +1231,16 @@ for (const method of ["client_credentials", "jwt_bearer"] as const) {
     }
     assert.equal(provider.count("/token"), 2);
     await assertGrantedScopes(h, "generated-renewal", ["renewed"]);
+    await patchScopes(h, "generated-renewal", ["edited-configuration"]);
+    provider.expect("/token", check, {
+      json: { access_token: "synthetic-generated-empty-scope", scope: "" },
+    });
+    provider.expect("/native", (request) => {
+      assert.equal(request.headers.authorization, "Bearer synthetic-generated-empty-scope");
+    });
+    assert.equal((await h.native("generated-renewal")).status, 200);
+    await assertGrantedScopes(h, "generated-renewal", []);
+    assert.equal(provider.count("/token"), 3);
     const row = await h.db
       .selectFrom("connections")
       .selectAll()
@@ -1265,3 +1287,193 @@ test("initial OAuth distinguishes an omitted grant from an explicitly empty gran
   }
   provider.assertComplete();
 });
+
+function scopedGeneration(
+  provider: IntakeProvider,
+  method: "client_credentials" | "jwt_bearer" | "signed_jwt_direct",
+): Authentication {
+  const jwt = {
+    algorithm: "RS256" as const,
+    issuer: { credential: "issuer" as const },
+    audience: provider.origin,
+    keyId: { credential: "keyId" as const },
+    scope: { source: "scopes" as const, separator: " " as const },
+    ttlSeconds: 300,
+  };
+  if (method === "signed_jwt_direct") return { method, jwt };
+  const exchange = {
+    tokenEndpoint: `${provider.origin}/token`,
+    clientAuthentication: { method: "none" as const },
+    response: { ...tokenResponse, mapping: { ...tokenResponse.mapping, scope: ["scope"] } },
+  };
+  return method === "jwt_bearer"
+    ? { method, ...exchange, jwt }
+    : { method, ...exchange, scopeParameter: { name: "permissions", separator: "," } };
+}
+
+for (const [method, ownership] of [
+  ["client_credentials", "shared"],
+  ["jwt_bearer", "shared"],
+  ["signed_jwt_direct", "shared"],
+  ["jwt_bearer", "personal"],
+  ["signed_jwt_direct", "personal"],
+] as const) {
+  test(`scope metadata ${ownership} ${method} follows fresh issuance after operator scope edit`, {
+    timeout: 20_000,
+  }, async (t) => {
+    const { provider, h } = await fixture(t);
+    const key = signingKey();
+    const input = {
+      kind: "jwt" as const,
+      privateKey: key.privateKey,
+      issuer: "scope-account",
+      keyId: "scope-key",
+    };
+    await h.create(
+      h.definition("scope-edit", {
+        ownership,
+        authentication: scopedGeneration(provider, method),
+        scopes: ["read"],
+        ...(method !== "client_credentials" && ownership === "shared" ? { credential: input } : {}),
+      }),
+    );
+    if (ownership === "personal") {
+      const installed = await h.request("/v1/definitions/scope-edit/credential", {
+        method: "PUT",
+        bearer: h.app.bearer,
+        json: { credential: input },
+      });
+      assert.equal(installed.status, 200, await installed.clone().text());
+    }
+    const tokens: string[] = [];
+    const views: string[] = [];
+    for (const scope of ["read", "write"]) {
+      if (scope === "write") {
+        const edited = await patchScopes(h, "scope-edit", [scope]);
+        assert.deepEqual(edited.scopes, [scope]);
+        views.push(...(await assertGrantedScopes(h, "scope-edit", ["read"])));
+      }
+      const verify = (token: string) => {
+        verifyJwt(token, {
+          key: key.publicKey,
+          algorithm: "RS256",
+          keyId: "scope-key",
+          issuer: "scope-account",
+          audience: provider.origin,
+          scope,
+          ttl: 300,
+        });
+        tokens.push(token);
+      };
+      if (method !== "signed_jwt_direct") {
+        provider.expect(
+          "/token",
+          (request) => {
+            assert.equal(
+              request.form.get("grant_type"),
+              method === "client_credentials"
+                ? "client_credentials"
+                : "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            );
+            if (method === "client_credentials")
+              assert.equal(request.form.get("permissions"), scope);
+            else verify(request.form.get("assertion") as string);
+          },
+          { json: { access_token: `synthetic-scope-${scope}`, expires_in: 3600 } },
+        );
+      }
+      provider.expect("/native", (request) => {
+        if (method === "signed_jwt_direct")
+          verify((request.headers.authorization ?? "").slice("Bearer ".length));
+        else assert.equal(request.headers.authorization, `Bearer synthetic-scope-${scope}`);
+      });
+      assert.equal((await h.native("scope-edit")).status, 200);
+      views.push(...(await assertGrantedScopes(h, "scope-edit", [scope])));
+    }
+    assert.equal(provider.count("/token"), method === "signed_jwt_direct" ? 0 : 2);
+    provider.assertComplete();
+    await h.assertSafe(
+      [key.privateKey, ...tokens, "synthetic-scope-read", "synthetic-scope-write"],
+      views,
+    );
+  });
+}
+
+for (const method of ["jwt_bearer", "signed_jwt_direct"] as const) {
+  test(`scope metadata shared ${method} resets immediately when owner input is replaced after scope edit`, {
+    timeout: 20_000,
+  }, async (t) => {
+    const { provider, h } = await fixture(t);
+    const firstKey = signingKey(),
+      replacementKey = signingKey();
+    const input = (privateKey: string) => ({
+      kind: "jwt" as const,
+      privateKey,
+      issuer: "replacement-account",
+      keyId: "replacement-key",
+    });
+    await h.create(
+      h.definition("scope-replacement", {
+        authentication: scopedGeneration(provider, method),
+        scopes: ["read"],
+        credential: input(firstKey.privateKey),
+      }),
+    );
+    await patchScopes(h, "scope-replacement", ["write"]);
+    const views = await assertGrantedScopes(h, "scope-replacement", ["read"]);
+    const before = (await h.connections.listConnections({ definitionId: "scope-replacement" }))[0]!;
+    const current = await h.view("scope-replacement");
+    const replaced = await h.request("/v1/admin/definitions/scope-replacement/secrets", {
+      method: "PUT",
+      json: { expectedVersion: current.version, credential: input(replacementKey.privateKey) },
+    });
+    assert.equal(replaced.status, 200, await replaced.clone().text());
+    views.push(await replaced.text());
+    views.push(...(await assertGrantedScopes(h, "scope-replacement", ["write"])));
+    assert.equal(
+      provider.requests.length,
+      0,
+      "input replacement updates metadata before lazy issuance",
+    );
+    const after = (await h.connections.listConnections({ definitionId: "scope-replacement" }))[0]!;
+    assert.equal(after.id, before.id);
+    assert.equal(after.credentialGeneration, before.credentialGeneration + 1);
+    const tokens: string[] = [];
+    const verify = (token: string) => {
+      verifyJwt(token, {
+        key: replacementKey.publicKey,
+        algorithm: "RS256",
+        keyId: "replacement-key",
+        issuer: "replacement-account",
+        audience: provider.origin,
+        scope: "write",
+        ttl: 300,
+      });
+      tokens.push(token);
+    };
+    if (method === "jwt_bearer")
+      provider.expect(
+        "/token",
+        (request) => {
+          assert.equal(
+            request.form.get("grant_type"),
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          );
+          verify(request.form.get("assertion") as string);
+        },
+        { json: { access_token: "synthetic-replaced-scope-token", expires_in: 3600 } },
+      );
+    provider.expect("/native", (request) => {
+      if (method === "signed_jwt_direct")
+        verify((request.headers.authorization ?? "").slice("Bearer ".length));
+      else assert.equal(request.headers.authorization, "Bearer synthetic-replaced-scope-token");
+    });
+    assert.equal((await h.native("scope-replacement")).status, 200);
+    views.push(...(await assertGrantedScopes(h, "scope-replacement", ["write"])));
+    provider.assertComplete();
+    await h.assertSafe(
+      [firstKey.privateKey, replacementKey.privateKey, ...tokens, "synthetic-replaced-scope-token"],
+      views,
+    );
+  });
+}

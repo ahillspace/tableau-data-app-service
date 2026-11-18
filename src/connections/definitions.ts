@@ -338,6 +338,7 @@ export class DefinitionStore {
             sealed: JSON.stringify(
               this.#sealer.seal("credential", existing.id, JSON.stringify({ input: credential })),
             ),
+            scopes: JSON.stringify(d.scopes),
             credential_generation: existing.credential_generation + 1,
             credential_set_at: now,
             credential_expires_at: null,

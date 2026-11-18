@@ -209,7 +209,7 @@ export class ConnectionService {
         return { rejected: true };
       }
       let credential = openCredential(this.#sealer, row.id, row.sealed);
-      let scopes = row.scopes;
+      let scopes = auth.method === "authorization_code" ? row.scopes : d.scopes;
       if (auth.method === "static") return { lease: leaseFor(d, row.id, credential) };
       const generated = auth.method !== "authorization_code";
       const selectedOrigin =
