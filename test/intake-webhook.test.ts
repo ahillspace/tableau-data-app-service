@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { type TestContext, test } from "node:test";
+import { templates } from "../src/catalog/index.ts";
 import type { Webhook } from "../src/contracts/operator.ts";
 import type { ServiceEvent } from "../src/events/types.ts";
 import { type IntakeHarness, IntakeProvider, intakeHarness } from "./support/intake-providers.ts";
@@ -145,7 +146,7 @@ for (const kind of ["slack", "github", "stripe"] as const) {
     );
     const received = await stream(t, h, other.origin, kind);
     const body = Buffer.from(
-      `{\r\n "id": "${kind}-one", "type":"message", "account":"fixture-account", "text":"snowman ☃ and \\u0061", "token":"synthetic-envelope-token"\n}\n`,
+      `{\r\n "id": "${kind}-one", "type":"message", "account":"fixture-account", "text":"snowman ☃ and \\u0061", "token":"synthetic-business-token"\n}\n`,
     );
     const forged = await h.request(`/v1/events/ingest/${kind}`, {
       method: "POST",
@@ -191,12 +192,9 @@ for (const kind of ["slack", "github", "stripe"] as const) {
     assert.equal(event.type, "message");
     assert.equal(event.account, "fixture-account");
     assert.equal((event.payload as Record<string, unknown>).text, "snowman ☃ and a");
-    assert.equal("token" in (event.payload as Record<string, unknown>), false);
+    assert.equal((event.payload as Record<string, unknown>).token, "synthetic-business-token");
     assert.deepEqual(received.failures, []);
-    await h.assertSafe(
-      [SECRET, "synthetic-envelope-token"],
-      [await forged.text(), JSON.stringify(received.events)],
-    );
+    await h.assertSafe([SECRET], [await forged.text(), JSON.stringify(received.events)]);
   });
 }
 
@@ -271,6 +269,7 @@ test("Graph basic clientState validates entire batches, strips every secret and 
           id: { json: ["id"] },
           type: { json: ["changeType"] },
           account: [{ json: ["tenantId"] }],
+          omit: [["internal"]],
         },
       },
     }),
@@ -281,6 +280,8 @@ test("Graph basic clientState validates entire batches, strips every secret and 
     changeType: "updated",
     tenantId: "synthetic-tenant",
     clientState,
+    token: "synthetic-business-token",
+    internal: "synthetic-explicitly-omitted",
     resourceData: { id: `resource-${id}` },
   });
   const handshake = await h.request(
@@ -321,13 +322,15 @@ test("Graph basic clientState validates entire batches, strips every secret and 
     assert.equal(event.type, "updated");
     assert.equal(event.account, "synthetic-tenant");
     assert.equal("clientState" in (event.payload as Record<string, unknown>), false);
+    assert.equal("internal" in (event.payload as Record<string, unknown>), false);
+    assert.equal((event.payload as Record<string, unknown>).token, "synthetic-business-token");
     assert.deepEqual((event.payload as Record<string, unknown>).resourceData, {
       id: `resource-${event.id}`,
     });
   }
   assert.deepEqual(received.failures, []);
   await h.assertSafe(
-    [SECRET, "synthetic-wrong-client-state"],
+    [SECRET, "synthetic-wrong-client-state", "synthetic-explicitly-omitted"],
     [await mixed.text(), await excessive.text(), JSON.stringify(received.events)],
   );
 });
@@ -357,3 +360,44 @@ test("a missing webhook secret refuses business ingress without blocking native 
   assert.equal((await response.json()).error.code, "events-not-configured");
   provider.assertComplete();
 });
+
+for (const id of ["slack-bot", "slack-user"]) {
+  test(`${id} catalog map omits only the configured envelope token during real ingress`, {
+    timeout: 20_000,
+  }, async (t) => {
+    const { h, other } = await fixture(t);
+    const template = templates.find((entry) => entry.id === id);
+    assert.ok(template?.definition.webhook);
+    const definitionId = `catalog-${id}`;
+    await h.create(
+      h.definition(definitionId, {
+        webhook: template.definition.webhook,
+        secrets: { signingSecret: SECRET },
+      }),
+    );
+    const received = await stream(t, h, other.origin, definitionId);
+    const body = Buffer.from(
+      JSON.stringify({
+        type: "event_callback",
+        event_id: definitionId,
+        team_id: "fixture-team",
+        token: "synthetic-legacy-envelope",
+        event: { type: "message", token: "synthetic-nested-business-token" },
+      }),
+    );
+    const accepted = await h.request(`/v1/events/ingest/${definitionId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...signed("slack", body) },
+      body,
+    });
+    assert.equal(accepted.status, 200);
+    await until(() => received.events.length === 1, "catalog-configured Slack event");
+    const payload = received.events[0]!.payload as Record<string, unknown>;
+    assert.equal(Object.hasOwn(payload, "token"), false);
+    assert.equal(
+      (payload.event as Record<string, unknown>).token,
+      "synthetic-nested-business-token",
+    );
+    await h.assertSafe([SECRET, "synthetic-legacy-envelope"], [JSON.stringify(received.events)]);
+  });
+}

@@ -208,6 +208,7 @@ export class ConnectionService {
         return { rejected: true };
       }
       let credential = openCredential(this.#sealer, row.id, row.sealed);
+      let scopes = row.scopes;
       if (auth.method === "static") return { lease: leaseFor(d, row.id, credential) };
       const generated = auth.method !== "authorization_code";
       const selectedOrigin =
@@ -234,7 +235,7 @@ export class ConnectionService {
               "jwt" in auth ? (auth.jwt.ttlSeconds * 1000) / 10 : REFRESH_SKEW_MS,
             ) >
           now.getTime()
-        : auth.method === "authorization_code" && !!credential.accessToken;
+        : !!credential.accessToken;
       if ((!generated || credential.derivedKey === cacheKey) && valid)
         return { lease: leaseFor(d, row.id, credential) };
       const refresh = auth.method === "authorization_code";
@@ -356,15 +357,21 @@ export class ConnectionService {
             );
           }
           credential = {
-            ...credential,
             ...reading.credential,
+            ...(credential.input === undefined ? {} : { input: credential.input }),
+            ...(reading.credential.refreshToken === undefined &&
+            credential.refreshToken !== undefined
+              ? { refreshToken: credential.refreshToken }
+              : {}),
             ...(generated ? { derivedKey: cacheKey } : {}),
           };
+          scopes = reading.scopes ?? scopes;
         }
         await tx
           .updateTable("connections")
           .set({
             sealed: JSON.stringify(sealCredential(this.#sealer, row.id, credential)),
+            scopes: JSON.stringify(scopes),
             credential_expires_at: credential.expiresAt ? new Date(credential.expiresAt) : null,
             updated_at: this.#clock.now(),
           })
@@ -633,7 +640,7 @@ export class ConnectionService {
           ownerIdentityId: tx.shared ? null : tx.identity_id,
           credential: reading.credential,
           account: reading.account,
-          scopes: reading.scopes.length ? reading.scopes : d.scopes,
+          scopes: reading.scopes ?? d.scopes,
           now: this.#clock.now(),
         });
         await t

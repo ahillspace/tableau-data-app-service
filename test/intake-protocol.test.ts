@@ -1036,3 +1036,232 @@ test("secret rotation on a second pool rejects an OAuth callback's stale credent
   provider.assertComplete();
   await h.assertSafe([SECRET, TOKEN, "synthetic-new-authority", "synthetic-stale-refresh"], [body]);
 });
+
+async function assertGrantedScopes(h: IntakeHarness, id: string, expected: string[]) {
+  const [operator, app] = await Promise.all([
+    h.request(`/v1/admin/connections?definition=${id}`),
+    h.request("/v1/definitions", { bearer: h.app.bearer }),
+  ]);
+  assert.equal(operator.status, 200);
+  assert.equal(app.status, 200);
+  const connection = (await operator.json()).connections.find(
+    (row: { status: string }) => row.status === "connected",
+  );
+  const definition = (await app.json()).definitions.find((row: { id: string }) => row.id === id);
+  assert.ok(connection);
+  assert.ok(definition);
+  assert.deepEqual(connection.scopes, expected);
+  assert.deepEqual(definition.scopes, expected);
+}
+
+test("OAuth renewal replaces expiry and supplied grants while preserving omitted renewal authority", {
+  timeout: 20_000,
+}, async (t) => {
+  const { provider, h } = await fixture(t);
+  const auth = authorization(provider);
+  assert.ok(auth.refreshResponse);
+  auth.refreshResponse.mapping.scope = ["renewal", "scope"];
+  auth.refreshResponse.mapping.scopeSeparator = ",";
+  await h.create(
+    h.definition("oauth-renewal", {
+      authentication: auth,
+      scopes: ["read", "write"],
+      secrets: { clientSecret: SECRET },
+    }),
+  );
+  const begun = await beginOAuth(h, "oauth-renewal");
+  provider.expect("/token", () => {}, {
+    json: {
+      ok: true,
+      authed_user: {
+        access_token: "synthetic-initial-renewal-access",
+        refresh_token: "synthetic-initial-renewal-refresh",
+        expires_in: 120,
+        scope: "read,write",
+      },
+    },
+  });
+  assert.equal((await begun.finish()).status, 200);
+  const authorizedAt = (await h.connections.listConnections({ definitionId: "oauth-renewal" }))[0]!
+    .authorizedAt;
+  await assertGrantedScopes(h, "oauth-renewal", ["read", "write"]);
+  const renewals: { scope?: string; refresh?: string; ttl?: number; scopes: string[] }[] = [
+    { scope: "narrow", refresh: "synthetic-rotated-renewal-refresh", ttl: 120, scopes: ["narrow"] },
+    { ttl: 120, scopes: ["narrow"] },
+    { scope: "", ttl: 120, scopes: [] },
+    { scopes: [] },
+  ];
+  for (const [index, renewal] of renewals.entries()) {
+    h.identity.clock.offsetMs += 70_000;
+    provider.expect(
+      "/refresh",
+      (request) => {
+        assert.equal(request.form.get("grant_type"), "refresh_token");
+        assert.equal(
+          request.form.get("refresh_token"),
+          index === 0 ? "synthetic-initial-renewal-refresh" : "synthetic-rotated-renewal-refresh",
+        );
+      },
+      {
+        json: {
+          ok: true,
+          renewal: {
+            access: `synthetic-renewed-access-${index}`,
+            ...(renewal.refresh === undefined ? {} : { refresh: renewal.refresh }),
+            ...(renewal.ttl === undefined ? {} : { ttl: renewal.ttl }),
+            ...(renewal.scope === undefined ? {} : { scope: renewal.scope }),
+          },
+        },
+      },
+    );
+    provider.expect("/native", (request) => {
+      assert.equal(request.headers.authorization, `Bearer synthetic-renewed-access-${index}`);
+    });
+    assert.equal((await h.native("oauth-renewal")).status, 200);
+    await assertGrantedScopes(h, "oauth-renewal", renewal.scopes);
+  }
+  provider.expect("/native", (request) => {
+    assert.equal(request.headers.authorization, "Bearer synthetic-renewed-access-3");
+  });
+  assert.equal((await h.native("oauth-renewal")).status, 200);
+  assert.equal(provider.count("/refresh"), renewals.length);
+  const row = await h.db
+    .selectFrom("connections")
+    .selectAll()
+    .where("definition_id", "=", "oauth-renewal")
+    .where("status", "=", "connected")
+    .executeTakeFirstOrThrow();
+  const credential = JSON.parse(h.sealer.open("credential", row.id, row.sealed!));
+  assert.equal(Object.hasOwn(credential, "expiresAt"), false);
+  assert.equal(row.credential_expires_at, null);
+  assert.equal(credential.refreshToken, "synthetic-rotated-renewal-refresh");
+  assert.equal(row.authorized_at.toISOString(), authorizedAt);
+  provider.assertComplete();
+});
+
+for (const method of ["client_credentials", "jwt_bearer"] as const) {
+  test(`${method} replaces an expiring token with a cached no-expiry token without losing owner input`, {
+    timeout: 20_000,
+  }, async (t) => {
+    const { provider, h } = await fixture(t);
+    const key = signingKey();
+    const input = { kind: "jwt" as const, privateKey: key.privateKey, issuer: "fixture-issuer" };
+    const response = {
+      ...tokenResponse,
+      mapping: {
+        ...tokenResponse.mapping,
+        refreshToken: ["refresh_token"],
+        scope: ["scope"],
+      },
+    };
+    const auth: Authentication =
+      method === "client_credentials"
+        ? {
+            method,
+            tokenEndpoint: `${provider.origin}/token`,
+            clientAuthentication: { method: "none" },
+            scopeParameter: { name: "scope", separator: " " },
+            response,
+          }
+        : {
+            method,
+            tokenEndpoint: `${provider.origin}/token`,
+            clientAuthentication: { method: "none" },
+            jwt: {
+              algorithm: "RS256",
+              issuer: { credential: "issuer" },
+              audience: `${provider.origin}/token`,
+              ttlSeconds: 300,
+            },
+            response,
+          };
+    await h.create(
+      h.definition("generated-renewal", {
+        authentication: auth,
+        scopes: ["configured"],
+        ...(method === "jwt_bearer" ? { credential: input } : {}),
+      }),
+    );
+    const check = (request: { form: URLSearchParams }) => {
+      assert.equal(
+        request.form.get("grant_type"),
+        method === "client_credentials"
+          ? "client_credentials"
+          : "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      );
+      if (method === "jwt_bearer") assert.ok(request.form.get("assertion"));
+    };
+    provider.expect("/token", check, {
+      json: {
+        access_token: "synthetic-generated-initial",
+        refresh_token: "synthetic-generated-refresh",
+        expires_in: 120,
+        scope: "initial",
+      },
+    });
+    provider.expect("/native", (request) => {
+      assert.equal(request.headers.authorization, "Bearer synthetic-generated-initial");
+    });
+    assert.equal((await h.native("generated-renewal")).status, 200);
+    await assertGrantedScopes(h, "generated-renewal", ["initial"]);
+    h.identity.clock.offsetMs += 130_000;
+    provider.expect("/token", check, {
+      json: {
+        access_token: "synthetic-generated-no-expiry",
+        scope: "renewed",
+      },
+    });
+    for (let index = 0; index < 2; index++) {
+      provider.expect("/native", (request) => {
+        assert.equal(request.headers.authorization, "Bearer synthetic-generated-no-expiry");
+      });
+      assert.equal((await h.native("generated-renewal")).status, 200);
+    }
+    assert.equal(provider.count("/token"), 2);
+    await assertGrantedScopes(h, "generated-renewal", ["renewed"]);
+    const row = await h.db
+      .selectFrom("connections")
+      .selectAll()
+      .where("definition_id", "=", "generated-renewal")
+      .where("status", "=", "connected")
+      .executeTakeFirstOrThrow();
+    const credential = JSON.parse(h.sealer.open("credential", row.id, row.sealed!));
+    assert.equal(Object.hasOwn(credential, "expiresAt"), false);
+    assert.equal(row.credential_expires_at, null);
+    assert.equal(credential.refreshToken, "synthetic-generated-refresh");
+    if (method === "jwt_bearer") assert.deepEqual(credential.input, input);
+    provider.assertComplete();
+  });
+}
+
+test("initial OAuth distinguishes an omitted grant from an explicitly empty grant", {
+  timeout: 20_000,
+}, async (t) => {
+  const { provider, h } = await fixture(t);
+  for (const [id, scope, expected] of [
+    ["omitted-grant", undefined, ["configured"]],
+    ["empty-grant", "", []],
+    ["supplied-grant", "returned", ["returned"]],
+  ] as const) {
+    await h.create(
+      h.definition(id, {
+        authentication: authorization(provider),
+        scopes: ["configured"],
+        secrets: { clientSecret: SECRET },
+      }),
+    );
+    const begun = await beginOAuth(h, id);
+    provider.expect("/token", () => {}, {
+      json: {
+        ok: true,
+        authed_user: {
+          access_token: `synthetic-${id}-access`,
+          ...(scope === undefined ? {} : { scope }),
+        },
+      },
+    });
+    assert.equal((await begun.finish()).status, 200);
+    await assertGrantedScopes(h, id, [...expected]);
+  }
+  provider.assertComplete();
+});

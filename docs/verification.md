@@ -1,13 +1,13 @@
 # Verification
 
-This document separates the current verification contract from evidence produced by an integrated implementation.
+This document describes verification checks, recorded synthetic evidence and remaining live acceptance gaps.
 The provider-intake and console implementation has been integrated and exercised against synthetic Tableau and provider servers with real Postgres and Redis.
-Specification convergence, prototype inspection and synthetic verification remain distinct from independent substantive review and live acceptance.
+Recorded results apply to the builds exercised; they do not establish that a later revision passes or that real provider deployments behave identically.
 
 ## Automated tests
 
 The following checks describe the retained correctness suite and its production-path fixtures.
-Run npm test against real Postgres and real Redis where events are involved.
+Run `npm test` against real Postgres and real Redis where events are involved.
 Tableau and providers are stood in for by local servers.
 Test names carry the check's ID.
 V17 measures bytes in flight on each leg rather than process memory, which tells a streaming router from a buffering one regardless of when garbage is collected.
@@ -46,10 +46,9 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 ## Provider intake and console gates
 
 These behavioral gates are exercised by the integrated implementation.
-All listed automated fixtures run under Node 26.13.1, Postgres 18.6 and Redis 7.2.4.
-Browser checks use task-owned Chromium against the same HTTPS origin declared by the actual API, with a throwaway certificate exception limited to its synthetic leaf key.
+The recorded automated runs used Node 26.13.1, Postgres 18.6 and Redis 7.2.4.
+Browser checks use Chromium against the same HTTPS origin declared by the actual API, with a certificate exception limited to the synthetic leaf key.
 Use production API/CLI/browser/worker composition with synthetic Tableau/provider servers and real Postgres/Redis fixtures.
-Establish a distinguishing failing behavior before substantive deterministic changes where practical.
 
 | Gate | Required evidence | State |
 | --- | --- | --- |
@@ -58,17 +57,14 @@ Establish a distinguishing failing behavior before substantive deterministic cha
 | V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. Evidence: test/intake-protocol.test.ts and test/connections.test.ts use distinct pools and observed row-lock waits. | Synthetic pass. |
 | V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. Evidence: test/intake-protocol.test.ts, test/router.test.ts and test/outbound.test.ts; actual bundled-SDK browser shared/personal calls and normal/SSE delivery. | Synthetic pass. |
 | V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. Evidence: test/intake-webhook.test.ts exercises actual HTTP ingress and cross-replica Redis delivery; test/slack.test.ts retains catalog mapping coverage. | Synthetic pass. |
-| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. Evidence: test/operator-auth.test.ts and test/console.test.ts; actual Chromium sign-in, denied/approved consent, both tabs and generic SDK; final owned UI browser evidence recorded separately. | Synthetic pass. |
+| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. Evidence: test/operator-auth.test.ts and test/console.test.ts; Chromium sign-in, denied/approved consent, both tabs and generic SDK. | Synthetic pass. |
 | V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. Evidence: test/operations.test.ts plus test/composition.test.ts with two actual API child processes, a worker, real ten-second flushes and the observed minute closing. | Synthetic pass. |
 | V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. Evidence: Initial-schema fixtures, retained regression suite and package checks; built catalog JSON, local console assets and 8,042-byte SDK verified. | Synthetic pass. |
 
 The synthetic evidence covers finite fixtures, not universal vendor conformance or a proof that every possible secret value can never be disclosed.
 The browser fixture emits its synthetic business event through the actual verification owner and Redis; actual HTTP ingress and multi-replica event fan-out are independently exercised by the automated protocol fixtures.
-The separately authorized R1/R3/R5 correction pass adds test/intake-corrections.test.ts with production-path disable/secret staging, optional enrichment preparation failure, rejected shared OAuth readiness/reconnect, exact configured interval boundaries, activity statement counts and activity-only failure isolation.
+The `test/intake-corrections.test.ts` fixtures cover production-path disable/secret staging, optional enrichment preparation failure, rejected shared OAuth readiness/reconnect, exact configured interval boundaries, activity statement counts and activity-only failure isolation.
 The activity failure cases retain negative checks for expired, revoked and untrusted sessions.
-These regressions supplement the original review and do not claim that its other findings or the separate Google catalog concern were corrected.
-A single final independent substantive review evaluates the integrated frozen revision after implementation checks pass.
-Review findings are reported separately from implementation verification and user acceptance.
 No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.
 
 ## Not verified live

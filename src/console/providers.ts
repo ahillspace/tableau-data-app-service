@@ -468,6 +468,7 @@ export class Providers {
   }
 
   #conflict(form: HTMLFormElement, id: string): void {
+    const workflow = this.#workflow;
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Reload latest properties and discard this draft";
@@ -478,10 +479,13 @@ export class Providers {
           "GET",
           `/v1/admin/definitions/${encodeURIComponent(id)}`,
         );
-        if (this.#dialogs.modal.open) void this.#editor(editableDefinition(definition), definition);
+        if (workflow !== this.#workflow || !this.#dialogs.modal.open) return;
+        void this.#editor(editableDefinition(definition), definition);
       } catch (error) {
-        if (this.#dialogs.modal.open) showFormError(form, error);
+        if (workflow !== this.#workflow || !this.#dialogs.modal.open) return;
+        showFormError(form, error);
         button.disabled = false;
+        form.querySelector("[data-form-error]")!.append(button);
       }
     };
     form.querySelector("[data-form-error]")!.append(button);

@@ -172,7 +172,12 @@ export function responseAccepted(status: number, body: unknown, rules: ResponseR
   );
 }
 export type TokenReading =
-  | { kind: "ok"; credential: StoredCredential; account: Account | null; scopes: string[] }
+  | {
+      kind: "ok";
+      credential: StoredCredential;
+      account: Account | null;
+      scopes: string[] | undefined;
+    }
   | { kind: "error"; definitive: boolean; rejectsGrant: boolean };
 export function readTokens(
   config: TokenResponseConfig,
@@ -226,7 +231,8 @@ export function readTokens(
       ...(expiry !== undefined ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
     },
     account: account ? { id: account, name: firstText(body, m.accountName) ?? null } : null,
-    scopes: typeof scope === "string" ? scope.split(m.scopeSeparator ?? " ").filter(Boolean) : [],
+    scopes:
+      typeof scope === "string" ? scope.split(m.scopeSeparator ?? " ").filter(Boolean) : undefined,
   };
 }
 

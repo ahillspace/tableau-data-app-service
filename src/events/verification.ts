@@ -177,8 +177,6 @@ export function verifyDelivery(
   const digest = createHash("sha256").update(delivery.body).digest("hex");
   const events: IncomingEvent[] = [];
   for (const [index, item] of items.entries()) {
-    // Legacy verification-only envelope material is not app event data.
-    remove(item, ["token"]);
     if (
       verification.kind === "body-secret" &&
       config.event.batch?.join("\0") === verification.batch.join("\0")
