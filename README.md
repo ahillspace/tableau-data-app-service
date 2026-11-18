@@ -29,3 +29,5 @@ The browser SDK is built to `dist/sdk/index.js`, and [examples](examples/) holds
 
 Start with [docs](docs/README.md).
 [specification.json](specification.json) lists the documentation sources, and [docs/specification.html](docs/specification.html) is the offline view generated from them.
+
+This platform is not assiciated with Tableau or Salesforce directly, has no plan for monetization, and is strictly OSS. 
