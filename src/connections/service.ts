@@ -335,12 +335,12 @@ export class ConnectionService {
               : auth.response;
           const reading = readTokens(config, response, this.#clock.now());
           if (reading.kind === "error") {
-            if (reading.rejectsGrant && refresh) {
+            if (reading.rejectsGrant) {
               await tx
                 .updateTable("connections")
                 .set({
                   status: "needs-authorization",
-                  disconnect_reason: "refresh-rejected",
+                  disconnect_reason: `${operation}-rejected`,
                   updated_at: this.#clock.now(),
                 })
                 .where("id", "=", row.id)
@@ -891,8 +891,7 @@ export class ConnectionService {
         .forUpdate()
         .executeTakeFirst();
       if (!row?.sealed || row.status === "disconnected") return undefined;
-      const d = definitionFromRow(definition),
-        credential = openCredential(this.#sealer, id, row.sealed);
+      const d = definitionFromRow(definition);
       await tx
         .updateTable("connections")
         .set({
@@ -905,7 +904,7 @@ export class ConnectionService {
         .where("id", "=", id)
         .execute();
       await writeAudit(tx, { actor, action: "connection.disconnect", target: d.id });
-      return { definition: d, credential };
+      return { definition: d, sealed: row.sealed };
     });
     if (!ended) return false;
     if (ended.definition.revocation) {
@@ -914,7 +913,7 @@ export class ConnectionService {
           this.#outbound,
           ended.definition,
           ended.definition.revocation,
-          ended.credential,
+          openCredential(this.#sealer, id, ended.sealed),
           AbortSignal.timeout(5000),
         );
       } catch {
