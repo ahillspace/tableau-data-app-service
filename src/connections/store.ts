@@ -10,9 +10,25 @@ import { placeCredential } from "./placement.ts";
 import type {
   ConnectionDefinition,
   CredentialLease,
+  Definition,
   SecretField,
   StoredCredential,
 } from "./types.ts";
+
+/** Known authorization state and the configured interval agree in checkout and safe reads. */
+export function connectionNeedsAuthorization(
+  definition: Pick<Definition, "reauthorizationInterval">,
+  connection: { status: "connected" | "needs-authorization" | "disconnected"; authorized_at: Date },
+  now: Date,
+): boolean {
+  return (
+    connection.status === "needs-authorization" ||
+    (connection.status === "connected" &&
+      definition.reauthorizationInterval !== undefined &&
+      connection.authorized_at.getTime() + definition.reauthorizationInterval * 1000 <=
+        now.getTime())
+  );
+}
 
 /** Opens a connection's sealed credential. The record ID is the connection ID, so a value cannot move between rows. */
 export function openCredential(

@@ -84,6 +84,9 @@ No native request is sent when checkout fails.
 ## Setup readiness
 
 The server returns setup with state ready, needs-setup, disabled or retired, finite missing paths and supported actions connect, set-credential and set-secrets.
+Stored credential metadata can remain set while shared authorization requires setup after a known rejected grant or the configured reauthorization interval.
+Operator setup and connection counts, app status and checkout use the same inclusive interval boundary measured from authorizedAt.
+An expiring access token with automatic refresh or exchange does not itself require operator setup, and safe reads never poll the provider.
 For a personal definition this describes application prerequisites, not every viewer's connection state.
 For a shared definition it also describes the shared credential prerequisites.
 Missing paths are secrets.clientSecret, secrets.signingPrivateKey and credential.
@@ -109,7 +112,9 @@ The service does not automatically resend the business request, and refresh neve
 ## Account lookup and disconnect
 
 Lookup and revocation are fixed typed requests using the shared outbound transport.
-Lookup failure is informational and cannot discard a valid credential.
+Lookup failure is informational and cannot discard a valid credential or change the result of a committed definition/secret mutation.
+Post-mutation lookup runs only for an eligible shared static definition with usable authorization; disabled or incomplete staging skips it.
+Preparation, provider and metadata-write failures in that optional path emit only a stable diagnostic code.
 Disconnect deletes local credential authority even when remote revocation fails.
 A late refresh or exchange cannot resurrect a disconnected connection.
 Failed revocation records only a safe code and never restores local access.

@@ -516,18 +516,36 @@ export class IdentityService {
     if (!bearer) return undefined;
     const row = await this.#sessionQuery(this.#db)
       .innerJoin("app_sessions as a", "a.sign_in_session_id", "s.id")
-      .select(["a.id as app_session_id", "a.kind", "a.app_id", "a.attribution", "a.location"])
+      .select([
+        "a.id as app_session_id",
+        "a.kind",
+        "a.app_id",
+        "a.attribution",
+        "a.location",
+        "a.last_seen_at",
+      ])
       .where("a.bearer_hash", "=", hashToken(bearer))
       .executeTakeFirst();
     if (!row) return undefined;
     const session = this.#toSession(row);
-    // Activity is approximate and coalesced by persisted time, never one write per native request.
-    await this.#db
-      .updateTable("app_sessions")
-      .set({ last_seen_at: this.#now() })
-      .where("id", "=", row.app_session_id)
-      .where("last_seen_at", "<", new Date(this.#now().getTime() - 60_000))
-      .execute();
+    // Authoritative reads remain required; fresh activity observations need no UPDATE round trip.
+    const now = this.#now();
+    const cutoff = new Date(now.getTime() - 60_000);
+    if (row.last_seen_at < cutoff) {
+      try {
+        await this.#db
+          .updateTable("app_sessions")
+          .set({ last_seen_at: now })
+          .where("id", "=", row.app_session_id)
+          // Another request may have observed the same old timestamp before this one committed.
+          .where("last_seen_at", "<", cutoff)
+          .execute();
+      } catch {
+        this.#log.warn("session activity observation failed", {
+          errorCode: "activity-observation-failed",
+        });
+      }
+    }
     return {
       sessionId: row.app_session_id,
       kind: row.kind,

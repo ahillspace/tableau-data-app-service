@@ -32,7 +32,10 @@ Heartbeats become stale after 45 seconds; retain stale processes for 24 hours, t
 Show every process uptime separately rather than inventing one installation uptime after replica restarts.
 Active sessions counts unexpired app/operator session records whose last authenticated request was within 15 minutes, excluding revoked/untrusted sessions.
 Active apps counts distinct registered app IDs attached to those active app sessions, not active people, approved applications or workbook instances.
-Use existing session/activity persistence, coalescing last-seen writes to at most once per session per minute; make this approximation explicit.
+Activity uses the last-seen timestamp returned by each authoritative authentication read to skip UPDATE statements while the observation is fresh.
+Once older than one minute, it attempts a conditional update so concurrent stale observations cannot overwrite a newer timestamp.
+Observation-only persistence failures retain a valid principal and emit a safe diagnostic; session expiry, revocation and trust checks remain authoritative and fail closed.
+No in-memory authorization cache, scheduler or extra service is involved, and a stale observation may be retried on a later authenticated request if persistence failed.
 
 `GET /v1/admin/metrics?from=<ISO>&to=<ISO>&definition=<id>` returns `{from,to,observedAt,flushedThrough,mayBeIncomplete,series,totals}`.
 Require minute-aligned bounds, a maximum 24-hour window and a range within retained data; default is the preceding complete hour.

@@ -64,6 +64,9 @@ Establish a distinguishing failing behavior before substantive deterministic cha
 
 The synthetic evidence covers finite fixtures, not universal vendor conformance or a proof that every possible secret value can never be disclosed.
 The browser fixture emits its synthetic business event through the actual verification owner and Redis; actual HTTP ingress and multi-replica event fan-out are independently exercised by the automated protocol fixtures.
+The separately authorized R1/R3/R5 correction pass adds test/intake-corrections.test.ts with production-path disable/secret staging, optional enrichment preparation failure, rejected shared OAuth readiness/reconnect, exact configured interval boundaries, activity statement counts and activity-only failure isolation.
+The activity failure cases retain negative checks for expired, revoked and untrusted sessions.
+These regressions supplement the original review and do not claim that its other findings or the separate Google catalog concern were corrected.
 A single final independent substantive review evaluates the integrated frozen revision after implementation checks pass.
 Review findings are reported separately from implementation verification and user acceptance.
 No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.

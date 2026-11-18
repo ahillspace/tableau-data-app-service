@@ -21,6 +21,7 @@ import {
 } from "./protocol.ts";
 import { firstText } from "./selectors.ts";
 import {
+  connectionNeedsAuthorization,
   leaseFor,
   openCredential,
   readDefinitionSecret,
@@ -193,10 +194,7 @@ export class ConnectionService {
       if (!row?.sealed) throw checkoutError("not-connected");
       const now = this.#clock.now();
       if (row.status === "needs-authorization") throw checkoutError("needs-authorization");
-      if (
-        d.reauthorizationInterval !== undefined &&
-        row.authorized_at.getTime() + d.reauthorizationInterval * 1000 <= now.getTime()
-      ) {
+      if (connectionNeedsAuthorization(d, row, now)) {
         await tx
           .updateTable("connections")
           .set({
@@ -411,11 +409,7 @@ export class ConnectionService {
               ? c.owner_identity_id === null
               : c.owner_identity_id === principal.identityId),
         );
-        const lapsed =
-          row &&
-          d.reauthorizationInterval !== undefined &&
-          row.authorized_at.getTime() + d.reauthorizationInterval * 1000 <=
-            this.#clock.now().getTime();
+        const lapsed = row && connectionNeedsAuthorization(d, row, this.#clock.now());
         return {
           id: d.id,
           displayName: d.displayName,
@@ -673,24 +667,34 @@ export class ConnectionService {
     await this.#lookup(d, connection, credential);
     return (await this.listForApp(principal)).find((d) => d.id === id);
   }
+  /** Enrichment is optional after custody commits; it never changes the mutation's outcome. */
   async afterDefinitionMutation(view: DefinitionView): Promise<DefinitionView> {
     if (
       !view.accountLookup ||
       view.ownership !== "shared" ||
-      view.authentication.method !== "static"
+      view.authentication.method !== "static" ||
+      view.setup.state !== "ready" ||
+      !view.credential.set
     )
       return view;
-    const row = await this.#db
-      .selectFrom("connections")
-      .select(["id", "sealed"])
-      .where("definition_id", "=", view.id)
-      .where("status", "=", "connected")
-      .where("owner_identity_id", "is", null)
-      .executeTakeFirst();
-    const d = await this.#live(view.id);
-    if (row?.sealed)
-      await this.#lookup(d, row.id, openCredential(this.#sealer, row.id, row.sealed));
+    try {
+      const row = await this.#db
+        .selectFrom("connections")
+        .select(["id", "sealed"])
+        .where("definition_id", "=", view.id)
+        .where("status", "=", "connected")
+        .where("owner_identity_id", "is", null)
+        .executeTakeFirst();
+      const d = await this.#live(view.id);
+      if (row?.sealed)
+        await this.#lookup(d, row.id, openCredential(this.#sealer, row.id, row.sealed));
+    } catch {
+      this.#lookupFailed(view.id);
+    }
     return view;
+  }
+  #lookupFailed(definitionId: string): void {
+    this.#log.info("account lookup failed", { definitionId, errorCode: "account-lookup-failed" });
   }
   async #lookup(d: ConnectionDefinition, id: string, credential: StoredCredential): Promise<void> {
     if (!d.accountLookup) return;
@@ -711,10 +715,7 @@ export class ConnectionService {
         .where("status", "<>", "disconnected")
         .execute();
     } catch {
-      this.#log.info("account lookup failed", {
-        definitionId: d.id,
-        errorCode: "account-lookup-failed",
-      });
+      this.#lookupFailed(d.id);
     }
   }
   async signingSecret(id: string): Promise<string | undefined> {

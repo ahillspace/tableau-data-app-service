@@ -16,7 +16,12 @@ import { definitionSecretRecordId } from "../sealing/reseal.ts";
 import type { Sealer } from "../sealing/sealer.ts";
 import type { Extensions } from "./extensions.ts";
 import { normalizeCredential, signingKey } from "./protocol.ts";
-import { readDefinitionSecret, replaceConnection, SECRET_PURPOSE } from "./store.ts";
+import {
+  connectionNeedsAuthorization,
+  readDefinitionSecret,
+  replaceConnection,
+  SECRET_PURPOSE,
+} from "./store.ts";
 import {
   type ConnectionDefinition,
   type Definition,
@@ -179,13 +184,19 @@ export class DefinitionStore {
     ) as DefinitionView["secrets"];
     const connections = await tx
       .selectFrom("connections")
-      .select(["status", "credential_set_at", "owner_identity_id"])
+      .select(["status", "credential_set_at", "owner_identity_id", "authorized_at", "generation"])
       .where("definition_id", "=", d.id)
       .execute();
     const shared =
       d.ownership === "shared" && d.authentication.method !== "none"
-        ? connections.find((c) => c.owner_identity_id === null && c.status !== "disconnected")
+        ? connections.find(
+            (c) =>
+              c.owner_identity_id === null &&
+              c.generation === d.generation &&
+              c.status !== "disconnected",
+          )
         : undefined;
+    const now = this.#clock.now();
     const credential = { set: !!shared, setAt: shared?.credential_set_at.toISOString() ?? null };
     const missing: string[] = [],
       actions: DefinitionView["setup"]["actions"] = [];
@@ -199,7 +210,12 @@ export class DefinitionStore {
       if (a.clientAuthentication.method === "private_key_jwt" && !secrets.signingPrivateKey.set)
         missing.push("secrets.signingPrivateKey");
     }
-    if (d.ownership === "shared" && a.method !== "none" && !credential.set && !missing.length)
+    if (
+      d.ownership === "shared" &&
+      a.method !== "none" &&
+      (!shared || connectionNeedsAuthorization(d, shared, now)) &&
+      !missing.length
+    )
       missing.push("credential");
     if (missing.some((p) => p.startsWith("secrets."))) actions.push("set-secrets");
     if (d.ownership === "shared" && a.method === "authorization_code") actions.push("connect");
@@ -227,8 +243,11 @@ export class DefinitionStore {
         actions,
       },
       connectionCounts: {
-        connected: connections.filter((c) => c.status === "connected").length,
-        needsAuthorization: connections.filter((c) => c.status === "needs-authorization").length,
+        connected: connections.filter(
+          (c) => c.status === "connected" && !connectionNeedsAuthorization(d, c, now),
+        ).length,
+        needsAuthorization: connections.filter((c) => connectionNeedsAuthorization(d, c, now))
+          .length,
         disconnected: connections.filter((c) => c.status === "disconnected").length,
       },
     };
