@@ -210,6 +210,7 @@ export class ConnectionService {
       }
       let credential = openCredential(this.#sealer, row.id, row.sealed);
       let scopes = auth.method === "authorization_code" ? row.scopes : d.scopes;
+      let account: Account | null = null;
       if (auth.method === "static") return { lease: leaseFor(d, row.id, credential) };
       const generated = auth.method !== "authorization_code";
       const selectedOrigin =
@@ -367,12 +368,14 @@ export class ConnectionService {
             ...(generated ? { derivedKey: cacheKey } : {}),
           };
           scopes = reading.scopes ?? scopes;
+          if (generated) account = reading.account;
         }
         await tx
           .updateTable("connections")
           .set({
             sealed: JSON.stringify(sealCredential(this.#sealer, row.id, credential)),
             scopes: JSON.stringify(scopes),
+            ...(account ? { account: account.id, account_name: account.name } : {}),
             credential_expires_at: credential.expiresAt ? new Date(credential.expiresAt) : null,
             updated_at: this.#clock.now(),
           })

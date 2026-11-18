@@ -92,6 +92,9 @@ export function normalizeCredential(
   } else if (method === "jwt_bearer" || method === "signed_jwt_direct") {
     if (input.kind !== "jwt") throw invalid([{ path: "credential.kind", rule: "jwt" }]);
     signingKey(input.privateKey, definition.authentication.jwt.algorithm);
+    const subject = definition.authentication.jwt.subject;
+    if (typeof subject === "object" && subject.credential === "subject" && !input.subject)
+      throw invalid([{ path: "credential.subject", rule: "required" }]);
   } else throw invalid([{ path: "credential", rule: "method-has-no-input-credential" }]);
   return input as Exclude<CredentialInput, { kind: "import" }>;
 }

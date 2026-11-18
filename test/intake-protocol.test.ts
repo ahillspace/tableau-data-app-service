@@ -97,9 +97,13 @@ test("authorization code uses PKCE, nested initial fields and distinct refresh m
   timeout: 20_000,
 }, async (t) => {
   const { provider, h } = await fixture(t);
+  const auth = authorization(provider);
+  assert.ok(auth.refreshResponse);
+  auth.refreshResponse.mapping.accountId = [["team", "id"]];
+  auth.refreshResponse.mapping.accountName = [["team", "name"]];
   await h.create(
     h.definition("oauth", {
-      authentication: authorization(provider),
+      authentication: auth,
       scopes: ["chat:write", "files:read"],
       secrets: { clientSecret: SECRET },
     }),
@@ -164,6 +168,7 @@ test("authorization code uses PKCE, nested initial fields and distinct refresh m
       json: {
         ok: true,
         renewal: { access: "synthetic-renewed-token", refresh: "synthetic-refresh-two", ttl: 3600 },
+        team: { id: "refresh-account", name: "Refresh account" },
       },
     },
   );
@@ -174,6 +179,7 @@ test("authorization code uses PKCE, nested initial fields and distinct refresh m
   const after = (await (await h.request("/v1/admin/connections?definition=oauth")).json())
     .connections[0];
   assert.equal(after.authorizedAt, authorizedAt);
+  assert.deepEqual(after.account, { id: "E1", name: "Synthetic enterprise" });
   assert.equal(provider.count("/token"), 1);
   assert.equal(provider.count("/refresh"), 1);
   assert.equal(provider.count("/native"), 2);
@@ -1477,3 +1483,259 @@ for (const method of ["jwt_bearer", "signed_jwt_direct"] as const) {
     );
   });
 }
+
+async function assertAccount(
+  h: IntakeHarness,
+  id: string,
+  expected: { id: string; name: string | null },
+) {
+  const operator = await h.request(`/v1/admin/connections?definition=${id}`);
+  const app = await h.request("/v1/definitions", { bearer: h.app.bearer });
+  assert.equal(operator.status, 200);
+  assert.equal(app.status, 200);
+  const connection = (await operator.json()).connections.find(
+    (row: { status: string }) => row.status === "connected",
+  );
+  const definition = (await app.json()).definitions.find((row: { id: string }) => row.id === id);
+  assert.deepEqual(connection.account, expected);
+  assert.deepEqual(definition.account, expected);
+  return [JSON.stringify(connection), JSON.stringify(definition)];
+}
+
+for (const [method, ownership] of [
+  ["client_credentials", "shared"],
+  ["jwt_bearer", "shared"],
+  ["jwt_bearer", "personal"],
+] as const) {
+  test(`generated account metadata ${ownership} ${method} follows mapped fresh responses`, {
+    timeout: 20_000,
+  }, async (t) => {
+    const { provider, h } = await fixture(t);
+    const key = signingKey();
+    const credential = {
+      kind: "jwt" as const,
+      privateKey: key.privateKey,
+      issuer: "account-issuer",
+    };
+    const authentication = scopedGeneration(provider, method);
+    assert.ok(
+      authentication.method === "client_credentials" || authentication.method === "jwt_bearer",
+    );
+    authentication.response.mapping.accountId = [["account", "id"]];
+    authentication.response.mapping.accountName = [["account", "name"]];
+    await h.create(
+      h.definition("account-metadata", {
+        ownership,
+        authentication,
+        ...(method === "jwt_bearer" && ownership === "shared" ? { credential } : {}),
+      }),
+    );
+    if (ownership === "personal") {
+      const installed = await h.request("/v1/definitions/account-metadata/credential", {
+        method: "PUT",
+        bearer: h.app.bearer,
+        json: { credential },
+      });
+      assert.equal(installed.status, 200, await installed.clone().text());
+    }
+    const views: string[] = [];
+    for (const [index, account] of [
+      { id: "first-account", name: "First account" },
+      { id: "changed-account" },
+      undefined,
+    ].entries()) {
+      if (index > 0) await patchScopes(h, "account-metadata", [`scope-${index}`]);
+      provider.expect(
+        "/token",
+        (request) => {
+          assert.equal(
+            request.form.get("grant_type"),
+            method === "client_credentials"
+              ? "client_credentials"
+              : "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          );
+        },
+        { json: { access_token: `synthetic-account-token-${index}`, expires_in: 3600, account } },
+      );
+      provider.expect("/native", (request) => {
+        assert.equal(request.headers.authorization, `Bearer synthetic-account-token-${index}`);
+      });
+      assert.equal((await h.native("account-metadata")).status, 200);
+      views.push(
+        ...(await assertAccount(
+          h,
+          "account-metadata",
+          index === 0
+            ? { id: "first-account", name: "First account" }
+            : { id: "changed-account", name: null },
+        )),
+      );
+    }
+    assert.equal(provider.count("/token"), 3);
+    assert.equal(provider.count("/native"), 3);
+    provider.assertComplete();
+    await h.assertSafe(
+      [key.privateKey, ...[0, 1, 2].map((n) => `synthetic-account-token-${n}`)],
+      views,
+    );
+  });
+}
+
+for (const method of ["jwt_bearer", "signed_jwt_direct"] as const) {
+  for (const ownership of ["shared", "personal"] as const) {
+    test(`configured subject intake ${ownership} ${method} rejects missing normal and imported subjects atomically`, {
+      timeout: 20_000,
+    }, async (t) => {
+      const { provider, h } = await fixture(t);
+      const key = signingKey();
+      const credential = {
+        kind: "jwt" as const,
+        privateKey: key.privateKey,
+        issuer: "subject-issuer",
+        keyId: "subject-key",
+      };
+      const authentication = scopedGeneration(provider, method);
+      assert.ok(
+        authentication.method === "jwt_bearer" || authentication.method === "signed_jwt_direct",
+      );
+      authentication.jwt.subject = { credential: "subject" };
+      await h.create(
+        h.definition("required-subject", {
+          ownership,
+          authentication,
+          credentialImport: {
+            format: "json",
+            fields: {
+              privateKey: ["privateKey"],
+              issuer: ["issuer"],
+              subject: ["subject"],
+              keyId: ["keyId"],
+            },
+          },
+        }),
+      );
+      const write = async (input: unknown) =>
+        ownership === "personal"
+          ? h.request("/v1/definitions/required-subject/credential", {
+              method: "PUT",
+              bearer: h.app.bearer,
+              json: { credential: input },
+            })
+          : h.request("/v1/admin/definitions/required-subject/secrets", {
+              method: "PUT",
+              json: {
+                expectedVersion: (await h.view("required-subject")).version,
+                credential: input,
+              },
+            });
+      const rows = () =>
+        h.db
+          .selectFrom("connections")
+          .selectAll()
+          .where("definition_id", "=", "required-subject")
+          .execute();
+      const rejected: string[] = [];
+      for (const replacing of [false, true]) {
+        if (replacing) {
+          const valid = { ...credential, subject: "retained-subject" };
+          for (const input of [valid, { kind: "import", value: JSON.stringify(valid) }]) {
+            const installed = await write(input);
+            assert.equal(installed.status, 200, await installed.clone().text());
+          }
+        }
+        const before = await rows();
+        const definitionBefore = await h.view("required-subject");
+        for (const input of [credential, { kind: "import", value: JSON.stringify(credential) }]) {
+          const response = await write(input);
+          const body = await response.text();
+          rejected.push(body);
+          assert.equal(response.status, 400, body);
+          assert.deepEqual(JSON.parse(body), {
+            error: {
+              code: "invalid-request",
+              message: "The request is invalid",
+              fields: [{ path: "credential.subject", rule: "required" }],
+            },
+          });
+          assert.deepEqual(
+            await rows(),
+            before,
+            "rejection preserves rows, status, generation and sealed credentials",
+          );
+          assert.deepEqual(await h.view("required-subject"), definitionBefore);
+        }
+      }
+      const tokens: string[] = [];
+      const verify = (token: string) => {
+        verifyJwt(token, {
+          key: key.publicKey,
+          algorithm: "RS256",
+          keyId: "subject-key",
+          issuer: "subject-issuer",
+          subject: "retained-subject",
+          audience: provider.origin,
+          scope: "",
+          ttl: 300,
+        });
+        tokens.push(token);
+      };
+      if (method === "jwt_bearer")
+        provider.expect(
+          "/token",
+          (request) => {
+            verify(request.form.get("assertion") as string);
+          },
+          { json: { access_token: "synthetic-retained-subject-token", expires_in: 3600 } },
+        );
+      provider.expect("/native", (request) => {
+        if (method === "signed_jwt_direct")
+          verify((request.headers.authorization ?? "").slice("Bearer ".length));
+        else assert.equal(request.headers.authorization, "Bearer synthetic-retained-subject-token");
+      });
+      assert.equal((await h.native("required-subject")).status, 200);
+      provider.assertComplete();
+      await h.assertSafe([key.privateKey, "synthetic-retained-subject-token", ...tokens], rejected);
+    });
+  }
+}
+
+test("JWT subjects from literals, issuers and omission accept input without a subject", {
+  timeout: 20_000,
+}, async (t) => {
+  const { provider, h } = await fixture(t);
+  const key = signingKey();
+  for (const [index, subject] of [
+    undefined,
+    "literal-subject",
+    { credential: "issuer" as const },
+  ].entries()) {
+    const authentication = scopedGeneration(provider, "signed_jwt_direct");
+    assert.ok(authentication.method === "signed_jwt_direct");
+    if (subject !== undefined) authentication.jwt.subject = subject;
+    const id = `optional-subject-${index}`;
+    const credential = {
+      kind: "jwt" as const,
+      privateKey: key.privateKey,
+      issuer: "optional-issuer",
+      keyId: "optional-key",
+    };
+    await h.create(h.definition(id, { authentication, credential }));
+    provider.expect("/native", (request) =>
+      verifyJwt((request.headers.authorization ?? "").slice("Bearer ".length), {
+        key: key.publicKey,
+        algorithm: "RS256",
+        keyId: "optional-key",
+        issuer: "optional-issuer",
+        ...(subject === undefined
+          ? {}
+          : { subject: typeof subject === "string" ? subject : "optional-issuer" }),
+        audience: provider.origin,
+        scope: "",
+        ttl: 300,
+      }),
+    );
+    assert.equal((await h.native(id)).status, 200);
+  }
+  assert.equal(provider.count("/token"), 0);
+  provider.assertComplete();
+});
