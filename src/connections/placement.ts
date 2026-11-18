@@ -1,4 +1,4 @@
-import type { OutgoingRequest, Placement } from "./types.ts";
+import type { OutgoingRequest, Placement, StoredCredential } from "./types.ts";
 
 function decodeName(raw: string): string {
   try {
@@ -16,9 +16,20 @@ function decodeName(raw: string): string {
 export function placeCredential(
   request: OutgoingRequest,
   placement: Placement,
-  token: string,
+  credential: StoredCredential,
 ): void {
+  const token =
+    credential.accessToken ?? (credential.input?.kind === "token" ? credential.input.value : "");
   switch (placement.kind) {
+    case "basic": {
+      if (credential.input?.kind !== "basic") throw new Error("Basic credential unavailable");
+      setHeader(
+        request,
+        "authorization",
+        `Basic ${Buffer.from(`${credential.input.username}:${credential.input.password}`, "utf8").toString("base64")}`,
+      );
+      return;
+    }
     case "bearer":
       setHeader(request, "authorization", `Bearer ${token}`);
       return;

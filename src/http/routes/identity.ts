@@ -1,9 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isUuid } from "../../identity/sessions.ts";
+import { TABLEAU_CALLBACK_PATH, TABLEAU_CLIENT_PATH } from "../../identity/tableau-cloud.ts";
 import { invalid, ServiceError } from "../../platform/errors.ts";
+import { pkceChallenge, randomToken } from "../../platform/secrets.ts";
 import { caller } from "../auth.ts";
 import {
+  CONSOLE_TX_COOKIE,
   clearCookie,
+  OPERATOR_COOKIE,
   RESTORE_COOKIE,
   readCookie,
   SIGN_IN_COOKIE,
@@ -63,6 +67,18 @@ function sendDeploymentChoice(
   return sendPage(reply, {
     title: "Choose a Tableau Cloud pod",
     body: `<h1>Choose a Tableau Cloud pod</h1><ul>${links}</ul>`,
+  });
+}
+
+/** Operator refusal follows verified Tableau identity and preserves the opener failure signal. */
+function operatorSignInError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (!(error instanceof ServiceError) || error.code !== "operator-required")
+    return sendErrorPage(reply, error);
+  return sendPage(reply, {
+    status: 403,
+    title: "Operator access required",
+    body: '<h1>Operator access required</h1><p>Tableau sign-in succeeded, but this identity is not an operator of this service. An existing operator can grant access.</p><p class="code">operator-required</p>',
+    script: `if (window.opener) window.opener.postMessage(${scriptJson({ type: "tableau-service:error", code: "operator-required" })}, "*");`,
   });
 }
 
@@ -163,7 +179,9 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
     }
   });
 
-  app.get("/tableau/callback", async (request, reply) => {
+  app.get(TABLEAU_CLIENT_PATH, async () => identity.clientMetadata());
+
+  app.get(TABLEAU_CALLBACK_PATH, async (request, reply) => {
     const browserToken = readCookie(request, TABLEAU_TX_COOKIE);
     clearCookie(reply, TABLEAU_TX_COOKIE, { sameSite: "Lax" });
     try {
@@ -194,24 +212,41 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
     try {
       const transaction = query(request, "transaction");
       if (transaction === undefined) {
-        const mode = query(request, "mode") === "popup" ? "popup" : "loopback";
+        const mode =
+          query(request, "mode") === "console"
+            ? "console"
+            : query(request, "mode") === "popup"
+              ? "popup"
+              : "loopback";
+        if (mode === "console" && !services.consoleEnabled)
+          throw new ServiceError(404, "not-found", "No such route");
+        const verifier = mode === "console" ? randomToken() : undefined;
         const id = await identity.beginOperatorSignIn({
           mode,
           redirectUri: query(request, "redirect_uri"),
-          codeChallenge: query(request, "code_challenge"),
+          codeChallenge: verifier ? pkceChallenge(verifier) : query(request, "code_challenge"),
           state: query(request, "state"),
         });
+        if (verifier)
+          setCookie(reply, CONSOLE_TX_COOKIE, verifier, { sameSite: "Lax", maxAgeSeconds: 600 });
         return redirect(reply, `/operator-sign-in?transaction=${id}`, 303);
       }
       if (!isUuid(transaction)) throw invalid([{ path: "transaction", rule: "format:uuid" }]);
       const session = await signInSession(services, request);
       if (!session)
         return await toTableau(services, reply, `/operator-sign-in?transaction=${transaction}`);
+      if (
+        (await identity.operatorSignInMode(transaction)) === "console" &&
+        !services.consoleEnabled
+      )
+        throw new ServiceError(404, "not-found", "No such route");
       const prepared = await identity.prepareOperatorConsent(transaction, session);
       const target =
         prepared.mode === "loopback"
           ? `the command-line tool on this computer (${escapeHtml(prepared.redirectUri ?? "")})`
-          : "the tool that opened this window";
+          : prepared.mode === "console"
+            ? "the operator console on this service"
+            : "the tool that opened this window";
       return sendPage(reply, {
         title: "Approve operator access",
         // The approval redirects to the loopback address, and form-action governs that redirect too.
@@ -219,7 +254,7 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         body: `<h1>Approve operator access</h1><p>${escapeHtml(session.userName)}, this gives ${target} full operator access to this Tableau Data App Service: definitions, credentials, trusted sites, operators and every Job.</p><form method="post" action="/operator-sign-in"><input type="hidden" name="transaction" value="${escapeHtml(transaction)}"><input type="hidden" name="consent" value="${escapeHtml(prepared.consent)}"><div class="actions"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></div></form>`,
       });
     } catch (error) {
-      return sendErrorPage(reply, error);
+      return operatorSignInError(reply, error);
     }
   });
 
@@ -234,6 +269,11 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
           reply,
           `/operator-sign-in?transaction=${encodeURIComponent(transaction)}`,
         );
+      const mode = await identity.operatorSignInMode(transaction);
+      if (mode === "console" && !services.consoleEnabled)
+        throw new ServiceError(404, "not-found", "No such route");
+      if (form.decision !== "approve" && mode === "console")
+        return redirect(reply, "/console?auth=denied", 303);
       if (form.decision !== "approve")
         return sendErrorPage(
           reply,
@@ -244,6 +284,16 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         typeof form.consent === "string" ? form.consent : undefined,
         session,
       );
+      if (approved.mode === "console") {
+        const verifier = readCookie(request, CONSOLE_TX_COOKIE);
+        const redeemed = await identity.redeemOperatorCode({ code: approved.code, verifier });
+        clearCookie(reply, CONSOLE_TX_COOKIE, { sameSite: "Lax" });
+        setCookie(reply, OPERATOR_COOKIE, redeemed.bearer, {
+          sameSite: "Strict",
+          expiresAt: redeemed.principal.expiresAt,
+        });
+        return redirect(reply, "/console", 303);
+      }
       if (approved.mode === "loopback") {
         const target = new URL(approved.redirectUri as string);
         target.searchParams.set("code", approved.code);
@@ -257,7 +307,7 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
         "Return to the tool that opened this window.",
       );
     } catch (error) {
-      return sendErrorPage(reply, error);
+      return operatorSignInError(reply, error);
     }
   });
 

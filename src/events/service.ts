@@ -4,6 +4,7 @@ import type { Clock } from "../platform/clock.ts";
 import { invalid, notFound, ServiceError } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
 import type { EventBus, LossReason, ServiceEvent } from "./types.ts";
+import { verifyDelivery } from "./verification.ts";
 
 /** Events a slow client may have queued before the oldest are dropped. */
 export const STREAM_BUFFER = 256;
@@ -209,7 +210,7 @@ export class EventService {
         throw new ServiceError(403, "definition-disabled", `The definition ${id} is disabled`);
       if (!definition.audience.includes(principal.trustedSiteId))
         throw new ServiceError(403, "not-in-audience", `Your Tableau site cannot use ${id}`);
-      if (!this.#connections.definitions.types.get(definition.type)?.eventSource)
+      if (!definition.webhook)
         throw new ServiceError(
           409,
           "events-not-supported",
@@ -261,23 +262,18 @@ export class EventService {
    */
   async ingest(
     definitionId: string,
-    delivery: { headers: Record<string, string | string[] | undefined>; body: Buffer },
+    delivery: {
+      headers: Record<string, string | string[] | undefined>;
+      body: Buffer;
+      query?: URLSearchParams;
+    },
   ): Promise<{
     response: { status: number; contentType?: string; body?: string };
     publish(): Promise<void>;
   }> {
-    const definition = await this.#connections.definitions.get(definitionId);
-    if (!definition) throw notFound("definition-not-found", "No such definition");
-    if (!definition.enabled || definition.retired)
-      throw new ServiceError(403, "definition-disabled", "The definition is disabled");
-    const source = this.#connections.definitions.types.get(definition.type)?.eventSource;
-    if (!source)
-      throw new ServiceError(409, "events-not-supported", "The definition has no event source");
-    const signingSecret = await this.#connections.signingSecret(definitionId);
-    if (source.signingSecret === "required" && !signingSecret)
-      throw new ServiceError(409, "events-not-configured", "The definition has no signing secret");
+    const { webhook, signingSecret } = await this.#connections.webhookSnapshot(definitionId);
     const now = this.#clock.now();
-    const outcome = source.ingest({ ...delivery, now }, { definition, signingSecret });
+    const outcome = verifyDelivery(webhook, { ...delivery, now }, signingSecret);
     const events: ServiceEvent[] = outcome.events.map((e) => ({
       id: e.id,
       definitionId,

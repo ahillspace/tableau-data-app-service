@@ -9,8 +9,10 @@ Built with TypeScript on Node 26, Fastify, Kysely and Postgres, with Redis only 
 
 ## Status
 
-The service is built against the specification, and every automated gate in [verification](docs/verification.md) passes.
-The live gates against Tableau Cloud and a real Slack workspace have not been run.
+The automated suite exercises synthetic Tableau/provider servers with real Postgres and Redis.
+The optional same-server operator console is disabled by default; set CONSOLE_ENABLED=true to enable its Providers and Status & analytics tabs.
+[Verification](docs/verification.md) records the integrated checks and separates synthetic evidence from live acceptance.
+The service has not yet been run against a live Tableau Cloud site or real provider accounts; [verification](docs/verification.md#known-limitations) lists what that leaves unproven.
 
 ## Quick start
 
@@ -21,10 +23,9 @@ npm test
 ```
 
 Copy [.env.example](.env.example) and write a bootstrap file as [running](docs/running.md) describes, then run the `migrate`, `api` and `worker` roles.
-The browser SDK is built to `dist/sdk/index.js`, and [examples/slack](examples/slack/README.md) is a Data App that uses it.
+The browser SDK is built to `dist/sdk/index.js`, and [examples](examples/) holds Data Apps that use it.
 
 ## Documentation
 
 Start with [docs](docs/README.md).
-[specification.json](specification.json) lists the specification sources, and [docs/specification.html](docs/specification.html) is the offline view generated from them.
-[archives](archives/README.md) holds historical planning material and is never a source of requirements.
+[specification.json](specification.json) lists the documentation sources, and [docs/specification.html](docs/specification.html) is the offline view generated from them.

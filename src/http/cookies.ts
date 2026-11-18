@@ -2,7 +2,10 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 /** Every service cookie name starts with this, so the router can keep them from providers. */
 export const SERVICE_COOKIE_PREFIX = "__Host-tdas-";
-/** The sign-in session: first-party, read only in top-level service windows. */
+/** The approved operator session: read only by the shared operator API. */
+export const OPERATOR_COOKIE = `${SERVICE_COOKIE_PREFIX}operator`;
+export const CONSOLE_TX_COOKIE = `${SERVICE_COOKIE_PREFIX}console-tx`;
+/** The Tableau sign-in session: first-party, read only in top-level service windows. */
 export const SIGN_IN_COOKIE = `${SERVICE_COOKIE_PREFIX}sign-in`;
 /** Binds a Tableau sign-in transaction to the browser that started it. */
 export const TABLEAU_TX_COOKIE = `${SERVICE_COOKIE_PREFIX}tableau-tx`;
@@ -23,7 +26,7 @@ export function readCookie(request: FastifyRequest, name: string): string | unde
 }
 
 type CookieOptions = {
-  sameSite: "Lax" | "None";
+  sameSite: "Lax" | "None" | "Strict";
   partitioned?: boolean;
   expiresAt?: Date;
   maxAgeSeconds?: number;

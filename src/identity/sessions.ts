@@ -5,7 +5,11 @@ import { invalid, ServiceError } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
 import { hashToken, pkceChallenge, randomToken, sameSecret } from "../platform/secrets.ts";
 import { bindOperator, isOperator, matchAndBindSite } from "./directory.ts";
-import type { DeploymentAdapter } from "./tableau-cloud.ts";
+import {
+  type DeploymentAdapter,
+  TABLEAU_CALLBACK_PATH,
+  tableauClientMetadata,
+} from "./tableau-cloud.ts";
 import type { Attribution, Identity, Principal, SignInSession } from "./types.ts";
 
 const TRANSACTION_SECONDS = 600;
@@ -43,7 +47,7 @@ export function readAppDeclaration(input: { appId?: unknown; attribution?: unkno
 
 /**
  * Verify app location: decides what the service knows about where the calling app runs.
- * The first build records the declared attribution only and proves nothing about the app's site.
+ * It records the declared attribution only and proves nothing about the app's site.
  */
 export function verifyAppLocation(_attribution: Attribution): { verified: boolean } {
   return { verified: false };
@@ -108,7 +112,12 @@ export class IdentityService {
   }
 
   get callbackUri(): string {
-    return `${this.#origin}/tableau/callback`;
+    return `${this.#origin}${TABLEAU_CALLBACK_PATH}`;
+  }
+
+  /** The client metadata document Tableau fetches to resolve the service's client ID. */
+  clientMetadata(): ReturnType<typeof tableauClientMetadata> {
+    return tableauClientMetadata(this.#origin);
   }
 
   // ---- Tableau sign-in ----
@@ -507,11 +516,36 @@ export class IdentityService {
     if (!bearer) return undefined;
     const row = await this.#sessionQuery(this.#db)
       .innerJoin("app_sessions as a", "a.sign_in_session_id", "s.id")
-      .select(["a.id as app_session_id", "a.kind", "a.app_id", "a.attribution", "a.location"])
+      .select([
+        "a.id as app_session_id",
+        "a.kind",
+        "a.app_id",
+        "a.attribution",
+        "a.location",
+        "a.last_seen_at",
+      ])
       .where("a.bearer_hash", "=", hashToken(bearer))
       .executeTakeFirst();
     if (!row) return undefined;
     const session = this.#toSession(row);
+    // Authoritative reads remain required; fresh activity observations need no UPDATE round trip.
+    const now = this.#now();
+    const cutoff = new Date(now.getTime() - 60_000);
+    if (row.last_seen_at < cutoff) {
+      try {
+        await this.#db
+          .updateTable("app_sessions")
+          .set({ last_seen_at: now })
+          .where("id", "=", row.app_session_id)
+          // Another request may have observed the same old timestamp before this one committed.
+          .where("last_seen_at", "<", cutoff)
+          .execute();
+      } catch {
+        this.#log.warn("session activity observation failed", {
+          errorCode: "activity-observation-failed",
+        });
+      }
+    }
     return {
       sessionId: row.app_session_id,
       kind: row.kind,
@@ -554,7 +588,7 @@ export class IdentityService {
    * Popup mode is a browser tool: the code is posted to the opener. Both redeem with the PKCE verifier.
    */
   async beginOperatorSignIn(input: {
-    mode: "loopback" | "popup";
+    mode: "loopback" | "popup" | "console";
     redirectUri?: string | undefined;
     codeChallenge?: string | undefined;
     state?: string | undefined;
@@ -584,11 +618,28 @@ export class IdentityService {
     return row.id;
   }
 
+  async operatorSignInMode(
+    transactionId: string,
+  ): Promise<"loopback" | "popup" | "console" | undefined> {
+    if (!isUuid(transactionId)) return undefined;
+    const row = await this.#db
+      .selectFrom("operator_sign_ins")
+      .select("mode")
+      .where("id", "=", transactionId)
+      .where("expires_at", ">", this.#now())
+      .executeTakeFirst();
+    return row?.mode;
+  }
+
   /** Prepares the consent screen: the signed-in identity must be an operator. Returns a one-time consent token. */
   async prepareOperatorConsent(
     transactionId: string,
     session: SignInSession,
-  ): Promise<{ consent: string; mode: "loopback" | "popup"; redirectUri: string | null }> {
+  ): Promise<{
+    consent: string;
+    mode: "loopback" | "popup" | "console";
+    redirectUri: string | null;
+  }> {
     if (!(await isOperator(this.#db, session.identity)))
       throw new ServiceError(
         403,
@@ -617,7 +668,7 @@ export class IdentityService {
     session: SignInSession,
   ): Promise<{
     code: string;
-    mode: "loopback" | "popup";
+    mode: "loopback" | "popup" | "console";
     redirectUri: string | null;
     state: string | null;
   }> {
@@ -708,6 +759,10 @@ export class IdentityService {
         },
       };
     });
+  }
+
+  async endSession(sessionId: string): Promise<void> {
+    await this.#db.deleteFrom("app_sessions").where("id", "=", sessionId).execute();
   }
 
   // ---- Revocation and registry ----

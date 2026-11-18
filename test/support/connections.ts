@@ -1,5 +1,9 @@
 import { DefinitionStore } from "../../src/connections/definitions.ts";
-import { type ProviderType, ProviderTypes } from "../../src/connections/provider-types.ts";
+import {
+  type Capability,
+  Extensions,
+  type JobHandlerDefinition,
+} from "../../src/connections/extensions.ts";
 import { ConnectionService } from "../../src/connections/service.ts";
 import type { Db } from "../../src/persistence/database.ts";
 import { Log } from "../../src/platform/log.ts";
@@ -18,19 +22,29 @@ export type ConnectionsHarness = {
 /** One replica's connections component over a shared database. */
 export function connectionsHarness(
   db: Db,
-  options: { keys: SealingKeys; outbound: Outbound; clock: MovableClock; presets?: ProviderType[] },
+  options: {
+    keys: SealingKeys;
+    outbound: Outbound;
+    clock: MovableClock;
+    jobHandlers?: JobHandlerDefinition[];
+    capabilities?: Capability[];
+    publicOrigin?: string;
+  },
 ): ConnectionsHarness {
   const lines: string[] = [];
   const log = new Log((line) => lines.push(line));
-  const types = new ProviderTypes(options.presets ?? []);
-  const definitions = new DefinitionStore({ db, types, clock: options.clock });
+  const extensions = new Extensions({
+    ...(options.jobHandlers ? { jobHandlers: options.jobHandlers } : {}),
+    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+  });
   const sealer = new Sealer(options.keys);
+  const definitions = new DefinitionStore({ db, extensions, sealer, clock: options.clock });
   const connections = new ConnectionService({
     db,
     definitions,
     sealer,
     outbound: options.outbound,
-    publicOrigin: "https://service.test",
+    publicOrigin: options.publicOrigin ?? "https://service.test",
     clock: options.clock,
     log,
   });

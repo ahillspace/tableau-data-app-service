@@ -8,8 +8,10 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { ConnectResult, CredentialInput, DefinitionView } from "../contracts/operator.ts";
 import { pkceChallenge, randomToken } from "../platform/secrets.ts";
 import { canonicalOrigin } from "../platform/settings.ts";
+import { readSecret, type SecretInput, SecretInputError } from "./secret-input.ts";
 
 const KEYRING_SERVICE = "tableau-data-app-service";
 const CURRENT = "current-service";
@@ -31,6 +33,7 @@ export type CliDeps = {
   out(text: string): void;
   err(text: string): void;
   env: Record<string, string | undefined>;
+  secretInput?: SecretInput;
 };
 
 /** The system credential store. The native module loads only when a command needs it. */
@@ -73,8 +76,8 @@ const USAGE = `Usage: tdas <command>
   definitions list
   definitions show <id>
   definitions create <file.json>
-  definitions secret <id> <field>          Open a one-time secret link (clientSecret or signingSecret)
-  definitions connect <id>                 Shared OAuth connect in the browser
+  definitions secret <id> <field>          Set a write-only clientSecret, signingSecret, signingPrivateKey or credential
+  definitions connect <id>                 Authorize a shared connection
   definitions update <id> [<changes.json>] [--audience add|remove <site>] [--enable] [--disable]
   definitions redefine <id> <file.json>    Ends existing connections
   definitions retire <id>                  Ends existing connections
@@ -97,7 +100,10 @@ const USAGE = `Usage: tdas <command>
   audit [--limit <n>] [--before <id>]
 
 Options:
-  --service <origin>   Service to use; defaults to TDAS_SERVICE, then the last login`;
+  --service <origin>   Service to use; defaults to TDAS_SERVICE, then the last login
+  --from-file <path>   Read the secret from a file (preserves newlines)
+  --value <value>      Read a secret from the command argument (exposure warning)
+  --clear              Explicitly clear the selected secret`;
 
 class UsageError extends Error {}
 
@@ -125,6 +131,8 @@ function parse(argv: string[]): { positional: string[]; options: Map<string, str
     "handler",
     "limit",
     "before",
+    "from-file",
+    "value",
   ]);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string;
@@ -144,7 +152,7 @@ function parse(argv: string[]): { positional: string[]; options: Map<string, str
       const value = argv[++i];
       if (value === undefined) throw new UsageError(`--${name} needs a value`);
       values.push(value);
-    } else if (name === "enable" || name === "disable") values.push("");
+    } else if (name === "enable" || name === "disable" || name === "clear") values.push("");
     else throw new UsageError(`Unknown option --${name}`);
     options.set(name, values);
   }
@@ -349,20 +357,51 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
     case "definitions create":
       return print(await client.call("POST", "/v1/admin/definitions", await readJson(first)));
     case "definitions secret": {
-      const link = await client.call<{ url: string; expiresAt: string }>(
-        "POST",
-        `/v1/admin/definitions/${enc(need(first, "definition ID"))}/secret-links`,
-        { field: need(second, "secret field") },
+      const id = need(first, "definition ID"),
+        field = need(second, "secret field");
+      if (!["clientSecret", "signingSecret", "signingPrivateKey", "credential"].includes(field))
+        throw new UsageError("Unknown secret field");
+      const { definition } = await client.call<{ definition: DefinitionView }>(
+        "GET",
+        `/v1/admin/definitions/${enc(id)}`,
       );
-      deps.err(`Type the secret on this page (one use, until ${link.expiresAt}):`);
-      deps.out(link.url);
-      return await deps.open(link.url);
+      const value = await readSecret(options, deps.err, deps.secretInput);
+      let credential: CredentialInput | null = null;
+      if (field === "credential" && value !== null) {
+        if (definition.credentialImport) credential = { kind: "import", value };
+        else if (
+          definition.authentication.method === "static" &&
+          definition.credentialPlacement.kind !== "basic"
+        )
+          credential = { kind: "token", value };
+        else {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(value);
+          } catch {
+            throw new UsageError("The credential needs a JSON object");
+          }
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+            throw new UsageError("The credential needs a JSON object");
+          credential = {
+            ...parsed,
+            kind: definition.credentialPlacement.kind === "basic" ? "basic" : "jwt",
+          } as CredentialInput;
+        }
+      }
+      return print(
+        await client.call("PUT", `/v1/admin/definitions/${enc(id)}/secrets`, {
+          expectedVersion: definition.version,
+          ...(field === "credential" ? { credential } : { secrets: { [field]: value } }),
+        }),
+      );
     }
     case "definitions connect": {
-      const started = await client.call<{ url: string; expiresAt: string }>(
+      const started = await client.call<ConnectResult>(
         "POST",
         `/v1/admin/definitions/${enc(need(first, "definition ID"))}/connect`,
       );
+      if (started.kind === "connected") return print(started);
       deps.err("Approve the shared connection in the browser:");
       deps.out(started.url);
       return await deps.open(started.url);
@@ -372,12 +411,13 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
       const changes = (second ? await readJson(second) : {}) as Record<string, unknown>;
       if (typeof changes !== "object" || changes === null || Array.isArray(changes))
         throw new UsageError("The changes file must hold a JSON object");
+      const { definition: current } = await client.call<{ definition: DefinitionView }>(
+        "GET",
+        `/v1/admin/definitions/${enc(id)}`,
+      );
       const audienceOps = options.get("audience") ?? [];
       if (audienceOps.length) {
-        const { definition } = await client.call<{ definition: { audience: string[] } }>(
-          "GET",
-          `/v1/admin/definitions/${enc(id)}`,
-        );
+        const definition = current;
         const audience = new Set(
           Array.isArray(changes.audience) ? (changes.audience as string[]) : definition.audience,
         );
@@ -392,23 +432,41 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
       if (options.has("enable")) changes.enabled = true;
       if (options.has("disable")) changes.enabled = false;
       if (!Object.keys(changes).length) throw new UsageError("Nothing to change");
-      return print(await client.call("PATCH", `/v1/admin/definitions/${enc(id)}`, changes));
+      return print(
+        await client.call("PATCH", `/v1/admin/definitions/${enc(id)}`, {
+          ...changes,
+          expectedVersion: current.version,
+        }),
+      );
     }
-    case "definitions redefine":
-      return print(
-        await client.call(
-          "PUT",
-          `/v1/admin/definitions/${enc(need(first, "definition ID"))}`,
-          await readJson(second),
-        ),
+    case "definitions redefine": {
+      const id = need(first, "definition ID");
+      const { definition } = await client.call<{ definition: DefinitionView }>(
+        "GET",
+        `/v1/admin/definitions/${enc(id)}`,
       );
-    case "definitions retire":
+      const body = await readJson(second);
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        throw new UsageError("The definition file must hold a JSON object");
       return print(
-        await client.call(
-          "POST",
-          `/v1/admin/definitions/${enc(need(first, "definition ID"))}/retire`,
-        ),
+        await client.call("PUT", `/v1/admin/definitions/${enc(id)}`, {
+          ...body,
+          expectedVersion: definition.version,
+        }),
       );
+    }
+    case "definitions retire": {
+      const id = need(first, "definition ID");
+      const { definition } = await client.call<{ definition: DefinitionView }>(
+        "GET",
+        `/v1/admin/definitions/${enc(id)}`,
+      );
+      return print(
+        await client.call("POST", `/v1/admin/definitions/${enc(id)}/retire`, {
+          expectedVersion: definition.version,
+        }),
+      );
+    }
 
     case "connections list":
       return print(
@@ -490,7 +548,7 @@ export async function tdas(argv: string[], deps: CliDeps): Promise<number> {
     await run(argv, deps);
     return 0;
   } catch (error) {
-    if (error instanceof UsageError) {
+    if (error instanceof UsageError || error instanceof SecretInputError) {
       deps.err(error.message ? `${error.message}\n\n${USAGE}` : USAGE);
       return 2;
     }

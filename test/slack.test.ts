@@ -1,264 +1,142 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { describe, test } from "node:test";
+import { test } from "node:test";
+import { templates } from "../src/catalog/index.ts";
+import { readTokens } from "../src/connections/protocol.ts";
 import type { ConnectionDefinition } from "../src/connections/types.ts";
-import { ServiceError } from "../src/platform/errors.ts";
-import { slack, slackEventSource } from "../src/presets/slack.ts";
+import { validateDefinition } from "../src/connections/validation.ts";
+import { verifyDelivery } from "../src/events/verification.ts";
+import { destination } from "../src/router/router.ts";
 
-const SECRET = "test-signing-secret";
-
-function definition(
-  mode: "bot" | "user",
-  scopes = ["chat:write", "channels:read"],
-): ConnectionDefinition {
-  return {
-    id: `slack-${mode}`,
-    displayName: "Slack",
-    type: "slack",
-    ownership: mode === "bot" ? "shared" : "personal",
-    apiHosts: ["https://slack.com/api"],
-    scopes,
-    presetOptions: { tokenMode: mode },
-    credentialPlacement: { kind: "bearer" },
-    audience: [],
-    privateHosts: false,
-    enabled: true,
-    retired: false,
-    generation: 1,
+function slack(mode: "bot" | "user"): ConnectionDefinition {
+  const input = structuredClone(templates.find((t) => t.id === `slack-${mode}`)?.definition);
+  assert.ok(input?.authentication?.method === "authorization_code");
+  input.authentication.clientAuthentication = {
+    method: "client_secret_basic",
+    clientId: "synthetic-client",
   };
+  const parsed = validateDefinition(
+    { ...input, id: `slack-${mode}`, audience: [] },
+    { siteIds: new Set() },
+  );
+  assert.deepEqual(parsed.errors, []);
+  return { ...parsed.definition, generation: 1, version: 1, secretGeneration: 1, retired: false };
 }
-
-const now = new Date("2026-11-15T12:00:00Z");
-
-/** One Slack install response carries the bot token at the top level and the user's under `authed_user`. */
-const install = {
-  ok: true,
-  access_token: "xoxb-bot",
-  token_type: "bot",
-  scope: "chat:write,channels:read",
-  bot_user_id: "U0BOT",
-  team: { id: "T1", name: "Workspace" },
-  enterprise: null,
-  refresh_token: "xoxe-1-bot",
-  expires_in: 43200,
-  authed_user: {
-    id: "U1",
-    scope: "search:read",
-    access_token: "xoxp-user",
-    refresh_token: "xoxe-1-user",
-    expires_in: 43200,
-    token_type: "user",
-  },
-};
-
-function signed(body: string, at = now, secret = SECRET) {
-  const timestamp = String(Math.floor(at.getTime() / 1000));
-  const signature = `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:${body}`).digest("hex")}`;
-  return { "x-slack-request-timestamp": timestamp, "x-slack-signature": signature };
-}
-
-function errorCode(fn: () => unknown): string {
-  try {
-    fn();
-  } catch (error) {
-    assert.ok(error instanceof ServiceError);
-    return error.code;
-  }
-  assert.fail("expected a ServiceError");
-}
-
-describe("slack preset", () => {
-  test("defaults fill hosts and endpoints, and tokenMode is required", () => {
-    assert.deepEqual(slack.defaults?.({ clientId: "1.2" }), {
-      apiHosts: ["https://slack.com/api"],
-      credentialPlacement: { kind: "bearer" },
-      authorizationEndpoint: "https://slack.com/oauth/v2/authorize",
-      tokenEndpoint: "https://slack.com/api/oauth.v2.access",
-    });
-    assert.equal(slack.defaults?.({}).tokenEndpoint, undefined);
-    assert.deepEqual(
-      slack.validate?.({ ...definition("bot"), presetOptions: { tokenMode: "app", extra: 1 } }),
-      [
-        { path: "presetOptions.tokenMode", rule: "one-of:bot|user" },
-        { path: "presetOptions.extra", rule: "unknown-field" },
-      ],
-    );
-  });
-
-  test("bot mode requests scope and user mode requests user_scope", () => {
-    assert.deepEqual(slack.authorizationParameters?.(definition("bot")), {
-      scope: "chat:write,channels:read",
-    });
-    assert.deepEqual(slack.authorizationParameters?.(definition("user", ["search:read"])), {
-      user_scope: "search:read",
-    });
-  });
-
-  test("one install backs a bot definition and a user definition", () => {
-    const read = slack.readTokenResponse as NonNullable<typeof slack.readTokenResponse>;
-    const bot = read(
-      { status: 200, body: install },
-      { definition: definition("bot"), refresh: false, now },
-    );
-    const user = read(
-      { status: 200, body: install },
-      { definition: definition("user"), refresh: false, now },
-    );
-    assert.equal(bot.kind, "ok");
-    assert.equal(user.kind, "ok");
-    if (bot.kind !== "ok" || user.kind !== "ok") return;
-    assert.equal(bot.credential.accessToken, "xoxb-bot");
-    assert.equal(bot.credential.refreshToken, "xoxe-1-bot");
-    assert.equal(bot.credential.expiresAt, "2026-11-16T00:00:00.000Z");
-    assert.deepEqual(bot.scopes, ["chat:write", "channels:read"]);
-    assert.equal(user.credential.accessToken, "xoxp-user");
-    assert.deepEqual(user.scopes, ["search:read"]);
-    assert.deepEqual(bot.account, { id: "T1", name: "Workspace" });
-    assert.deepEqual(user.account, { id: "T1", name: "Workspace" });
-    // A rotated user token comes back at the top level on refresh.
-    const refreshed = read(
-      {
-        status: 200,
-        body: {
-          ok: true,
-          access_token: "xoxp-2",
-          refresh_token: "xoxe-2",
-          expires_in: 60,
-          team: { id: "T1" },
-        },
+const now = new Date();
+test("Slack templates retain both hosts and reject an external file host", () => {
+  const d = slack("bot");
+  assert.deepEqual(d.apiHosts, ["https://slack.com/api", "https://files.slack.com"]);
+  assert.equal(
+    destination(d, "/files-pri/T/file", "https://files.slack.com").url.host,
+    "files.slack.com",
+  );
+  assert.throws(() => destination(d, "/file", "https://external.example"));
+});
+test("Slack bot and user initial mappings, independent user refresh and enterprise fallback are data", () => {
+  const bot = slack("bot").authentication,
+    user = slack("user").authentication;
+  assert.ok(bot.method === "authorization_code" && user.method === "authorization_code");
+  assert.equal(bot.scopeParameter.name, "scope");
+  assert.equal(user.scopeParameter.name, "user_scope");
+  const body = {
+    ok: true,
+    access_token: "bot-token",
+    scope: "chat:write,files:read",
+    team: { id: "T1", name: "Team" },
+    authed_user: {
+      access_token: "user-token",
+      refresh_token: "user-refresh",
+      expires_in: 3600,
+      scope: "read,write",
+    },
+  };
+  const a = readTokens(bot.response, { status: 200, body }, now),
+    b = readTokens(user.response, { status: 200, body }, now);
+  assert.ok(a.kind === "ok" && b.kind === "ok");
+  assert.equal(a.credential.accessToken, "bot-token");
+  assert.equal(b.credential.accessToken, "user-token");
+  assert.deepEqual(b.scopes, ["read", "write"]);
+  assert.deepEqual(b.account, { id: "T1", name: "Team" });
+  const refresh = readTokens(
+    user.refreshResponse ?? user.response,
+    {
+      status: 200,
+      body: {
+        ok: true,
+        access_token: "rotated-user",
+        refresh_token: "rotated-refresh",
+        expires_in: 3600,
+        enterprise: { id: "E1", name: "Enterprise" },
       },
-      { definition: definition("user"), refresh: true, now },
-    );
-    assert.equal(refreshed.kind === "ok" && refreshed.credential.accessToken, "xoxp-2");
+    },
+    now,
+  );
+  assert.ok(refresh.kind === "ok");
+  assert.equal(refresh.credential.accessToken, "rotated-user");
+  assert.deepEqual(refresh.account, { id: "E1", name: "Enterprise" });
+});
+test("Slack HTTP-200 refusal is distinct from uncertain malformed success and server failures", () => {
+  const a = slack("bot").authentication;
+  assert.ok(a.method === "authorization_code");
+  assert.deepEqual(
+    readTokens(a.response, { status: 200, body: { ok: false, error: "invalid_grant" } }, now),
+    { kind: "error", definitive: true, rejectsGrant: true },
+  );
+  assert.deepEqual(
+    readTokens(a.response, { status: 503, body: { ok: false, error: "invalid_grant" } }, now),
+    { kind: "error", definitive: false, rejectsGrant: false },
+  );
+  assert.deepEqual(readTokens(a.response, { status: 200, body: { ok: true } }, now), {
+    kind: "error",
+    definitive: false,
+    rejectsGrant: false,
   });
-
-  test("an organization-wide install records the enterprise", () => {
-    const read = slack.readTokenResponse as NonNullable<typeof slack.readTokenResponse>;
-    const reading = read(
+});
+test("V25 Slack original-byte HMAC, timestamp bounds and verified challenge suppress business events", () => {
+  const config = slack("bot").webhook;
+  assert.ok(config);
+  const secret = "synthetic-webhook-secret",
+    timestamp = String(Math.floor(now.getTime() / 1000));
+  const body = Buffer.from(
+    '{ "type":"event_callback", "token":"legacy-verification-value", "event_id":"e1", "team_id":"T1", "event":{"type":"message"} }',
+  );
+  const signature = `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:`).update(body).digest("hex")}`;
+  const delivery = {
+    body,
+    now,
+    headers: { "x-slack-signature": signature, "x-slack-request-timestamp": timestamp },
+  };
+  const outcome = verifyDelivery(config, delivery, secret);
+  assert.equal(outcome.events[0]?.type, "message");
+  assert.equal(JSON.stringify(outcome).includes("legacy-verification-value"), false);
+  assert.throws(() =>
+    verifyDelivery(
+      config,
+      { ...delivery, body: Buffer.from(body.toString().replace("message", "changed")) },
+      secret,
+    ),
+  );
+  assert.throws(() =>
+    verifyDelivery(config, { ...delivery, now: new Date(now.getTime() + 301000) }, secret),
+  );
+  assert.throws(() =>
+    verifyDelivery(config, { ...delivery, now: new Date(now.getTime() - 301000) }, secret),
+  );
+  const challenge = Buffer.from('{"type":"url_verification","challenge":"verify"}');
+  const signed = `v0=${createHmac("sha256", secret).update(`v0:${timestamp}:`).update(challenge).digest("hex")}`;
+  assert.deepEqual(
+    verifyDelivery(
+      config,
       {
-        status: 200,
-        body: {
-          ...install,
-          team: null,
-          enterprise: { id: "E1", name: "Org" },
-          is_enterprise_install: true,
-        },
+        ...delivery,
+        body: challenge,
+        headers: { ...delivery.headers, "x-slack-signature": signed },
       },
-      { definition: definition("bot"), refresh: false, now },
-    );
-    assert.deepEqual(reading.kind === "ok" && reading.account, { id: "E1", name: "Org" });
-  });
-
-  test("Slack refusals are definitive; rate limits and server errors are not", () => {
-    const read = slack.readTokenResponse as NonNullable<typeof slack.readTokenResponse>;
-    const ctx = { definition: definition("bot"), refresh: true, now };
-    assert.deepEqual(
-      read({ status: 200, body: { ok: false, error: "invalid_refresh_token" } }, ctx),
-      {
-        kind: "error",
-        error: "invalid_refresh_token",
-        definitive: true,
-        rejectsGrant: true,
-      },
-    );
-    assert.deepEqual(read({ status: 200, body: { ok: false, error: "ratelimited" } }, ctx), {
-      kind: "error",
-      error: "ratelimited",
-      definitive: false,
-      rejectsGrant: false,
-    });
-    assert.equal(
-      (read({ status: 503, body: null }, ctx) as { definitive: boolean }).definitive,
-      false,
-    );
-  });
-
-  test("V25 signatures and ages are verified; stale or forged deliveries are refused", () => {
-    const context = { definition: definition("bot"), signingSecret: SECRET };
-    const body = JSON.stringify({
-      type: "event_callback",
-      team_id: "T1",
-      event_id: "Ev1",
-      event: { type: "message", text: "hi" },
-    });
-    const ok = slackEventSource.ingest(
-      { headers: signed(body), body: Buffer.from(body), now },
-      context,
-    );
-    assert.equal(ok.response.status, 200);
-    assert.deepEqual(
-      ok.events.map((e) => [e.id, e.type, e.account]),
-      [["Ev1", "message", "T1"]],
-    );
-    const old = new Date(now.getTime() - 5 * 60_000 - 1000);
-    assert.equal(
-      errorCode(() =>
-        slackEventSource.ingest(
-          { headers: signed(body, old), body: Buffer.from(body), now },
-          context,
-        ),
-      ),
-      "event-too-old",
-    );
-    const future = new Date(now.getTime() + 5 * 60_000 + 1000);
-    assert.equal(
-      errorCode(() =>
-        slackEventSource.ingest(
-          { headers: signed(body, future), body: Buffer.from(body), now },
-          context,
-        ),
-      ),
-      "event-too-old",
-    );
-    assert.equal(
-      errorCode(() =>
-        slackEventSource.ingest(
-          { headers: signed(body, now, "wrong"), body: Buffer.from(body), now },
-          context,
-        ),
-      ),
-      "event-signature-invalid",
-    );
-    assert.equal(
-      errorCode(() =>
-        slackEventSource.ingest(
-          { headers: signed(body), body: Buffer.from(`${body} `), now },
-          context,
-        ),
-      ),
-      "event-signature-invalid",
-    );
-    assert.equal(
-      errorCode(() =>
-        slackEventSource.ingest({ headers: {}, body: Buffer.from(body), now }, context),
-      ),
-      "event-signature-invalid",
-    );
-
-    const enterprise = JSON.stringify({
-      type: "event_callback",
-      enterprise_id: "E1",
-      event_id: "Ev2",
-      event: { type: "team_join" },
-    });
-    assert.equal(
-      slackEventSource.ingest(
-        { headers: signed(enterprise), body: Buffer.from(enterprise), now },
-        context,
-      ).events[0]?.account,
-      "E1",
-    );
-
-    const challenge = JSON.stringify({ type: "url_verification", challenge: "abc123" });
-    assert.deepEqual(
-      slackEventSource.ingest(
-        { headers: signed(challenge), body: Buffer.from(challenge), now },
-        context,
-      ),
-      {
-        response: { status: 200, contentType: "text/plain", body: "abc123" },
-        events: [],
-      },
-    );
-  });
+      secret,
+    ),
+    {
+      response: { status: 200, contentType: "text/plain; charset=utf-8", body: "verify" },
+      events: [],
+    },
+  );
 });

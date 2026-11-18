@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tableau Data App Service - Console</title>
+  <link rel="stylesheet" href="/console/assets/index.css">
+  <script type="module" src="/console/assets/index.js"></script>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div class="brand"><span class="mark" aria-hidden="true">T</span>Data App Service <span class="muted">/ Console</span></div>
+      <div class="actions" id="operatorControls" hidden><span id="operatorName" class="hint"></span><button class="flat" id="signout">Sign out</button></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Console" id="tabs" hidden>
+      <button role="tab" id="providers-tab" aria-selected="true" aria-controls="providers">Providers</button>
+      <button role="tab" id="status-tab" aria-selected="false" aria-controls="status" tabindex="-1">Status &amp; analytics</button>
+    </nav>
+  </header>
+  <main id="app" hidden>
+    <section id="providers" role="tabpanel" aria-labelledby="providers-tab"></section>
+    <section id="status" role="tabpanel" aria-labelledby="status-tab" hidden></section>
+  </main>
+  <div id="auth"><div class="auth"><h1>Loading operator session</h1><p class="muted">Checking access to this installation.</p></div></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="peek" class="peek" aria-labelledby="peekTitle">
+    <div class="dialog-head"><span class="label">Provider properties</span><button type="button" class="flat" data-close aria-label="Close provider properties">×</button></div>
+    <div class="dialog-body" id="peekBody"></div>
+  </dialog>
+  <dialog id="modal" aria-labelledby="modalTitle">
+    <div class="dialog-head"><h2 id="modalTitle"></h2><button type="button" class="flat" data-close aria-label="Close dialog">×</button></div>
+    <form id="form" novalidate><div class="dialog-body" id="modalBody"></div><div class="dialog-foot" id="modalFoot"></div></form>
+  </dialog>
+  <noscript><p class="auth">JavaScript is required for the operator console.</p></noscript>
+</body>
+</html>

@@ -81,7 +81,6 @@ describe("roles", () => {
             id: "cloud-test",
             kind: "tableau-cloud",
             podOrigin: "https://tableau.example",
-            clientId: "client",
           },
         ],
         firstSite: { deploymentId: "cloud-test", contentUrl: "alpha" },

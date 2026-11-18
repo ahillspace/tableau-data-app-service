@@ -14,7 +14,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       id text primary key,
       kind text not null,
       pod_origin text not null,
-      client_id text not null,
       created_at timestamptz not null default clock_timestamp()
     );
 
@@ -105,6 +104,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       id uuid primary key default gen_random_uuid(),
       bearer_hash text not null unique,
       kind text not null check (kind in ('app', 'operator')),
+      last_seen_at timestamptz not null default clock_timestamp(),
       identity_id uuid not null references identities(id) on delete cascade,
       sign_in_session_id uuid not null references sign_in_sessions(id) on delete cascade,
       app_id text,
@@ -118,7 +118,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
     create table operator_sign_ins (
       id uuid primary key default gen_random_uuid(),
-      mode text not null check (mode in ('loopback', 'popup')),
+      mode text not null check (mode in ('loopback', 'popup', 'console')),
       redirect_uri text,
       code_challenge text not null,
       client_state text,
@@ -142,49 +142,26 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
     create table definitions (
       id text primary key,
+      configuration jsonb not null,
       display_name text not null,
-      type text not null,
       ownership text not null check (ownership in ('shared', 'personal')),
-      api_hosts jsonb not null,
-      authorization_endpoint text,
-      token_endpoint text,
-      client_id text,
-      token_authentication text check (token_authentication in ('basic', 'post')),
-      scopes jsonb not null,
-      preset_options jsonb not null,
-      credential_placement jsonb not null,
       audience jsonb not null,
-      reauthorization_interval integer,
-      private_hosts boolean not null,
       enabled boolean not null,
       retired boolean not null default false,
-      generation integer not null default 1,
+      generation integer not null default 1 check (generation > 0),
+      version integer not null default 1 check (version > 0),
+      secret_generation integer not null default 1 check (secret_generation > 0),
       created_at timestamptz not null default clock_timestamp(),
       updated_at timestamptz not null default clock_timestamp(),
       retired_at timestamptz
     );
-
     create table definition_secrets (
       definition_id text not null references definitions(id),
-      field text not null check (field in ('clientSecret', 'signingSecret')),
+      field text not null check (field in ('clientSecret', 'signingSecret', 'signingPrivateKey')),
       sealed jsonb not null,
       set_at timestamptz not null,
       primary key (definition_id, field)
     );
-
-    create table secret_links (
-      id uuid primary key default gen_random_uuid(),
-      token_hash text not null unique,
-      definition_id text not null references definitions(id),
-      generation integer not null,
-      field text not null check (field in ('clientSecret', 'signingSecret', 'credential')),
-      created_by text not null,
-      expires_at timestamptz not null,
-      used_at timestamptz,
-      created_at timestamptz not null default clock_timestamp()
-    );
-    create index secret_links_expiry on secret_links (expires_at);
-
     create table connections (
       id uuid primary key default gen_random_uuid(),
       definition_id text not null references definitions(id),
@@ -197,6 +174,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       scopes jsonb not null default '[]',
       authorized_at timestamptz not null,
       credential_expires_at timestamptz,
+      credential_generation integer not null default 1 check (credential_generation > 0),
+      credential_set_at timestamptz not null default clock_timestamp(),
       disconnected_at timestamptz,
       disconnect_reason text,
       created_at timestamptz not null default clock_timestamp(),
@@ -269,6 +248,29 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     );
     create index job_results_expiry on job_results (expires_at);
 
+    create table metric_snapshots (
+      instance_id uuid not null,
+      minute timestamptz not null,
+      definition_id text not null,
+      status text not null,
+      sequence bigint not null,
+      requests bigint not null,
+      errors bigint not null,
+      upstream_histogram bigint[] not null,
+      refresh_failures bigint not null,
+      exchange_failures bigint not null,
+      primary key (instance_id, minute, definition_id, status)
+    );
+    create index metric_snapshots_retention on metric_snapshots (minute);
+    create table process_heartbeats (
+      instance_id uuid primary key,
+      role text not null check (role in ('api', 'worker')),
+      started_at timestamptz not null,
+      heartbeat_at timestamptz not null,
+      flushed_through timestamptz,
+      degraded boolean not null default false
+    );
+    create index process_heartbeats_retention on process_heartbeats (heartbeat_at);
     create table audit (
       id bigserial primary key,
       at timestamptz not null default clock_timestamp(),

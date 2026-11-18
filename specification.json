@@ -1,19 +1,19 @@
 {
-  "description": "Specification sources. Only these documents enter the offline view.",
+  "description": "The documents that describe the service. Only these enter the offline view.",
   "documents": [
     {
       "id": "guide",
       "title": "Documentation index",
       "path": "docs/README.md",
       "kind": "Guide",
-      "description": "Document owners and the offline build."
+      "description": "What each document covers and how to rebuild the offline view."
     },
     {
       "id": "product",
       "title": "Product",
       "path": "docs/product.md",
-      "kind": "Requirements",
-      "description": "Requirements, recommendations, assumptions and journeys."
+      "kind": "Product",
+      "description": "What the service does, journeys and exclusions."
     },
     {
       "id": "architecture",
@@ -41,7 +41,14 @@
       "title": "Connections",
       "path": "docs/connections.md",
       "kind": "Component",
-      "description": "Definitions, connections and credentials."
+      "description": "Definitions, owner-bound credentials, write-only secrets, setup and generation authority."
+    },
+    {
+      "id": "presets",
+      "title": "Provider catalog",
+      "path": "docs/presets.md",
+      "kind": "Component",
+      "description": "Data templates, native request recipes and explicit code extensions."
     },
     {
       "id": "routing",
@@ -90,7 +97,7 @@
       "title": "Verification",
       "path": "docs/verification.md",
       "kind": "Verification",
-      "description": "Gates and their status."
+      "description": "Test coverage, what is not verified live, and known limitations."
     },
     {
       "id": "running",
@@ -98,6 +105,27 @@
       "path": "docs/running.md",
       "kind": "Operations guide",
       "description": "Install, configure, run and operate."
+    },
+    {
+      "id": "protocol",
+      "title": "Provider protocol data",
+      "path": "docs/provider-protocol.md",
+      "kind": "Component",
+      "description": "Finite credential, import, host and inbound verification schemas."
+    },
+    {
+      "id": "console",
+      "title": "Operator console",
+      "path": "docs/console.md",
+      "kind": "Component",
+      "description": "Optional two-tab console and shared operator authority."
+    },
+    {
+      "id": "metrics",
+      "title": "Operational metrics",
+      "path": "docs/metrics.md",
+      "kind": "Component",
+      "description": "Bounded minute aggregates, process observations and freshness."
     }
   ]
 }

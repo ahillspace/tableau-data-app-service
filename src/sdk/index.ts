@@ -1,3 +1,7 @@
+import type { CredentialInput } from "../contracts/operator.ts";
+
+export type { CredentialInput };
+
 /**
  * The browser SDK for Data Apps. It holds the service bearer in memory only, signs in through a
  * service popup, and returns native provider responses untouched. It validates only what it needs
@@ -53,7 +57,7 @@ export type ConnectionStatus = "connected" | "not-connected" | "needs-authorizat
 export type Definition = {
   id: string;
   displayName: string;
-  type: string;
+  method: string;
   ownership: "shared" | "personal";
   setup: { oauth: boolean; credential: boolean };
   status: ConnectionStatus;
@@ -443,7 +447,7 @@ export class Service {
     });
   }
 
-  /** Calls a named preset capability. */
+  /** Calls a named code capability. */
   async capability<T = unknown>(definitionId: string, name: string, input?: unknown): Promise<T> {
     const body = await this.call<{ result: T }>(
       "POST",
@@ -492,7 +496,7 @@ export class Service {
   }
 
   /** Stores this user's static credential for a personal definition. */
-  async setCredential(definitionId: string, credential: string): Promise<Definition> {
+  async setCredential(definitionId: string, credential: CredentialInput): Promise<Definition> {
     return (
       await this.call<{ definition: Definition }>(
         "PUT",

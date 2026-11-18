@@ -43,17 +43,18 @@ function base(apiHosts: string[]) {
   return {
     id: "d",
     displayName: "D",
-    type: "static",
+    authentication: { method: "static" as const },
     ownership: "shared" as const,
     apiHosts,
     scopes: [],
-    presetOptions: {},
     credentialPlacement: { kind: "bearer" as const },
     audience: [],
     privateHosts: false,
     enabled: true,
     retired: false,
     generation: 1,
+    version: 1,
+    secretGeneration: 1,
   };
 }
 
@@ -109,7 +110,7 @@ describe("router", () => {
     );
     assert.equal(
       rule(() => destination(d, "/x", "https://evil.example")),
-      "one-of-api-hosts",
+      "matching-api-host",
     );
     // Encoded slashes stay encoded and stay under the base path.
     assert.equal(
@@ -161,19 +162,14 @@ describe("router", () => {
         await c.definitions.create("test", {
           id,
           displayName: id,
-          type: "static",
+          authentication: { method: "static" as const },
           ownership: "shared",
           apiHosts: [apiHost],
           credentialPlacement: { kind: "header", name: "X-Api-Key" },
           audience: [siteId],
           privateHosts: true,
+          credential: { kind: "token", value },
         });
-        const link = await c.connections.createSecretLink(opPrincipal, id, "credential");
-        await c.connections.submitSecret(
-          new URL(link.url).pathname.split("/").at(-1) as string,
-          opSession,
-          value,
-        );
       };
       await shareStatic("files", `${provider.origin}/api`, "key-1");
       const a = await tableauSignIn(h, tableau, alice);

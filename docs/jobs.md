@@ -2,41 +2,47 @@
 
 A Job is durable work that runs in a worker and can outlive the page that started it.
 The Jobs component owns admission, the queue, execution, external task waits, callbacks, results and retention.
-Requirements come from [product](product.md); shared types are in [contracts](contracts.md).
+Shared types are in [contracts](contracts.md).
 
 ## Handlers
 
-A Job handler is code registered by a preset under a name.
-A handler belongs to a provider type and declares its input schema, whether an attempt may be replayed, any retries for settled failures, and any limits lower than the installation's.
-A Data App submits a Job by handler name and the definition it runs against, which must be of the handler's provider type; it cannot submit code.
+A Job handler is code registered under a name unique across the installation.
+A handler declares how its input is validated, whether an attempt may be replayed (`retrySafe`), any retries for settled failures, and any limits lower than the installation's.
+The catalog supplies no executable handlers; an installation has none until an explicit code extension registers one.
+A Data App submits a Job by handler name and the definition it runs against, which must satisfy the handler registration's explicit applicability contract; it cannot submit code.
 
 ## Admission
 
 `POST /v1/jobs` takes a handler name, the ID of the definition the Job runs against, input and a submission key chosen by the app.
 
 - The caller's app session must be able to check out that definition at admission time.
-- Input larger than the input cap, 100 MB by default, is refused with `input-too-large`.
-- The submission key is unique per owner identity and handler.
-  A second submission with the same key returns the existing Job if the input matches, and `submission-key-conflict` if it does not.
+- An unknown handler is refused with `handler-not-found`, and an inapplicable definition with `invalid-request`.
+- Input larger than the input cap, 100 MiB by default, is refused with `input-too-large`.
+- The submission key is printable ASCII of 1 to 200 characters, unique per owner identity and handler.
+  A second submission with the same key returns the existing Job if the definition and input match, and `submission-key-conflict` if either differs.
   Inputs are compared by a SHA-256 hash of their canonical JSON.
-- The Job row is committed before the response is sent; a response saying `accepted` always means a committed Job.
+- A new Job answers 201 and a repeated submission answers 200, both with `{ job, created }`.
+  The Job row is committed before the response is sent.
 
 ## Queue and execution
 
 The Jobs table is the only queue.
-Workers claim due Jobs with `FOR UPDATE SKIP LOCKED`, set a lease, and renew it while running.
-Each worker runs up to a configured number of Jobs at once.
+Workers claim due Jobs with `FOR UPDATE SKIP LOCKED`, set a 30-second lease, and renew it every 10 seconds while running.
+Each worker runs up to `WORKER_CONCURRENCY` Jobs at once, four by default.
 
-A handler receives its input, a checkout function for its definition bound to the owner's identity, a progress reporter, and an abort signal.
+A handler receives its input, the callback body when it resumes (`resume`), the attempt number, a checkout function for its definition bound to the owner's identity, a protocol fetch, a progress reporter, a callback issuer and an abort signal.
 The Job's owner identity is fixed at admission; the Job runs with that identity's current connection, and fails with `not-connected` if it has been disconnected.
 
 The runtime cap, 24 hours by default, runs from first start and includes waits and retries; nothing resets it.
+Retry backoff is the handler's `backoffSeconds` doubled for each further attempt.
 
 ## External tasks
 
-A handler that starts work elsewhere returns a wait with an external task ID and a callback verifier.
+A handler that starts work elsewhere asks for a callback, which returns a URL and a single-use verifier, gives both to the external system, and returns a wait with the external task ID.
 The Job moves to `waiting`, releases its worker slot and stores the task ID.
-A verified callback at `/v1/jobs/callbacks/{jobId}` moves it back to `queued` with the callback body as handler input.
+The external system calls `POST /v1/jobs/callbacks/{jobId}` with the verifier as the `Tableau-Service-Authorization` bearer.
+A verified callback is answered with 202 and moves the Job back to `queued`, and the handler receives the callback body as `resume`.
+A callback that arrives while the Job is still running or queued is kept and takes effect once the wait is recorded.
 A waiting Job can also set a time to check status itself.
 
 ## States
@@ -70,20 +76,21 @@ Cancelling a queued or waiting Job ends it.
 Cancelling a running Job aborts its signal; the Job ends as `cancelled` when the handler returns, and reports whether remote effects are unknown.
 A cancel recorded before the attempt's commit wins over whatever the attempt returned: a success is discarded and reports unknown remote effects, and a failure is neither retried nor replayed and keeps its uncertainty.
 An attempt stopped by its worker shutting down, or recovered after its lease expired, ends `cancelled` with unknown remote effects when a cancel was recorded before that transition locks its row, rather than being interrupted or replayed.
-A handler may implement remote cancel for its external task.
+A handler may implement remote cancel for its external task, which is given 10 seconds.
 
 ## Results and retention
 
-A result larger than the result cap, 100 MB by default, fails the Job with `result-too-large`, and a result that is not JSON fails it with `result-invalid`.
+A result larger than the result cap, 100 MiB by default, fails the Job with `result-too-large`, and a result that is not JSON fails it with `result-invalid`.
 Either is still a success at the commit: a recorded cancel or a passed deadline takes precedence over the rejection, as for any other success.
 Results are kept for seven days and finished-Job records for thirty days after the Job finishes, both configurable.
 A finished-Job record outlives its result so a repeated submission key still returns the original Job, and a late reader is told `result-expired`.
-Workers delete expired results and records in bounded batches.
+Workers delete expired results and records in batches of 500 every minute.
 
 ## Reading Jobs
 
 The owner reads and lists their own Jobs from any Data App.
 Reading a result needs a valid app session for the owner, not a usable connection, so results stay readable after disconnect.
+Reading a result of an unfinished Job returns `job-not-finished`, and of a Job that finished without one returns `job-has-no-result`.
 Operators can list and cancel any Job.
 
 ## Failure and recovery
@@ -92,8 +99,9 @@ Operators can list and cancel any Job.
 | --- | --- |
 | Worker crash | Leases expire; running Jobs become `cancelled` when a cancel was recorded, otherwise `interrupted` or retried as their handler declares. |
 | Database unavailable at admission | Admission fails; no Job is reported as accepted. |
-| Callback for an unknown or finished Job | Rejected and logged. |
+| Callback for an unknown or finished Job | `job-callback-invalid` with status 404, logged. |
+| Callback with the wrong verifier | `job-callback-invalid` with status 401, logged. |
 
 ## Extension
 
-A new handler is code registered by a preset.
+A new handler is a JobHandlerDefinition added through the explicit code extension registry.

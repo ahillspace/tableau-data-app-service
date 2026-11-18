@@ -83,12 +83,11 @@ test("V1: bootstrap validation lists every failing field", () => {
   const error = failure(() =>
     parseBootstrap({
       deployments: [
-        { id: "cloud-west", kind: "tableau-server", podOrigin: "http://pod", clientId: "" },
+        { id: "cloud-west", kind: "tableau-server", podOrigin: "http://pod", clientId: "c" },
         {
           id: "cloud-west",
           kind: "tableau-cloud",
           podOrigin: "https://pod.online.tableau.com",
-          clientId: "c",
         },
       ],
       firstSite: { deploymentId: "nope", contentUrl: "bad site!" },
@@ -100,7 +99,7 @@ test("V1: bootstrap validation lists every failing field", () => {
   for (const expected of [
     "bootstrap.deployments.0.kind=one-of:tableau-cloud",
     "bootstrap.deployments.0.podOrigin=https-origin",
-    "bootstrap.deployments.0.clientId=required",
+    "bootstrap.deployments.0=unknown-field:clientId",
     "bootstrap.firstSite.contentUrl=site-content-url",
     "bootstrap.firstOperator.username=required",
   ])
@@ -119,13 +118,11 @@ test("V1: bootstrap cross-field rules report after shape passes", () => {
           id: "a",
           kind: "tableau-cloud",
           podOrigin: "https://pod.online.tableau.com",
-          clientId: "c",
         },
         {
           id: "a",
           kind: "tableau-cloud",
           podOrigin: "https://pod.online.tableau.com",
-          clientId: "c",
         },
       ],
       firstSite: { deploymentId: "b", contentUrl: "s" },

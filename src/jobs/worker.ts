@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
-import type { JobHandlerDefinition, JobStepResult } from "../connections/provider-types.ts";
+import type { JobHandlerDefinition, JobStepResult } from "../connections/extensions.ts";
 import type { ConnectionService } from "../connections/service.ts";
 import { type Db, type Tx, transaction } from "../persistence/database.ts";
 import type { Clock } from "../platform/clock.ts";
@@ -223,7 +223,7 @@ export class JobWorker {
     const row = result.rows[0];
     if (!row) return undefined;
     // A handler's own runtime limit can be lower than the installation's.
-    const handler = this.#connections.definitions.types.handler(row.handler)?.handler;
+    const handler = this.#connections.definitions.extensions.handler(row.handler)?.handler;
     if (handler?.limits?.runtimeSeconds !== undefined) {
       const started = await this.#db
         .selectFrom("jobs")
@@ -261,7 +261,7 @@ export class JobWorker {
   /** Runs one claimed Job to its next state. Exposed for tests that drive a worker step by step. */
   async execute(job: Claimed, controller = new AbortController()): Promise<void> {
     const log = this.#log.child({ jobId: job.id, handler: job.handler, attempt: job.attempt });
-    const registered = this.#connections.definitions.types.handler(job.handler);
+    const registered = this.#connections.definitions.extensions.handler(job.handler);
     if (!registered || !job.definition_id) {
       await this.#end(job, {
         state: "failed",
@@ -289,7 +289,7 @@ export class JobWorker {
       const caller = await ownerCaller(this.#db, job.owner_identity_id);
       const definition = await this.#connections.definitions.get(definitionId);
       const fetch = definition
-        ? this.#connections.presetContext(definition, controller.signal).fetch
+        ? this.#connections.extensionContext(definition, controller.signal).fetch
         : ((() =>
             Promise.reject(
               new ServiceError(404, "definition-not-found", "No such definition"),
@@ -781,7 +781,7 @@ export class JobWorker {
       const now = this.#clock.now();
       if (!row?.lease_expires_at || row.lease_expires_at.getTime() >= now.getTime())
         return undefined;
-      const handler = this.#connections.definitions.types.handler(row.handler)?.handler;
+      const handler = this.#connections.definitions.extensions.handler(row.handler)?.handler;
       const retry =
         !row.cancel_requested &&
         handler?.retrySafe === true &&

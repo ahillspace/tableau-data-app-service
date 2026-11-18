@@ -1,16 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { ServiceError } from "../../platform/errors.ts";
+import { invalid, ServiceError } from "../../platform/errors.ts";
 import { caller } from "../auth.ts";
-import { escapeHtml, redirect, sendErrorPage, sendOpenerPage, sendPage } from "../pages.ts";
+import { redirect, sendErrorPage, sendOpenerPage } from "../pages.ts";
 import { objectBody, param } from "../request.ts";
 import type { Services } from "../services.ts";
 import { signInSession } from "./identity.ts";
-
-const FIELD_LABELS: Record<string, string> = {
-  clientSecret: "OAuth client secret",
-  signingSecret: "Event signing secret",
-  credential: "Shared credential",
-};
 
 export function connectionRoutes(app: FastifyInstance, services: Services): void {
   const { connections, identity } = services;
@@ -22,11 +16,12 @@ export function connectionRoutes(app: FastifyInstance, services: Services): void
   app.post("/v1/definitions/:id/connect", async (request, reply) => {
     const principal = await caller(identity, request);
     const started = await connections.startConnect(principal, param(request, "id"), "personal");
-    return reply.status(201).send({ ...started, expiresAt: started.expiresAt.toISOString() });
+    return reply.status(201).send(started);
   });
 
   app.put("/v1/definitions/:id/credential", async (request) => {
     const principal = await caller(identity, request);
+    if (request.url.includes("?")) throw invalid([{ path: "query", rule: "not-allowed" }]);
     const body = objectBody(request);
     return {
       definition: await connections.setPersonalCredential(
@@ -87,40 +82,6 @@ export function connectionRoutes(app: FastifyInstance, services: Services): void
         status: "failed",
         code: error instanceof ServiceError ? error.code : "internal-error",
       });
-    }
-  });
-
-  // The secret entry page: an operator types a value the service seals; it is never shown again.
-  app.get("/secret/:token", async (request, reply) => {
-    const token = param(request, "token");
-    try {
-      const session = await signInSession(services, request);
-      if (!session)
-        return redirect(reply, `/tableau/sign-in?return=${encodeURIComponent(`/secret/${token}`)}`);
-      const link = await connections.readSecretLink(token, session);
-      const label = FIELD_LABELS[link.field] ?? link.field;
-      return sendPage(reply, {
-        title: `Enter ${label}`,
-        body: `<h1>${escapeHtml(label)}</h1><p>For ${escapeHtml(link.displayName)} (${escapeHtml(link.definitionId)}). The value is sealed and never shown again.</p><form method="post" action="/secret/${escapeHtml(token)}" autocomplete="off"><input type="password" name="value" required aria-label="${escapeHtml(label)}"><div class="actions"><button type="submit">Save</button></div></form>`,
-      });
-    } catch (error) {
-      return sendErrorPage(reply, error);
-    }
-  });
-
-  app.post("/secret/:token", async (request, reply) => {
-    const token = param(request, "token");
-    try {
-      const session = await signInSession(services, request);
-      const form = objectBody(request);
-      const saved = await connections.submitSecret(token, session, form.value);
-      const label = FIELD_LABELS[saved.field] ?? saved.field;
-      return sendPage(reply, {
-        title: "Saved",
-        body: `<h1>Saved</h1><p>The ${escapeHtml(label.toLowerCase())} for ${escapeHtml(saved.definitionId)} is sealed. You can close this window.</p>`,
-      });
-    } catch (error) {
-      return sendErrorPage(reply, error);
     }
   });
 }

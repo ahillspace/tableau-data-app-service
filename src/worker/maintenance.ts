@@ -13,7 +13,6 @@ export const EXPIRING_TABLES = [
   "app_sign_ins",
   "operator_sign_ins",
   "connect_transactions",
-  "secret_links",
   "restore_tokens",
   "app_sessions",
   "sign_in_sessions",
@@ -32,6 +31,7 @@ export class Maintenance {
   readonly #log: Log;
   readonly #batch: number;
   readonly #maxBatches: number;
+  readonly #cleanup: (() => Promise<unknown>) | undefined;
   #lastRun = 0;
 
   constructor(options: {
@@ -41,8 +41,10 @@ export class Maintenance {
     log: Log;
     batchSize?: number;
     maxBatchesPerTable?: number;
+    cleanup?: () => Promise<unknown>;
   }) {
     this.#db = options.db;
+    this.#cleanup = options.cleanup;
     this.#jobs = options.jobs;
     this.#clock = options.clock;
     this.#log = options.log;
@@ -77,6 +79,7 @@ export class Maintenance {
       report.jobRecords += records;
       if (results < this.#batch && records < this.#batch) break;
     }
+    await this.#cleanup?.();
     this.#lastRun = Date.now();
     const total = Object.values(report).reduce((a, b) => a + b, 0);
     if (total) this.#log.info("maintenance removed expired rows", report);

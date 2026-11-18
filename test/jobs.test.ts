@@ -5,8 +5,7 @@ import type {
   JobHandlerDefinition,
   JobRunContext,
   JobStepResult,
-  ProviderType,
-} from "../src/connections/provider-types.ts";
+} from "../src/connections/extensions.ts";
 import { listSites } from "../src/identity/directory.ts";
 import type { Principal } from "../src/identity/types.ts";
 import { JobService } from "../src/jobs/service.ts";
@@ -55,24 +54,18 @@ function handler(name: string, extra: Partial<JobHandlerDefinition> = {}): JobHa
   };
 }
 
-const tasks: ProviderType = {
-  name: "tasks",
-  oauth: "none",
-  staticCredential: true,
-  credentialless: false,
-  jobHandlers: [
-    handler("echo"),
-    handler("safe", { retrySafe: true }),
-    handler("flaky", { retries: { attempts: 2, backoffSeconds: 0 } }),
-    handler("replayable", { retrySafe: true, retries: { attempts: 1, backoffSeconds: 0 } }),
-    handler("small", { limits: { inputBytes: 64, resultBytes: 64, runtimeSeconds: 60 } }),
-    handler("remote", {
-      cancel: async (ctx) => {
-        cancels.push(ctx.externalTaskId);
-      },
-    }),
-  ],
-};
+const jobHandlers: JobHandlerDefinition[] = [
+  handler("echo"),
+  handler("safe", { retrySafe: true }),
+  handler("flaky", { retries: { attempts: 2, backoffSeconds: 0 } }),
+  handler("replayable", { retrySafe: true, retries: { attempts: 1, backoffSeconds: 0 } }),
+  handler("small", { limits: { inputBytes: 64, resultBytes: 64, runtimeSeconds: 60 } }),
+  handler("remote", {
+    cancel: async (ctx) => {
+      cancels.push(ctx.externalTaskId);
+    },
+  }),
+];
 
 async function code(promise: Promise<unknown>): Promise<string> {
   try {
@@ -148,7 +141,7 @@ describe("jobs", () => {
       keys: testKeys(),
       outbound: h.outbound,
       clock: h.clock,
-      presets: [tasks],
+      jobHandlers,
     });
     lines = [];
     jobs = new JobService({
@@ -163,14 +156,14 @@ describe("jobs", () => {
     await c.definitions.create("test", {
       id: "work",
       displayName: "Work",
-      type: "tasks",
+      authentication: { method: "static" },
       ownership: "personal",
       apiHosts: ["https://work.example"],
       audience: [siteId],
     });
     a = (await appSignIn(h, (await tableauSignIn(h, tableau, alice)).cookie)).principal;
     b = (await appSignIn(h, (await tableauSignIn(h, tableau, bob)).cookie)).principal;
-    await c.connections.setPersonalCredential(a, "work", "alice-key");
+    await c.connections.setPersonalCredential(a, "work", { kind: "token", value: "alice-key" });
   });
 
   test("V20 admission is idempotent per submission key and committed before it answers", async () => {
@@ -218,7 +211,7 @@ describe("jobs", () => {
     assert.equal(raced.filter((r) => r.created).length, 1);
 
     // Another owner's key space is separate, and another owner cannot read the Job.
-    await c.connections.setPersonalCredential(b, "work", "bob-key");
+    await c.connections.setPersonalCredential(b, "work", { kind: "token", value: "bob-key" });
     const bobs = await submit(b, "echo", "x", "k2");
     assert.notEqual(bobs.job.id, raced[0]?.job.id);
     assert.equal(await code(jobs.get(b, first.job.id)), "job-not-found");
@@ -251,7 +244,7 @@ describe("jobs", () => {
     assert.deepEqual(await jobs.result(a, job.id), { input: "hello", auth: "Bearer alice-key" });
 
     // A queued Job whose owner disconnected fails with not-connected when it runs.
-    await c.connections.setPersonalCredential(a, "work", "alice-key");
+    await c.connections.setPersonalCredential(a, "work", { kind: "token", value: "alice-key" });
     const second = await submit(a, "echo", "again", "run-2");
     await c.connections.disconnectOwn(a, "work");
     await step(w);
@@ -368,13 +361,13 @@ describe("jobs", () => {
       await c.definitions.create("test", {
         id: "lossy",
         displayName: "Lossy",
-        type: "tasks",
+        authentication: { method: "static" },
         ownership: "personal",
         apiHosts: [lossy.origin],
         audience: [((await listSites(db))[0] as { id: string }).id],
         privateHosts: true,
       });
-      await c.connections.setPersonalCredential(a, "lossy", "alice-key");
+      await c.connections.setPersonalCredential(a, "lossy", { kind: "token", value: "alice-key" });
       const operate: Behavior = async (ctx) => {
         await ctx.fetch(`${lossy.origin}/charge`, {
           method: "POST",
@@ -918,7 +911,7 @@ describe("jobs", () => {
   });
 
   test("operators list and cancel every Job", async () => {
-    await c.connections.setPersonalCredential(b, "work", "bob-key");
+    await c.connections.setPersonalCredential(b, "work", { kind: "token", value: "bob-key" });
     await submit(a, "echo", 1, "o1");
     const bobs = await submit(b, "echo", 1, "o2");
     assert.equal((await jobs.list({})).length, 2);

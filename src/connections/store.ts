@@ -5,14 +5,44 @@ import type { SealedJson } from "../persistence/schema.ts";
 import { ServiceError } from "../platform/errors.ts";
 import { definitionSecretRecordId } from "../sealing/reseal.ts";
 import type { Sealer } from "../sealing/sealer.ts";
+import type { Account } from "./extensions.ts";
 import { placeCredential } from "./placement.ts";
-import type { Account } from "./provider-types.ts";
 import type {
+  Authentication,
   ConnectionDefinition,
   CredentialLease,
+  Definition,
   SecretField,
   StoredCredential,
 } from "./types.ts";
+
+export function requiredApplicationSecret(authentication: Authentication): SecretField | undefined {
+  if (!("clientAuthentication" in authentication)) return undefined;
+  switch (authentication.clientAuthentication.method) {
+    case "client_secret_basic":
+    case "client_secret_post":
+      return "clientSecret";
+    case "private_key_jwt":
+      return "signingPrivateKey";
+    case "none":
+      return undefined;
+  }
+}
+
+/** Known authorization state and the configured interval agree in checkout and safe reads. */
+export function connectionNeedsAuthorization(
+  definition: Pick<Definition, "reauthorizationInterval">,
+  connection: { status: "connected" | "needs-authorization" | "disconnected"; authorized_at: Date },
+  now: Date,
+): boolean {
+  return (
+    connection.status === "needs-authorization" ||
+    (connection.status === "connected" &&
+      definition.reauthorizationInterval !== undefined &&
+      connection.authorized_at.getTime() + definition.reauthorizationInterval * 1000 <=
+        now.getTime())
+  );
+}
 
 /** Opens a connection's sealed credential. The record ID is the connection ID, so a value cannot move between rows. */
 export function openCredential(
@@ -28,7 +58,7 @@ export function openCredential(
     throw new ServiceError(503, "credential-unavailable", "A stored credential is unreadable");
   }
   const value = parsed as Partial<StoredCredential>;
-  if (!value || typeof value.accessToken !== "string")
+  if (!value || typeof value !== "object" || Array.isArray(value))
     throw new ServiceError(503, "credential-unavailable", "A stored credential is unreadable");
   return parsed as StoredCredential;
 }
@@ -50,8 +80,7 @@ export function leaseFor(
     definition,
     connectionId,
     apply(request) {
-      if (credential)
-        placeCredential(request, definition.credentialPlacement, credential.accessToken);
+      if (credential) placeCredential(request, definition.credentialPlacement, credential);
     },
   };
 }
@@ -59,6 +88,7 @@ export function leaseFor(
 export const SECRET_PURPOSE = {
   clientSecret: "client-secret",
   signingSecret: "signing-secret",
+  signingPrivateKey: "signing-private-key",
 } as const;
 
 export async function readDefinitionSecret(
@@ -135,6 +165,7 @@ export async function replaceConnection(
       account_name: input.account?.name ?? null,
       scopes: JSON.stringify(input.scopes),
       authorized_at: now,
+      credential_set_at: now,
       credential_expires_at: input.credential.expiresAt
         ? new Date(input.credential.expiresAt)
         : null,

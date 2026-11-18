@@ -91,12 +91,8 @@ export async function applyBootstrap(db: Db, bootstrap: Bootstrap, log: Log): Pr
     for (const d of bootstrap.deployments) {
       await tx
         .insertInto("deployments")
-        .values({ id: d.id, kind: d.kind, pod_origin: d.podOrigin, client_id: d.clientId })
-        .onConflict((oc) =>
-          oc
-            .column("id")
-            .doUpdateSet({ kind: d.kind, pod_origin: d.podOrigin, client_id: d.clientId }),
-        )
+        .values({ id: d.id, kind: d.kind, pod_origin: d.podOrigin })
+        .onConflict((oc) => oc.column("id").doUpdateSet({ kind: d.kind, pod_origin: d.podOrigin }))
         .execute();
     }
     const ignored: string[] = [];
@@ -248,7 +244,7 @@ export async function removeSite(db: Db, actor: string, id: string): Promise<voi
     if (!row) throw notFound("site-not-found", "No such trusted site");
     await endSiteSessions(tx, row.deployment_id, row.site_id);
     // Audiences name only sites that exist, so a removed site leaves every audience in the same transaction.
-    await sql`update definitions set audience = audience - ${id}::text where audience ? ${id}::text`.execute(
+    await sql`update definitions set audience = audience - ${id}::text, version = version + 1, updated_at = clock_timestamp() where audience ? ${id}::text`.execute(
       tx,
     );
     await bumpRevision(tx);

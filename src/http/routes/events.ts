@@ -72,6 +72,7 @@ export function eventRoutes(app: FastifyInstance, services: Services): void {
       const outcome = await events.ingest(param(request, "definitionId"), {
         headers: request.headers,
         body,
+        query: new URL(request.url, services.publicOrigin).searchParams,
       });
       // Acknowledge first; publishing happens once the provider has its answer.
       reply.raw.once("finish", () => void outcome.publish());

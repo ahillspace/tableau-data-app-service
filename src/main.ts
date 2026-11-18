@@ -3,16 +3,24 @@
  * setting before doing anything, and refuses to serve against a schema that is behind.
  */
 
+import { randomUUID } from "node:crypto";
 import { DefinitionStore } from "./connections/definitions.ts";
 import { ConnectionService } from "./connections/service.ts";
 import { createEvents } from "./events/index.ts";
+import { installedExtensions } from "./extensions/index.ts";
 import { createApi } from "./http/app.ts";
 import { applyBootstrap } from "./identity/directory.ts";
 import { IdentityService } from "./identity/sessions.ts";
-import { type DeploymentAdapter, TableauCloudAdapter } from "./identity/tableau-cloud.ts";
+import {
+  type DeploymentAdapter,
+  TableauCloudAdapter,
+  tableauClientMetadata,
+} from "./identity/tableau-cloud.ts";
 import { JobService } from "./jobs/service.ts";
 import type { JobLimits } from "./jobs/types.ts";
 import { JobWorker } from "./jobs/worker.ts";
+import { Metrics } from "./operations/metrics.ts";
+import { Operations } from "./operations/status.ts";
 import { assertSchemaCurrent, type Db, migrate, openDatabase } from "./persistence/database.ts";
 import { type Bootstrap, loadBootstrap } from "./platform/bootstrap.ts";
 import { systemClock } from "./platform/clock.ts";
@@ -25,7 +33,6 @@ import {
   resolveInstallation,
   type Settings,
 } from "./platform/settings.ts";
-import { installedProviderTypes } from "./presets/index.ts";
 import { NativeRouter } from "./router/router.ts";
 import { Sealer } from "./sealing/sealer.ts";
 import { Maintenance } from "./worker/maintenance.ts";
@@ -110,24 +117,32 @@ function connectionsFor(
   installation: Installation,
   out: Outbound,
   log: Log,
+  metrics: Metrics,
 ): ConnectionService {
+  const sealer = new Sealer(settings.sealingKeys);
   const definitions = new DefinitionStore({
     db,
-    types: installedProviderTypes(),
+    extensions: installedExtensions(),
+    sealer,
     clock: systemClock,
   });
   return new ConnectionService({
     db,
     definitions,
-    sealer: new Sealer(settings.sealingKeys),
+    sealer,
     outbound: out,
     publicOrigin: installation.publicOrigin,
     clock: systemClock,
     log: log.child({ component: "connections" }),
+    metrics,
   });
 }
 
-function adapters(bootstrap: Bootstrap, out: Outbound): Map<string, DeploymentAdapter> {
+function adapters(
+  bootstrap: Bootstrap,
+  publicOrigin: string,
+  out: Outbound,
+): Map<string, DeploymentAdapter> {
   // Tableau's sign-in and REST hosts are public, so private addresses are refused.
   const fetch = out.fetcher(false);
   return new Map(
@@ -136,7 +151,7 @@ function adapters(bootstrap: Bootstrap, out: Outbound): Map<string, DeploymentAd
       new TableauCloudAdapter({
         deploymentId: d.id,
         podOrigin: d.podOrigin,
-        clientId: d.clientId,
+        clientId: tableauClientMetadata(publicOrigin).client_id,
         fetch,
       }) as DeploymentAdapter,
     ]),
@@ -173,6 +188,20 @@ export async function runMigrate(loaded: Loaded): Promise<void> {
   }
 }
 
+function startTelemetry(metrics: Metrics, operations: Operations, resources: Resources): void {
+  const flush = setInterval(() => void metrics.flush(), 10_000);
+  const heartbeat = setInterval(() => void operations.heartbeat(), 15_000);
+  flush.unref();
+  heartbeat.unref();
+  void operations.heartbeat();
+  resources.add({ flush, heartbeat }, async (timers) => {
+    clearInterval(timers.flush);
+    clearInterval(timers.heartbeat);
+    await metrics.flush();
+    await operations.heartbeat();
+  });
+}
+
 export type Running = { port: number; stop: () => Promise<void> };
 
 export async function runApi(loaded: Loaded): Promise<Running> {
@@ -186,10 +215,13 @@ async function startApi(loaded: Loaded, resources: Resources): Promise<Running> 
   await assertSchemaCurrent(db);
   await applyBootstrap(db, bootstrap, log);
   const out = outbound(settings, resources);
-  const connections = connectionsFor(db, settings, installation, out, log);
+  const instanceId = randomUUID(),
+    startedAt = new Date();
+  const metrics = new Metrics({ db, instanceId, log });
+  const connections = connectionsFor(db, settings, installation, out, log, metrics);
   const identity = new IdentityService({
     db,
-    adapters: adapters(bootstrap, out),
+    adapters: adapters(bootstrap, installation.publicOrigin, out),
     publicOrigin: installation.publicOrigin,
     signInLimitSeconds: installation.signInLimitSeconds,
     clock: systemClock,
@@ -214,15 +246,31 @@ async function startApi(loaded: Loaded, resources: Resources): Promise<Running> 
     resources.add(events, (e) => e.close());
     await events.start();
   }
+  const operations = new Operations({
+    db,
+    instanceId,
+    role: "api",
+    startedAt,
+    log,
+    metrics,
+    eventsEnabled: !!events,
+    eventsReady: () => events?.ready ?? false,
+    version: "0.1.0",
+  });
+  startTelemetry(metrics, operations, resources);
   const app = await createApi({
     db,
     publicOrigin: installation.publicOrigin,
+    consoleEnabled: settings.consoleEnabled,
+    metrics,
+    operations,
     identity,
     connections,
     router: new NativeRouter({
       connections,
       outbound: out,
       log: log.child({ component: "router" }),
+      metrics,
     }),
     jobs,
     events,
@@ -246,7 +294,10 @@ async function startWorker(loaded: Loaded, resources: Resources): Promise<Runnin
   const db = database(settings, "worker", resources);
   await assertSchemaCurrent(db);
   const out = outbound(settings, resources);
-  const connections = connectionsFor(db, settings, installation, out, log);
+  const instanceId = randomUUID(),
+    startedAt = new Date();
+  const metrics = new Metrics({ db, instanceId, log });
+  const connections = connectionsFor(db, settings, installation, out, log, metrics);
   const jobs = new JobService({
     db,
     connections,
@@ -263,6 +314,18 @@ async function startWorker(loaded: Loaded, resources: Resources): Promise<Runnin
     log: log.child({ component: "worker" }),
     concurrency: settings.workerConcurrency,
   });
+  const operations = new Operations({
+    db,
+    instanceId,
+    role: "worker",
+    startedAt,
+    log,
+    metrics,
+    eventsEnabled: false,
+    eventsReady: () => false,
+    version: "0.1.0",
+  });
+  startTelemetry(metrics, operations, resources);
   const role = new WorkerRole({
     db,
     worker,
@@ -271,6 +334,7 @@ async function startWorker(loaded: Loaded, resources: Resources): Promise<Runnin
       jobs: worker,
       clock: systemClock,
       log: log.child({ component: "maintenance" }),
+      cleanup: () => operations.cleanup(),
     }),
     log,
   });

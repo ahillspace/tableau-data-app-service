@@ -1,0 +1,55 @@
+{
+  "description": "Presentation layout for the offline view's system map: positions, short card labels, edge routes, and the free lanes a highlighted flow path may follow, and the text patterns that place a flow step on the map (match: the node is reached; callerMatch: the node starts the step; caller: a matched client reaches the service through the gateway or directly). What each node says when inspected comes from the documents. build.py fails when a node names a component, role, trust boundary or store the documents do not have, when a documented one has no node, or when a flow step owner has no node.",
+  "width": 1040,
+  "height": 736,
+  "gateway": "http",
+  "lanes": {"x": [220, 435, 617, 833], "y": [138, 255, 347, 439, 531, 626]},
+  "groups": [
+    {"x": 8, "y": 6, "w": 798, "h": 108, "label": "CLIENTS / SDK AND CLI SHIP FROM THIS CODEBASE", "tone": "client"},
+    {"x": 246, "y": 148, "w": 560, "h": 562, "label": "SHARED SERVICE / ONE CODEBASE", "tone": "service"}
+  ],
+  "labels": [
+    {"x": 260, "y": 632, "text": "ROLES"},
+    {"x": 16, "y": 730, "text": "CLIENT / OPERATOR / HOST"},
+    {"x": 1024, "y": 730, "text": "IDENTITY / PROVIDERS / STORES", "anchor": "end"}
+  ],
+  "nodes": [
+    {"id": "sdk", "x": 16, "y": 34, "w": 164, "h": 66, "component": "Browser SDK and CLI", "subtitle": "SDK · CLI · optional console", "aliases": ["SDK"], "match": ["\\bSDK\\b"], "caller": "gateway"},
+    {"id": "dataapp", "x": 260, "y": 34, "w": 168, "h": 66, "title": "Data App in Tableau", "kind": "EMBEDDED CLIENT", "subtitle": "App code + browser SDK", "trustIn": "Data App frame to API", "doc": "docs/events-sdk.md#browser-sdk", "match": ["\\bData App\\b", "\\b[Aa]pps? (?:calls|calling|opens)\\b", "\\bthe app\\b", "\\bViewer clicks\\b"], "caller": "gateway"},
+    {"id": "popup", "x": 442, "y": 34, "w": 168, "h": 66, "title": "Service popup", "kind": "SERVICE WINDOW", "subtitle": "Sign-in and connect pages", "trustIn": "Popup to API", "doc": "docs/identity.md#first-sign-in", "match": ["\\bpopup\\b", "\\b[Tt]he page\\b", "\\bsign-in page\\b", "\\bservice page\\b"], "caller": "gateway"},
+    {"id": "tdas", "x": 624, "y": 34, "w": 168, "h": 66, "title": "Operator tools", "kind": "OPERATOR CLIENT", "subtitle": "CLI bearer · console cookie", "trustIn": "Operator tools to API", "doc": "docs/running.md#operate", "match": ["\\btdas(?![\\w-])", "\\bCLI\\b", "\\b[Cc]onsole\\b"], "caller": "gateway"},
+
+    {"id": "http", "x": 260, "y": 176, "w": 532, "h": 66, "component": "HTTP surface", "subtitle": "Routes · request parsing · error shape · CORS · cookies · service pages"},
+    {"id": "events", "x": 260, "y": 268, "w": 168, "h": 66, "component": "Events", "subtitle": "Sources · fan-out · SSE"},
+    {"id": "jobs", "x": 442, "y": 268, "w": 168, "h": 66, "component": "Jobs", "subtitle": "Queue · waits · results"},
+    {"id": "router", "x": 624, "y": 268, "w": 168, "h": 66, "component": "Router", "subtitle": "Native forward · stream", "match": ["\\b[Rr]outer\\b"]},
+    {"id": "catalog", "x": 260, "y": 360, "w": 168, "h": 66, "catalog": true, "title": "Catalog", "kind": "PROVIDER DATA", "subtitle": "Independent templates", "aliases": ["Catalog"], "match": ["\\bcatalog\\b", "\\btemplate\\b"]},
+    {"id": "connections", "x": 442, "y": 360, "w": 168, "h": 66, "component": "Connections", "subtitle": "Definitions · credentials"},
+    {"id": "identity", "x": 624, "y": 360, "w": 168, "h": 66, "component": "Identity", "subtitle": "Sign-in · sessions"},
+    {"id": "sealing", "x": 260, "y": 452, "w": 168, "h": 66, "component": "Sealing", "subtitle": "Seal · open · reseal", "match": ["\\bseals\\b"]},
+    {"id": "persistence", "x": 442, "y": 452, "w": 350, "h": 66, "component": "Persistence", "subtitle": "SQL · revision · audit · metrics"},
+    {"id": "platform", "x": 260, "y": 544, "w": 532, "h": 66, "component": "Platform", "subtitle": "Settings · logging · clock · errors · outbound HTTP with destination checks"},
+    {"id": "api", "x": 260, "y": 642, "w": 168, "h": 56, "role": "api", "subtitle": "N replicas"},
+    {"id": "worker", "x": 442, "y": 642, "w": 168, "h": 56, "role": "worker", "subtitle": "N replicas", "match": ["\\b[Ww]orker\\b"]},
+    {"id": "migrate", "x": 624, "y": 642, "w": 168, "h": 56, "role": "migrate", "subtitle": "Once per release"},
+
+    {"id": "redis", "x": 16, "y": 268, "w": 164, "h": 66, "title": "Redis", "kind": "OPTIONAL / LOSSY", "store": "Redis", "doc": "docs/events-sdk.md#fan-out", "match": ["\\bRedis\\b"], "optional": true},
+    {"id": "host", "x": 16, "y": 452, "w": 164, "h": 66, "title": "tdas-admin", "kind": "ON THE SERVICE HOST", "subtitle": "Recovery · reseal", "role": "tdas-admin", "store": "Host secret", "trustIn": "Host to service", "doc": "docs/identity.md#recovery", "match": ["\\btdas-admin\\b"], "caller": "direct"},
+    {"id": "provider", "x": 860, "y": 176, "w": 164, "h": 158, "title": "Provider APIs", "kind": "PROVIDER BOUNDARY", "subtitle": "Native API · callbacks", "trustIn": "Provider to API", "trustOut": "API and worker to providers", "doc": "docs/routing.md", "match": ["\\b[Pp]rovider\\b(?! account)", "\\bdestination\\b", "\\bexternal task\\b"], "callerMatch": ["\\b[Tt]he provider (?:posts|redirects)\\b", "\\b[Tt]he external system calls\\b"]},
+    {"id": "tableau", "x": 860, "y": 360, "w": 164, "h": 66, "title": "Tableau Cloud", "kind": "SIGN-IN + REST API", "subtitle": "Verifies identity", "trustOut": "API to Tableau", "doc": "docs/identity.md#tableau-cloud-sign-in", "aliases": ["Tableau"], "match": ["(?<![/\\w])Tableau(?![/\\w-])"]},
+    {"id": "postgres", "x": 860, "y": 452, "w": 164, "h": 66, "title": "Postgres", "kind": "AUTHORITATIVE STORE", "store": "Postgres", "doc": "docs/operations.md#stores", "match": ["\\bcommitted\\b", "\\b[Oo]ne transaction\\b", "\\bstores the definition\\b", "\\bwrites an operator record\\b"], "via": "persistence"}
+  ],
+  "edges": [
+    {"from": "dataapp", "to": "http", "path": "M344 100 V176", "label": "bearer ·\nrestore cookie", "labelX": 352, "labelY": 134, "anchor": "start"},
+    {"from": "popup", "to": "http", "path": "M526 100 V176", "label": "sign-in cookie ·\nredirects", "labelX": 534, "labelY": 134, "anchor": "start"},
+    {"from": "tdas", "to": "http", "path": "M708 100 V176", "label": "operator session", "labelX": 716, "labelY": 140, "anchor": "start"},
+    {"from": "sdk", "to": "http", "path": "M98 100 V209 H260", "label": ""},
+    {"from": "provider", "to": "http", "path": "M860 209 H792", "label": "callbacks ·\ndeliveries", "labelX": 826, "labelY": 191},
+    {"from": "router", "to": "provider", "path": "M792 301 H860", "label": "native\nrequests", "labelX": 826, "labelY": 283},
+    {"from": "events", "to": "redis", "path": "M260 301 H180", "label": "publish /\nsubscribe", "labelX": 220, "labelY": 283, "optional": true},
+    {"from": "identity", "to": "tableau", "path": "M792 393 H860", "label": "code\nexchange", "labelX": 826, "labelY": 375},
+    {"from": "persistence", "to": "postgres", "path": "M792 485 H860", "label": "SQL over\nTLS", "labelX": 826, "labelY": 467},
+    {"from": "host", "to": "sealing", "path": "M180 485 H260", "label": "sealing key", "labelX": 220, "labelY": 479},
+    {"from": "catalog", "to": "connections", "path": "M428 393 H442", "label": ""}
+  ]
+}

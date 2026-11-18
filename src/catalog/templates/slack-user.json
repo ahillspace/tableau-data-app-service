@@ -1,0 +1,289 @@
+{
+  "id": "slack-user",
+  "name": "Slack user",
+  "description": "User OAuth token, workspace identity, token rotation and signed events.",
+  "definition": {
+    "ownership": "personal",
+    "scopes": [],
+    "audience": [],
+    "enabled": true,
+    "privateHosts": false,
+    "credentialPlacement": {
+      "kind": "bearer"
+    },
+    "displayName": "Slack user",
+    "apiHosts": ["https://slack.com/api", "https://files.slack.com"],
+    "authentication": {
+      "method": "authorization_code",
+      "authorizationEndpoint": "https://slack.com/oauth/v2/authorize",
+      "tokenEndpoint": "https://slack.com/api/oauth.v2.access",
+      "clientAuthentication": {
+        "method": "client_secret_basic",
+        "clientId": "YOUR_CLIENT_ID"
+      },
+      "pkce": "none",
+      "scopeParameter": {
+        "name": "user_scope",
+        "separator": ","
+      },
+      "response": {
+        "format": "json",
+        "rules": {
+          "successStatuses": [200],
+          "success": [
+            {
+              "path": ["ok"],
+              "equals": true
+            }
+          ],
+          "failure": [
+            {
+              "path": ["ok"],
+              "equals": false
+            }
+          ],
+          "rejectedGrant": [
+            {
+              "path": ["error"],
+              "equals": "invalid_refresh_token"
+            },
+            {
+              "path": ["error"],
+              "equals": "invalid_grant"
+            },
+            {
+              "path": ["error"],
+              "equals": "token_revoked"
+            },
+            {
+              "path": ["error"],
+              "equals": "token_expired"
+            },
+            {
+              "path": ["error"],
+              "equals": "invalid_code"
+            },
+            {
+              "path": ["error"],
+              "equals": "code_already_used"
+            }
+          ]
+        },
+        "mapping": {
+          "accessToken": ["authed_user", "access_token"],
+          "refreshToken": ["authed_user", "refresh_token"],
+          "expiresIn": ["authed_user", "expires_in"],
+          "scope": ["authed_user", "scope"],
+          "scopeSeparator": ",",
+          "accountId": [["team", "id"], ["enterprise", "id"]],
+          "accountName": [["team", "name"], ["enterprise", "name"]]
+        }
+      },
+      "refreshResponse": {
+        "format": "json",
+        "rules": {
+          "successStatuses": [200],
+          "success": [
+            {
+              "path": ["ok"],
+              "equals": true
+            }
+          ],
+          "failure": [
+            {
+              "path": ["ok"],
+              "equals": false
+            }
+          ],
+          "rejectedGrant": [
+            {
+              "path": ["error"],
+              "equals": "invalid_refresh_token"
+            },
+            {
+              "path": ["error"],
+              "equals": "invalid_grant"
+            },
+            {
+              "path": ["error"],
+              "equals": "token_revoked"
+            },
+            {
+              "path": ["error"],
+              "equals": "token_expired"
+            },
+            {
+              "path": ["error"],
+              "equals": "invalid_code"
+            },
+            {
+              "path": ["error"],
+              "equals": "code_already_used"
+            }
+          ]
+        },
+        "mapping": {
+          "accessToken": ["access_token"],
+          "refreshToken": ["refresh_token"],
+          "expiresIn": ["expires_in"],
+          "scope": ["scope"],
+          "scopeSeparator": ",",
+          "accountId": [["team", "id"], ["enterprise", "id"]],
+          "accountName": [["team", "name"], ["enterprise", "name"]]
+        }
+      }
+    },
+    "webhook": {
+      "verification": {
+        "kind": "hmac",
+        "algorithm": "sha256",
+        "header": "x-slack-signature",
+        "prefix": "v0=",
+        "encoding": "hex",
+        "timestamp": {
+          "header": "x-slack-request-timestamp",
+          "toleranceSeconds": 300
+        },
+        "parts": [
+          {
+            "literal": "v0:"
+          },
+          {
+            "timestamp": true
+          },
+          {
+            "literal": ":"
+          },
+          {
+            "rawBody": true
+          }
+        ]
+      },
+      "handshake": {
+        "kind": "verified-json-echo",
+        "when": {
+          "path": ["type"],
+          "equals": "url_verification"
+        },
+        "value": ["challenge"],
+        "response": "text"
+      },
+      "event": {
+        "id": {
+          "json": ["event_id"]
+        },
+        "type": {
+          "json": ["event", "type"]
+        },
+        "account": [
+          {
+            "json": ["team_id"]
+          },
+          {
+            "json": ["enterprise_id"]
+          },
+          {
+            "json": ["event", "team"]
+          }
+        ],
+        "omit": [["token"]]
+      }
+    },
+    "accountLookup": {
+      "url": "https://slack.com/api/auth.test",
+      "method": "POST",
+      "credential": "accessToken",
+      "encoding": "form",
+      "response": {
+        "successStatuses": [200],
+        "success": [
+          {
+            "path": ["ok"],
+            "equals": true
+          }
+        ],
+        "failure": [
+          {
+            "path": ["ok"],
+            "equals": false
+          }
+        ],
+        "rejectedGrant": [
+          {
+            "path": ["error"],
+            "equals": "invalid_refresh_token"
+          },
+          {
+            "path": ["error"],
+            "equals": "invalid_grant"
+          },
+          {
+            "path": ["error"],
+            "equals": "token_revoked"
+          },
+          {
+            "path": ["error"],
+            "equals": "token_expired"
+          },
+          {
+            "path": ["error"],
+            "equals": "invalid_code"
+          },
+          {
+            "path": ["error"],
+            "equals": "code_already_used"
+          }
+        ]
+      },
+      "id": [["team_id"], ["enterprise_id"]],
+      "name": [["team"], ["enterprise_name"]]
+    },
+    "revocation": {
+      "url": "https://slack.com/api/auth.revoke",
+      "method": "POST",
+      "credential": "accessToken",
+      "encoding": "form",
+      "response": {
+        "successStatuses": [200],
+        "success": [
+          {
+            "path": ["ok"],
+            "equals": true
+          }
+        ],
+        "failure": [
+          {
+            "path": ["ok"],
+            "equals": false
+          }
+        ],
+        "rejectedGrant": [
+          {
+            "path": ["error"],
+            "equals": "invalid_refresh_token"
+          },
+          {
+            "path": ["error"],
+            "equals": "invalid_grant"
+          },
+          {
+            "path": ["error"],
+            "equals": "token_revoked"
+          },
+          {
+            "path": ["error"],
+            "equals": "token_expired"
+          },
+          {
+            "path": ["error"],
+            "equals": "invalid_code"
+          },
+          {
+            "path": ["error"],
+            "equals": "code_already_used"
+          }
+        ]
+      }
+    }
+  }
+}

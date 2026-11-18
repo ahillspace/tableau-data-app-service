@@ -1,0 +1,49 @@
+{
+  "id": "oauth2",
+  "name": "OAuth 2.0",
+  "description": "Authorization code with S256 PKCE and a standard token response.",
+  "definition": {
+    "ownership": "shared",
+    "scopes": [],
+    "audience": [],
+    "enabled": true,
+    "privateHosts": false,
+    "credentialPlacement": {
+      "kind": "bearer"
+    },
+    "displayName": "OAuth 2.0",
+    "authentication": {
+      "method": "authorization_code",
+      "authorizationEndpoint": "https://provider.example.invalid/authorize",
+      "tokenEndpoint": "https://provider.example.invalid/token",
+      "clientAuthentication": {
+        "method": "client_secret_basic",
+        "clientId": "YOUR_CLIENT_ID"
+      },
+      "pkce": "S256",
+      "scopeParameter": {
+        "name": "scope",
+        "separator": " "
+      },
+      "response": {
+        "format": "json",
+        "rules": {
+          "successStatuses": [200],
+          "rejectedGrant": [
+            {
+              "path": ["error"],
+              "equals": "invalid_grant"
+            }
+          ]
+        },
+        "mapping": {
+          "accessToken": ["access_token"],
+          "refreshToken": ["refresh_token"],
+          "expiresIn": ["expires_in"],
+          "scope": ["scope"],
+          "scopeSeparator": " "
+        }
+      }
+    }
+  }
+}

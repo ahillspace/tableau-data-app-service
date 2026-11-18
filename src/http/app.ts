@@ -12,6 +12,7 @@ import {
 } from "./cors.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { connectionRoutes } from "./routes/connections.ts";
+import { consoleRoutes } from "./routes/console.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { identityRoutes } from "./routes/identity.ts";
@@ -132,6 +133,7 @@ export async function createApi(services: Services): Promise<FastifyInstance> {
     return reply.status(404).send(new ServiceError(404, "not-found", "No such route").toBody());
   });
 
+  consoleRoutes(app, services);
   identityRoutes(app, services);
   connectionRoutes(app, services);
   nativeRoutes(app, services);

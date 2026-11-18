@@ -13,7 +13,6 @@ const deployment = z.strictObject({
   podOrigin: z
     .string()
     .refine((v) => canonicalOrigin(v)?.startsWith("https://") === true, "https-origin"),
-  clientId: z.string().min(1, "required").max(500, "max:500"),
 });
 
 const schema = z

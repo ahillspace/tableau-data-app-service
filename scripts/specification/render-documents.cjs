@@ -8,12 +8,14 @@ const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'
 const slug = s => s.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\w\s-]/g, '').replace(/\s/g, '-');
 const textOf = tokens => tokens.map(t => t.tokens ? textOf(t.tokens) : (t.text || '')).join('');
 const repo = path.resolve(__dirname, '../..');
-// Repository/tool/history references are visible in GitHub; the offline spec
+// Repository/tool/history references and files that sit beside the documents
+// (diagram images and their sources) are visible in GitHub; the offline spec
 // resolves current documents internally and labels these non-spec references.
+// A Markdown document under docs/ must be listed in specification.json.
 const allowedNonSpec = p => {
   const resolved = path.resolve(repo, p);
   return p === 'docs/specification.html' ||
-    (resolved.startsWith(repo + path.sep) && fs.existsSync(resolved) && !p.startsWith('docs/'));
+    (resolved.startsWith(repo + path.sep) && fs.existsSync(resolved) && !(p.startsWith('docs/') && p.endsWith('.md')));
 };
 for (const source of sources) {
   if (!source.path.startsWith('docs/') || source.path.includes('..')) throw new Error('Only current docs sources may be embedded');
@@ -41,7 +43,7 @@ for (const source of sources) {
       const destPath = file ? path.posix.normalize(path.posix.join(path.posix.dirname(source.path), decodeURIComponent(file))) : source.path;
       const dest = byPath.get(destPath);
       if (!dest) {
-        if (allowedNonSpec(destPath)) return `<span class="muted" title="Repository maintenance or history reference: ${escape(destPath)}">${label}</span>`;
+        if (allowedNonSpec(destPath)) return `<span class="muted" title="Repository file, not part of this view: ${escape(destPath)}">${label}</span>`;
         throw new Error(`${source.path}: required document missing from specification.json: ${destPath}`);
       }
       return `<a href="#documents/${escape(dest.id)}${fragment ? '/' + escape(decodeURIComponent(fragment)) : ''}" data-source="${escape(dest.id)}" data-anchor="${escape(decodeURIComponent(fragment))}">${label}</a>`;
