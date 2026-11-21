@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const directory = new URL("./", import.meta.url);
@@ -9,7 +10,7 @@ const configuration = {
   definitionId: process.env.GITHUB_DEFINITION ?? "github",
 };
 const bundle = await build({
-  entryPoints: [new URL("app.ts", directory).pathname],
+  entryPoints: [fileURLToPath(new URL("app.ts", directory))],
   bundle: true,
   write: false,
   format: "esm",
