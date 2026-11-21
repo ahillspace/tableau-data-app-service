@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { github, type Pull, type Repository } from "../examples/github/github.ts";
+import { loadPagesTogether } from "../examples/github/parallel-pages.ts";
 import type { CatalogTemplate } from "../src/contracts/operator.ts";
 import { RESTORE_COOKIE } from "../src/http/cookies.ts";
 import { createService } from "../src/sdk/index.ts";
@@ -21,6 +22,23 @@ const pull: Pull = {
 
 const pullPath = `/repos/${repo.full_name}/pulls/${pull.number}`;
 const shaPath = `/repos/${repo.full_name}/commits/${pull.head.sha}`;
+
+test("parallel page loads wait for a pending sibling before propagating a failure", async () => {
+  const expired = new Error("Sign in with Tableau to continue");
+  const sibling = Promise.withResolvers<void>();
+  let reported = false;
+  const loading = loadPagesTogether(Promise.reject(expired), sibling.promise);
+  const finished = assert
+    .rejects(loading, (error) => error === expired)
+    .then(() => {
+      reported = true;
+    });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(reported, false);
+  sibling.resolve();
+  await finished;
+});
 
 test("GitHub pagination rejects a link that leaves the GitHub API origin", async () => {
   const api = github(async () =>

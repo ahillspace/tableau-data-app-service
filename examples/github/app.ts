@@ -7,6 +7,7 @@ import {
   type PullSummary,
   type Repository,
 } from "./github.ts";
+import { loadPagesTogether } from "./parallel-pages.ts";
 
 declare const EXAMPLE_CONFIGURATION: { serviceOrigin: string; appId: string; definitionId: string };
 const config = EXAMPLE_CONFIGURATION;
@@ -220,7 +221,7 @@ async function showPull() {
   element("actions").hidden = activePull.state !== "open";
   element<HTMLButtonElement>("merge").disabled = activePull.draft;
   detail.hidden = false;
-  await Promise.all([loadChecks(), loadStatuses()]);
+  await loadPagesTogether(loadChecks(), loadStatuses());
 }
 
 async function showCommits() {
@@ -238,7 +239,7 @@ repoSelect.onchange = () =>
     resetPull();
     if (!repository) return;
     pullState.value = "open";
-    await Promise.all([loadBranches(), loadPulls()]);
+    await loadPagesTogether(loadBranches(), loadPulls());
     if (
       Array.from(branchSelect.options).some((option) => option.value === repository?.default_branch)
     ) {
