@@ -1,0 +1,16 @@
+{
+  "id": "github",
+  "name": "GitHub.com",
+  "description": "Use a viewer's GitHub token to access the GitHub.com REST API.",
+  "definition": {
+    "displayName": "GitHub.com",
+    "ownership": "personal",
+    "apiHosts": ["https://api.github.com"],
+    "authentication": { "method": "static" },
+    "credentialPlacement": { "kind": "bearer" },
+    "scopes": [],
+    "audience": [],
+    "enabled": true,
+    "privateHosts": false
+  }
+}

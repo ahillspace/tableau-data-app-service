@@ -28,7 +28,7 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
-    "examples/slack/**/*.ts",
+    "examples/**/*.ts",
     "scripts/*.ts"
   ]
 }
