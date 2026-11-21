@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
@@ -504,7 +504,12 @@ test("direct service composition allocates enabled resources, isolates outages, 
   const anonymous = await (await request("/v1/discovery")).json();
   assert.equal(anonymous.services, undefined);
   assert.equal(anonymous.providers, undefined);
-  const archive = Buffer.from(await (await request(anonymous.cli.href)).arrayBuffer());
+  const download = await request(anonymous.cli.href);
+  assert.equal(download.status, 200);
+  const filename = basename(anonymous.cli.href);
+  assert.equal(download.headers.get("content-disposition"), `attachment; filename="${filename}"`);
+  assert.ok(anonymous.cli.install.endsWith(`npm install ./${filename}.`));
+  const archive = Buffer.from(await download.arrayBuffer());
   assert.equal(archive.byteLength, anonymous.cli.bytes);
   assert.equal(createHash("sha256").update(archive).digest("hex"), anonymous.cli.sha256);
   for (const href of Object.values(anonymous.links) as string[])

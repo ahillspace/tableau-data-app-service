@@ -26,7 +26,7 @@ const links = {
   sdkContractTypes: "/v1/tools/contracts/operator.d.ts",
   sdkExample: "/v1/tools/example/index.html",
   documentation: "/v1/tools/specification.html",
-  viewerSignIn: "/v1/tools/specification.html#documents/events-sdk",
+  viewerSignIn: "/v1/tools/specification.html#documents/identity/app-sign-in",
   operatorSignIn: "/v1/tools/specification.html#documents/running",
 };
 const assets = [
@@ -168,7 +168,7 @@ export async function discoveryRoutes(app: FastifyInstance, services: Services):
         "npm registry access for runtime dependencies",
         "A system credential store for operator sign-in",
       ],
-      install: "Download the archive, verify SHA-256, then run npm install ./tdas-cli.tgz.",
+      install: `Download the archive, verify SHA-256, then run npm install ./${filename}.`,
     },
     links,
   };

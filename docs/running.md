@@ -53,7 +53,8 @@ Run `migrate` once per release before starting the other roles.
 ## Operate
 
 Start at `https://<service>/v1/discovery` and resolve `cli.href` against that origin.
-Download the CLI archive, verify its size and SHA-256 against discovery, and run `npm install ./tdas-cli.tgz` in a directory where you want to install the client.
+Download the CLI archive into a directory where you want to install the client, keeping the versioned filename.
+Verify its size and SHA-256 against discovery, then run the command shown in `cli.install` from that directory.
 The archive requires the Node range shown in discovery and access to the npm registry for its runtime keyring dependency.
 Operator sign-in also requires a working system credential store, such as an unlocked Secret Service keyring on Linux.
 Run `./node_modules/.bin/tdas --help` for command usage.
