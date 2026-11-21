@@ -67,6 +67,14 @@ The `test/intake-corrections.test.ts` fixtures cover production-path disable/sec
 The activity failure cases retain negative checks for expired, revoked and untrusted sessions.
 No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.
 
+## Services and discovery
+
+The service composition fixture starts the API with no providers, checks the enabled service's authenticated route and discovery action, and exercises the disabled state, an unavailable dependency and host cleanup.
+The provider integration compiles a separate package against the public entry point, uses TLS provider fixtures and real Postgres, and checks per-definition options, credential ownership and detach and redefine races across two API instances.
+The discovery checks cover public asset links, viewer filtering, operator removal, revoked or expired credentials and download bytes matching the public SHA-256.
+A clean Linux client downloaded the CLI over test HTTPS, installed the archive with npm, ran help and used an isolated Secret Service keyring for the existing operator loopback sign-in.
+The browser SDK and its declarations were downloaded and compiled outside the checkout, and the existing SDK popup test reads the viewer discovery projection after sign-in to the Tableau stand-in.
+
 ## Not verified live
 
 These have not yet been run against a deployed installation with a published Tableau Cloud Data App and real provider accounts:

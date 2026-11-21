@@ -134,6 +134,19 @@ export type Webhook = {
     omit?: Selector[];
   };
 };
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type OperationBinding = {
+  enabled: boolean;
+  contractMajor: number;
+  options: Record<string, JsonValue>;
+};
+export type OperationBindings = Record<string, OperationBinding>;
 export type Definition = {
   id: string;
   displayName: string;
@@ -150,6 +163,7 @@ export type Definition = {
   revocation?: ProtocolRequest;
   webhook?: Webhook;
   credentialImport?: CredentialImport;
+  operations?: OperationBindings;
 };
 export type SecretField = "clientSecret" | "signingSecret" | "signingPrivateKey";
 export type SecretMeta = { set: boolean; setAt: string | null };

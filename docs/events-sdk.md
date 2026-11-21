@@ -91,7 +91,7 @@ const sub = service.events.subscribe(["chat"], onEvent, { onLoss, onEnd });
 | `attribution()` | The site content URL, workbook and view the SDK declares. |
 | `signOut()` | Discards the bearer in this page; nothing ends on the server. |
 | `fetch(definitionId, path, init)` | A native request; `path` starts with `/`. |
-| `capability(definitionId, name, input)` | Calls a registered code capability. |
+| `capability(definitionId, name, input)` | Calls a named operation attached to the definition. |
 | `definitions()`, `definition(id)` | Definitions the viewer's site may use, with ownership, setup options, connection status and account. |
 | `connect(definitionId)` | Runs the OAuth connect popup for a personal definition; call from a user gesture. |
 | `setCredential(definitionId, credential)` | Stores a typed personal static/JWT credential or catalog JSON import. |
@@ -113,3 +113,9 @@ const sub = service.events.subscribe(["chat"], onEvent, { onLoss, onEnd });
 - SDK errors of its own are `popup-blocked`, `popup-closed`, `connect-incomplete`, `invalid-path` and `invalid-options`.
 
 The SDK validates only what it needs to talk to the service.
+
+### Discover an installation
+
+From the service URL, fetch `/v1/discovery` for the built browser SDK, its types, a working example and Tableau sign-in guidance.
+After app sign-in, `service.request("/v1/discovery")` returns the viewer's current service actions, provider definitions, connection readiness and attached operation contracts.
+Use the returned definition ID, qualified operation name and input contract to call `service.capability(definitionId, name, input)`.

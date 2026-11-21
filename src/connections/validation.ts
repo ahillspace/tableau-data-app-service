@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { operationName } from "../extensions/provider.ts";
 import type { FieldError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
 import { normalizeApiHost } from "./hosts.ts";
@@ -358,6 +359,16 @@ const definitionSchema = z.strictObject({
   accountLookup: accountLookup.optional(),
   revocation: protocolRequest.optional(),
   webhook: webhookSchema.optional(),
+  operations: z
+    .record(
+      z.string().regex(operationName),
+      z.strictObject({
+        enabled: z.boolean(),
+        contractMajor: z.number().int().positive(),
+        options: z.record(z.string(), z.json()),
+      }),
+    )
+    .default({}),
   credentialImport: z
     .strictObject({
       format: z.literal("json"),
@@ -372,13 +383,14 @@ const definitionSchema = z.strictObject({
     .optional(),
 });
 /** Catalog defaults use the same field schemas; incomplete top-level setup stays editable. */
-export const definitionTemplateSchema = definitionSchema.partial();
+export const definitionTemplateSchema = definitionSchema.omit({ operations: true }).partial();
 export const IN_PLACE_FIELDS = new Set([
   "displayName",
   "scopes",
   "audience",
   "reauthorizationInterval",
   "enabled",
+  "operations",
   "secrets",
   "credential",
   "expectedVersion",

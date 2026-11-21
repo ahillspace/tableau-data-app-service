@@ -6,8 +6,27 @@ Authenticated app and CLI routes take `Tableau-Service-Authorization: Bearer <to
 App bearer routes answer CORS for any origin, echo the requested method and headers on preflight with a ten-minute max age, allow private network access, and expose every response header.
 Cookie-authenticated admin routes are same-origin only and do not enable credentialed cross-origin admin CORS.
 App routes marked credentialed echo the request's `Origin`, including `null`, and allow credentials; every other app API route is called without credentials.
-Responses other than native streams carry `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+Responses other than native streams carry a no-store cache policy and `X-Content-Type-Options: nosniff`.
 Pages are top-level service windows that read the sign-in cookie; they are served with no-store, no-referrer and a restrictive content security policy.
+
+## Discovery and release assets
+
+| Method and path | Auth | Owner | Purpose |
+| --- | --- | --- | --- |
+| `GET /v1/discovery` | Optional bearer | HTTP | Discover product versions, installer and SDK links, with installation details authorized by the bearer. |
+| `GET /v1/tools/tdas-cli-{version}.tgz` | None | HTTP | Download the CLI archive identified by discovery. |
+| `GET /v1/tools/sdk/{file}` | None | HTTP | Download the browser SDK or its public declaration file using the discovery links. |
+| `GET /v1/tools/contracts/operator.d.ts` | None | HTTP | Fetch the declaration used by the SDK's credential input type. |
+| `GET /v1/tools/example/index.html` | None | HTTP | Open the browser SDK discovery example. |
+| `GET /v1/tools/specification.html` | None | HTTP | Read the release's product and usage documentation. |
+
+An anonymous response contains no installation inventory.
+A browser app bearer sees visible definitions and native links, caller connection readiness, attached operations with typed contracts and relevant service actions.
+An operator bearer sees the installed package versions, safe definitions, attachment states, available presets and deployed service states.
+The service checks current operator membership.
+A malformed, expired or revoked bearer receives 401, and a removed operator with a live bearer receives 403.
+Authenticated discovery is private and no-store.
+Discovery does not establish a provider connection or check an upstream endpoint.
 
 ## App sign-in
 
@@ -53,7 +72,7 @@ Pages are top-level service windows that read the sign-in cookie; they are serve
 | Method and path | Auth | Owner | Purpose |
 | --- | --- | --- | --- |
 | `ANY /v1/native/{definitionId}` and `ANY /v1/native/{definitionId}/{path}` | Bearer | Router | Forward a native request. |
-| `POST /v1/capabilities/{definitionId}/{name}` | Bearer | Router | Call a registered code capability. |
+| `POST /v1/capabilities/{definitionId}/{name}` | Bearer | Router | Call a named operation attached to this definition with `{"input": ...}` and receive `{"result": ...}`. |
 
 ## Jobs
 

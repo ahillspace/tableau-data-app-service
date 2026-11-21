@@ -192,7 +192,7 @@ type ServiceEvent = {
 
 The connections owner interprets [typed protocol data](provider-protocol.md) through one acquisition/client-authentication/placement pipeline.
 A catalog template contains data, with no executable authentication, lookup, revocation or verification hook.
-Capability and Job implementations remain explicit code extension points with shared checkout and outbound transport.
+Named provider operations use definition-scoped checkout and outbound transport, while Jobs use their existing handler contract.
 A token response distinguishes usable credentials, definitive refusal, rejected grant and uncertain exchange.
 Only rejected grants require a new authorization; uncertain outcomes never become claimed provider refusal.
 

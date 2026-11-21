@@ -71,10 +71,13 @@ The router protects the credentials it holds and the network it runs in.
 
 ## Capabilities
 
-An explicit code extension may register capabilities: named operations, written in code, that run inside an API request with the same checkout and transport as native requests.
-They are called at `/v1/capabilities/{definitionId}/{name}`.
-They support named business work; every native endpoint stays reachable through the router.
-The catalog does not execute capability or authentication code.
+Operators can attach an installed provider package's named operation to a connection definition.
+The router admits a request to `/v1/capabilities/{definitionId}/{name}` against current definition authority, then validates input and captures the typed options and definition generation.
+Each upstream send uses ordinary native checkout and verified transport for that generation.
+An admitted call can finish with captured options after a detach, while later calls are refused.
+A handler result that fails validation returns `capability-result-invalid` and reports whether the provider may have acted.
+A missing or hidden attachment answers 404, while a visible attachment whose code is unavailable answers 503.
+Native endpoint access continues through the definition and connection.
 
 ## Failure and recovery
 

@@ -89,12 +89,13 @@ export function nativeRoutes(app: FastifyInstance, services: Services): void {
     });
   });
 
-  app.post("/v1/capabilities/:definitionId/:name", async (request) => {
-    const principal = await caller(services.identity, request);
+  app.post("/v1/capabilities/:definitionId/:name", async (request, reply) => {
     const controller = new AbortController();
-    request.raw.once("close", () => {
-      if (!request.raw.complete) controller.abort();
+    reply.raw.once("close", () => {
+      if (!reply.raw.writableFinished)
+        controller.abort(new ServiceError(499, "client-closed", "The client closed the request"));
     });
+    const principal = await caller(services.identity, request);
     const result = await services.router.capability(
       principal,
       param(request, "definitionId"),

@@ -52,13 +52,21 @@ Run `migrate` once per release before starting the other roles.
 
 ## Operate
 
-The package is not published, so run the CLI from the checkout with `node dist/cli/tdas.js`, or put `tdas` and `tdas-admin` on the path with `npm link`.
+Start at `https://<service>/v1/discovery` and resolve `cli.href` against that origin.
+Download the CLI archive, verify its size and SHA-256 against discovery, and run `npm install ./tdas-cli.tgz` in a directory where you want to install the client.
+The archive requires the Node range shown in discovery and access to the npm registry for its runtime keyring dependency.
+Operator sign-in also requires a working system credential store, such as an unlocked Secret Service keyring on Linux.
+Run `./node_modules/.bin/tdas --help` for command usage.
+You can also run the CLI from the service checkout with `node dist/cli/tdas.js`.
+The separate `tdas-admin` executable is available on the service host.
 `--service` defaults to `TDAS_SERVICE`, then to the service of the last login.
 Wherever a command takes `<site>`, it accepts the trusted site's record ID or its content URL, when that names one site.
 A definition file's `audience` takes record IDs, which `tdas sites list` shows.
 
 ```sh
+tdas discover --service https://service.example
 tdas login --service https://service.example
+tdas discover --operator
 tdas whoami
 tdas sites list                                     # trusted site record IDs for audiences
 tdas definitions create crm.json
@@ -74,6 +82,7 @@ tdas apps
 
 | Command | Does |
 | --- | --- |
+| `discover --service <origin> [--operator]` | Read public discovery or use a stored operator bearer for installation details. |
 | `login --service <origin>`, `logout`, `whoami` | Operator sign-in through the browser, sign-out, and the signed-in operator. |
 | `definitions list`, `definitions show <id>` | Read definitions. |
 | `definitions create <file.json>` | Create a definition. |

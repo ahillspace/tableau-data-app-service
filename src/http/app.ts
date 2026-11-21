@@ -13,6 +13,7 @@ import {
 import { adminRoutes } from "./routes/admin.ts";
 import { connectionRoutes } from "./routes/connections.ts";
 import { consoleRoutes } from "./routes/console.ts";
+import { discoveryRoutes } from "./routes/discovery.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { identityRoutes } from "./routes/identity.ts";
@@ -80,7 +81,7 @@ export async function createApi(services: Services): Promise<FastifyInstance> {
   });
 
   app.addHook("onSend", async (request, reply, payload) => {
-    reply.header("cache-control", "no-store");
+    if (!reply.hasHeader("cache-control")) reply.header("cache-control", "no-store");
     reply.header("x-content-type-options", "nosniff");
     const path = pathOf(request.raw.url);
     if (isApiPath(path)) {
@@ -141,5 +142,9 @@ export async function createApi(services: Services): Promise<FastifyInstance> {
   eventRoutes(app, services);
   adminRoutes(app, services);
   healthRoutes(app, services);
+  await discoveryRoutes(app, services);
+  for (const { mounted } of services.services ?? []) {
+    if (mounted) app.register(async (scope) => mounted.routes(scope));
+  }
   return app;
 }

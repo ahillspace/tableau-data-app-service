@@ -69,6 +69,7 @@ export function openInBrowser(url: string): Promise<void> {
 
 const USAGE = `Usage: tdas <command>
 
+  discover --service <origin> [--operator]  Show public or operator discovery
   login --service <origin>                 Sign in as an operator in the browser
   logout                                   Forget the stored operator bearer
   whoami                                   Show the signed-in operator
@@ -152,7 +153,8 @@ function parse(argv: string[]): { positional: string[]; options: Map<string, str
       const value = argv[++i];
       if (value === undefined) throw new UsageError(`--${name} needs a value`);
       values.push(value);
-    } else if (name === "enable" || name === "disable" || name === "clear") values.push("");
+    } else if (name === "enable" || name === "disable" || name === "clear" || name === "operator")
+      values.push("");
     else throw new UsageError(`Unknown option --${name}`);
     options.set(name, values);
   }
@@ -323,6 +325,14 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
   };
 
   switch (group) {
+    case "discover": {
+      if (action !== undefined)
+        throw new UsageError("Usage: tdas discover --service <origin> [--operator]");
+      const client = options.has("operator")
+        ? await signedIn(deps, options)
+        : new Client(deps, await serviceOrigin(deps, options), undefined);
+      return print(await client.call("GET", "/v1/discovery"));
+    }
     case "login":
       return await login(deps, await serviceOrigin(deps, options));
     case "logout": {

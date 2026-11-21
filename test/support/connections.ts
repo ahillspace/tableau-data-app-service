@@ -1,10 +1,7 @@
 import { DefinitionStore } from "../../src/connections/definitions.ts";
-import {
-  type Capability,
-  Extensions,
-  type JobHandlerDefinition,
-} from "../../src/connections/extensions.ts";
+import { Extensions, type JobHandlerDefinition } from "../../src/connections/extensions.ts";
 import { ConnectionService } from "../../src/connections/service.ts";
+import type { ProviderPackage } from "../../src/extensions/provider.ts";
 import type { Db } from "../../src/persistence/database.ts";
 import { Log } from "../../src/platform/log.ts";
 import type { Outbound } from "../../src/platform/outbound.ts";
@@ -27,7 +24,7 @@ export function connectionsHarness(
     outbound: Outbound;
     clock: MovableClock;
     jobHandlers?: JobHandlerDefinition[];
-    capabilities?: Capability[];
+    providerPackages?: ProviderPackage[];
     publicOrigin?: string;
   },
 ): ConnectionsHarness {
@@ -35,7 +32,7 @@ export function connectionsHarness(
   const log = new Log((line) => lines.push(line));
   const extensions = new Extensions({
     ...(options.jobHandlers ? { jobHandlers: options.jobHandlers } : {}),
-    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.providerPackages ? { providerPackages: options.providerPackages } : {}),
   });
   const sealer = new Sealer(options.keys);
   const definitions = new DefinitionStore({ db, extensions, sealer, clock: options.clock });

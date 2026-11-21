@@ -1,14 +1,24 @@
-import type { Principal } from "../identity/types.ts";
+import { isDeepStrictEqual } from "node:util";
+import { z } from "zod";
+import {
+  API_MAJOR,
+  authenticationMethods,
+  operationName,
+  type ProviderOperation,
+  type ProviderPackage,
+} from "../extensions/provider.ts";
 import type { FieldError } from "../platform/errors.ts";
-import type { CredentialLease, ProtocolFetch } from "./types.ts";
+import { fieldErrors } from "../platform/validation.ts";
+import { matchesApiHost, normalizeApiHost } from "./hosts.ts";
+import type {
+  CredentialLease,
+  Definition,
+  OperationBinding,
+  OperationBindings,
+  ProtocolFetch,
+} from "./types.ts";
 export type Account = { id: string; name: string | null };
 export type ExtensionContext = { fetch: ProtocolFetch; signal: AbortSignal };
-export type Capability = {
-  readonly name: string;
-  run(
-    context: ExtensionContext & { lease: CredentialLease; principal: Principal; input: unknown },
-  ): Promise<unknown>;
-};
 export type JobHandlerDefinition = {
   readonly name: string;
   /** Whether an interrupted run may start again; the provider may have acted on the first run. */
@@ -56,35 +66,191 @@ export type JobStepResult =
     }
   | { kind: "cancelled"; remoteEffectsUnknown: boolean };
 
-/** Trusted code extensions are independent of credential acquisition and provider catalogs. */
+const packageId = /^[a-z][a-z0-9-]{0,62}$/;
+const packageVersion =
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const requirementsSchema = z.strictObject({
+  authentication: z.array(z.enum(authenticationMethods)).min(1).optional(),
+  ownership: z
+    .array(z.enum(["personal", "shared"]))
+    .min(1)
+    .optional(),
+  apiHosts: z
+    .array(z.string().refine((host) => !!normalizeApiHost(host, false)))
+    .min(1)
+    .optional(),
+  connection: z.boolean().optional(),
+});
+
+const jsonOptions = z.record(z.string(), z.json());
+
+type InstalledOperation = {
+  operation: ProviderOperation;
+  contract: {
+    contractMajor: number;
+    description: string;
+    input: { [key: string]: unknown };
+    output: { [key: string]: unknown };
+    options: { [key: string]: unknown };
+    example: z.JSONType;
+    errors: readonly string[];
+  };
+};
+
+function supportsDefinition(operation: ProviderOperation, definition: Definition): boolean {
+  const requirements = operation.requirements;
+  return (
+    (!requirements?.connection || definition.authentication.method !== "none") &&
+    (!requirements?.authentication ||
+      requirements.authentication.includes(definition.authentication.method)) &&
+    (!requirements?.ownership || requirements.ownership.includes(definition.ownership)) &&
+    (!requirements?.apiHosts ||
+      requirements.apiHosts.every((host) =>
+        definition.apiHosts.some((base) => matchesApiHost(base, host)),
+      ))
+  );
+}
+
+function installOperation(operation: ProviderOperation): InstalledOperation {
+  try {
+    const {
+      contractMajor,
+      description,
+      errors = [],
+      example,
+      input,
+      options,
+      output,
+      requirements,
+      run,
+    } = operation;
+    if (
+      !Number.isSafeInteger(contractMajor) ||
+      contractMajor < 1 ||
+      typeof description !== "string" ||
+      !description.trim() ||
+      typeof run !== "function" ||
+      (requirements !== undefined && !requirementsSchema.safeParse(requirements).success) ||
+      !z.array(z.string().min(1)).safeParse(errors).success ||
+      !z.json().safeParse(example).success ||
+      !input.safeParse(example).success
+    )
+      throw new Error();
+    const optionsContract = z.toJSONSchema(options, { io: "input" });
+    if (optionsContract.type !== "object" || z.toJSONSchema(options).type !== "object")
+      throw new Error();
+    return {
+      operation,
+      contract: {
+        contractMajor,
+        description,
+        options: optionsContract,
+        input: z.toJSONSchema(input, { io: "input" }),
+        output: z.toJSONSchema(output),
+        example,
+        errors,
+      },
+    };
+  } catch {
+    throw new Error(`Invalid provider operation descriptor: ${operation.name}`);
+  }
+}
+
+/** Trusted provider operations and Job handlers are explicitly installed at deployment. */
 export class Extensions {
   readonly #handlers = new Map<string, JobHandlerDefinition>();
-  readonly #capabilities = new Map<string, Capability>();
+  readonly #operations = new Map<string, InstalledOperation>();
+  readonly #packages = new Map<string, string>();
   constructor(
     options: {
       jobHandlers?: readonly JobHandlerDefinition[];
-      capabilities?: readonly Capability[];
+      providerPackages?: readonly ProviderPackage[];
     } = {},
   ) {
     for (const handler of options.jobHandlers ?? []) {
-      if (!/^[a-z][a-z0-9-]{0,62}$/.test(handler.name) || this.#handlers.has(handler.name))
+      if (!packageId.test(handler.name) || this.#handlers.has(handler.name))
         throw new Error("Invalid or duplicate Job handler name");
       this.#handlers.set(handler.name, handler);
     }
-    for (const capability of options.capabilities ?? []) {
+    for (const provider of options.providerPackages ?? []) {
+      if (!provider || typeof provider.id !== "string" || !packageId.test(provider.id))
+        throw new Error("Invalid provider package ID");
+      if (this.#packages.has(provider.id))
+        throw new Error(`Duplicate provider package: ${provider.id}`);
+      if (provider.apiMajor !== API_MAJOR)
+        throw new Error(`Incompatible provider API major: ${provider.id}`);
       if (
-        !/^[a-z][a-z0-9-]{0,62}$/.test(capability.name) ||
-        this.#capabilities.has(capability.name)
+        typeof provider.version !== "string" ||
+        !packageVersion.test(provider.version) ||
+        !Array.isArray(provider.operations)
       )
-        throw new Error("Invalid or duplicate capability name");
-      this.#capabilities.set(capability.name, capability);
+        throw new Error(`Invalid provider package descriptor: ${provider.id}`);
+      this.#packages.set(provider.id, provider.version);
+      for (const operation of provider.operations) {
+        if (
+          !operation ||
+          typeof operation.name !== "string" ||
+          !operationName.test(operation.name) ||
+          !operation.name.startsWith(`${provider.id}.`) ||
+          this.#operations.has(operation.name)
+        )
+          throw new Error(
+            `Invalid or duplicate operation name in provider package: ${provider.id}`,
+          );
+        this.#operations.set(operation.name, installOperation(operation));
+      }
     }
   }
   handler(name: string): { handler: JobHandlerDefinition } | undefined {
     const handler = this.#handlers.get(name);
     return handler ? { handler } : undefined;
   }
-  capability(name: string): Capability | undefined {
-    return this.#capabilities.get(name);
+  resolve(name: string, binding: OperationBinding, definition: Definition) {
+    const installed = this.#operations.get(name);
+    if (!installed) return { ready: false, reason: "operation-missing" } as const;
+    if (installed.operation.contractMajor !== binding.contractMajor)
+      return { ready: false, reason: "contract-major-mismatch" } as const;
+    if (!supportsDefinition(installed.operation, definition))
+      return { ready: false, installed, reason: "definition-requirements" } as const;
+    const options = installed.operation.options.safeParse(binding.options);
+    if (!options.success)
+      return { ready: false, installed, reason: "operation-options-invalid" } as const;
+    return { ready: true as const, installed, options: options.data };
+  }
+  packages(): { id: string; version: string }[] {
+    return [...this.#packages].map(([id, version]) => ({ id, version }));
+  }
+  validateBindings(definition: Definition, previous: OperationBindings = {}) {
+    const operations = { ...definition.operations };
+    const errors: FieldError[] = [];
+    for (const [name, binding] of Object.entries(operations)) {
+      const before = previous[name];
+      // Removals or redeployments must not invalidate unrelated edits or a straight detachment.
+      if (
+        before &&
+        before.contractMajor === binding.contractMajor &&
+        isDeepStrictEqual(before.options, binding.options) &&
+        (before.enabled === binding.enabled || !binding.enabled)
+      )
+        continue;
+      const path = `operations.${name}`;
+      const installed = this.#operations.get(name);
+      if (!installed || installed.operation.contractMajor !== binding.contractMajor) {
+        errors.push({ path: `${path}.contractMajor`, rule: "installed-operation-contract" });
+        continue;
+      }
+      const { operation } = installed;
+      if (!supportsDefinition(operation, definition))
+        errors.push({ path, rule: "operation-definition-requirements" });
+      const parsed = operation.options.safeParse(binding.options);
+      if (!parsed.success) {
+        errors.push(...fieldErrors(parsed.error, `${path}.options`));
+        continue;
+      }
+      const options = jsonOptions.safeParse(parsed.data);
+      if (!options.success) errors.push(...fieldErrors(options.error, `${path}.options`));
+      else operations[name] = { ...binding, options: options.data };
+    }
+    return { errors, operations };
   }
 }
