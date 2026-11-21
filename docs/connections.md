@@ -23,9 +23,10 @@ Private_key_jwt authenticates the application and is never confused with a JWT b
 
 A definition has one stable ID, a definition generation, a mutation version, audience, ownership, HTTPS hosts and typed protocol data.
 A template only prefills a definition and never changes it afterward.
-Name, audience, scopes, enabled state, reauthorization interval and secret values change in place.
+Name, audience, scopes, enabled state, reauthorization interval, named operation bindings and secret values change in place.
 Every other configuration change requires redefinition, including hosts, endpoints, ownership and credential interpretation.
 One transaction increments the generation, disconnects old connections, deletes their credentials and prevents old setup/exchange results from committing.
+Existing operation bindings carry their options into the new generation with `enabled: false`.
 Retirement disables a definition permanently, ends all connections and preserves history without reusing its ID.
 PATCH, PUT, retire and secret writes carry expectedVersion and reject stale versions with definition-conflict instead of overwriting concurrent changes.
 Every definition or secret mutation increments the installation revision.

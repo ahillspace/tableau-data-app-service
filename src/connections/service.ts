@@ -80,7 +80,7 @@ export type ConnectionsOptions = {
   };
 };
 export type CheckoutCaller = Pick<Principal, "identityId" | "trustedSiteId">;
-function checkoutError(code: string): ServiceError {
+export function checkoutError(code: string): ServiceError {
   const messages: Record<string, string> = {
     "definition-not-found": "No such definition",
     "definition-disabled": "The definition is disabled",
@@ -165,6 +165,7 @@ export class ConnectionService {
     id: string,
     signal = new AbortController().signal,
     requestedHost?: string,
+    expectedGeneration?: number,
   ): Promise<CredentialLease> {
     const result = await transaction(this.#db, async (tx) => {
       await sql`select set_config('lock_timeout', '45000ms', true), set_config('idle_in_transaction_session_timeout', '45000ms', true)`.execute(
@@ -181,6 +182,8 @@ export class ConnectionService {
         auth = d.authentication;
       if (!d.enabled || d.retired) throw checkoutError("definition-disabled");
       if (!d.audience.includes(principal.trustedSiteId)) throw checkoutError("not-in-audience");
+      if (expectedGeneration !== undefined && d.generation !== expectedGeneration) throw changed();
+      signal.throwIfAborted();
       if (auth.method === "none") return { lease: leaseFor(d, null, null) };
       let query = tx
         .selectFrom("connections")
@@ -396,55 +399,85 @@ export class ConnectionService {
     } catch {}
   }
   async listForApp(principal: Principal): Promise<AppDefinition[]> {
-    const definitions = [...(await this.#definitions.current({ force: true })).values()].filter(
-      (d) => d.enabled && !d.retired && d.audience.includes(principal.trustedSiteId),
-    );
-    const rows = await this.#db
-      .selectFrom("connections")
-      .selectAll()
-      .where("status", "<>", "disconnected")
-      .where((eb) =>
-        eb.or([
-          eb("owner_identity_id", "is", null),
-          eb("owner_identity_id", "=", principal.identityId),
-        ]),
-      )
-      .execute();
-    return definitions
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map((d) => {
-        const row = rows.find(
-          (c) =>
-            c.definition_id === d.id &&
-            c.generation === d.generation &&
-            (d.ownership === "shared"
-              ? c.owner_identity_id === null
-              : c.owner_identity_id === principal.identityId),
-        );
-        const lapsed = row && connectionNeedsAuthorization(d, row, this.#clock.now());
-        return {
-          id: d.id,
-          displayName: d.displayName,
-          method: d.authentication.method,
-          ownership: d.ownership,
-          setup: {
-            oauth: d.ownership === "personal" && d.authentication.method === "authorization_code",
-            credential:
-              d.ownership === "personal" &&
-              ["static", "jwt_bearer", "signed_jwt_direct"].includes(d.authentication.method),
-          },
-          status:
-            d.authentication.method === "none"
-              ? "connected"
-              : row
-                ? row.status === "connected" && !lapsed
-                  ? "connected"
-                  : "needs-authorization"
-                : "not-connected",
-          account: row?.account ? { id: row.account, name: row.account_name } : null,
-          authorizedAt: row?.authorized_at.toISOString() ?? null,
-          scopes: row?.scopes ?? [],
-        };
+    return (await this.appDefinitions(principal)).map(({ view }) => view);
+  }
+
+  /** One authoritative snapshot of visible definitions and the caller's own connection readiness. */
+  async appDefinitions(principal: Principal, id?: string) {
+    return this.#db
+      .transaction()
+      .setIsolationLevel("repeatable read")
+      .execute(async (tx) => {
+        let query = tx
+          .selectFrom("definitions")
+          .selectAll()
+          .where("enabled", "=", true)
+          .where("retired", "=", false)
+          .where("audience", "@>", JSON.stringify([principal.trustedSiteId]) as never);
+        if (id !== undefined) query = query.where("id", "=", id);
+        const definitions = (await query.orderBy("id").execute()).map(definitionFromRow);
+        if (definitions.length === 0) return [];
+        const rows = await tx
+          .selectFrom("connections")
+          .select([
+            "definition_id",
+            "generation",
+            "owner_identity_id",
+            "status",
+            "account",
+            "account_name",
+            "authorized_at",
+            "scopes",
+          ])
+          .where(
+            "definition_id",
+            "in",
+            definitions.map((d) => d.id),
+          )
+          .where("status", "<>", "disconnected")
+          .where((eb) =>
+            eb.or([
+              eb("owner_identity_id", "is", null),
+              eb("owner_identity_id", "=", principal.identityId),
+            ]),
+          )
+          .execute();
+        const now = this.#clock.now();
+        return definitions.map((definition) => {
+          const d = definition;
+          const row = rows.find(
+            (c) =>
+              c.definition_id === d.id &&
+              c.generation === d.generation &&
+              (d.ownership === "shared"
+                ? c.owner_identity_id === null
+                : c.owner_identity_id === principal.identityId),
+          );
+          const view: AppDefinition = {
+            id: d.id,
+            displayName: d.displayName,
+            method: d.authentication.method,
+            ownership: d.ownership,
+            setup: {
+              oauth: d.ownership === "personal" && d.authentication.method === "authorization_code",
+              credential:
+                d.ownership === "personal" &&
+                ["static", "jwt_bearer", "signed_jwt_direct"].includes(d.authentication.method),
+            },
+            status:
+              d.authentication.method === "none"
+                ? "connected"
+                : row
+                  ? connectionNeedsAuthorization(d, row, now)
+                    ? "needs-authorization"
+                    : "connected"
+                  : "not-connected",
+            account: row?.account ? { id: row.account, name: row.account_name } : null,
+            authorizedAt: row?.authorized_at.toISOString() ?? null,
+            scopes: row?.scopes ?? [],
+          };
+          return { definition, view };
+        });
       });
   }
   startConnect(

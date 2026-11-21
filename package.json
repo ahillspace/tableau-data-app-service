@@ -6,12 +6,18 @@
   "engines": {
     "node": ">=26.13.0 <27"
   },
+  "exports": {
+    "./provider": {
+      "types": "./dist/extensions/provider.d.ts",
+      "import": "./dist/extensions/provider.js"
+    }
+  },
   "bin": {
     "tdas": "dist/cli/tdas.js",
     "tdas-admin": "dist/admin/bin.js"
   },
   "scripts": {
-    "build": "node scripts/clean-build.ts && tsc -p tsconfig.build.json && node scripts/build-sdk.ts && node scripts/build-console.ts",
+    "build": "node scripts/clean-build.ts && tsc -p tsconfig.build.json && node scripts/build-sdk.ts && node scripts/build-console.ts && node scripts/build-cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src test scripts/*.ts examples/slack",
     "format": "biome check --write src test scripts/*.ts examples/slack",

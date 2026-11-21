@@ -1,13 +1,20 @@
 import type { Readable } from "node:stream";
+import { z } from "zod";
 import { selectApiHost } from "../connections/hosts.ts";
-import type { ConnectionService } from "../connections/service.ts";
-import type { ConnectionDefinition, OutgoingRequest } from "../connections/types.ts";
+import { type ConnectionService, checkoutError } from "../connections/service.ts";
+import type {
+  ConnectionDefinition,
+  CredentialLease,
+  OutgoingRequest,
+} from "../connections/types.ts";
+import type { ProviderRequest } from "../extensions/provider.ts";
 import { SERVICE_COOKIE_PREFIX } from "../http/cookies.ts";
 import type { Principal } from "../identity/types.ts";
 import type { Metrics } from "../operations/metrics.ts";
 import { invalid, notFound, ServiceError } from "../platform/errors.ts";
 import type { Log } from "../platform/log.ts";
 import type { Outbound } from "../platform/outbound.ts";
+import { fieldErrors } from "../platform/validation.ts";
 
 /**
  * Headers that describe one connection, not the exchange. Removed in both directions.
@@ -180,23 +187,16 @@ export class NativeRouter {
         requested,
       );
       admitted = true;
-      const chosen = destination(lease.definition, request.target, requested);
-      const outgoing: OutgoingRequest = {
-        target: chosen.target,
-        headers: forwardableRequestHeaders(request.headers),
-      };
-      lease.apply(outgoing);
-      outgoing.headers.push(["host", chosen.url.host]);
-      const started = performance.now();
-      const response = await this.#outbound.request(chosen.url, {
-        method: request.method,
-        rawTarget: outgoing.target,
-        headers: outgoing.headers,
-        body: request.body,
-        signal: request.signal,
-        privateHosts: lease.definition.privateHosts,
-      });
-      upstreamMs = performance.now() - started;
+      const { host, response, elapsed } = await this.#send(
+        lease,
+        {
+          ...request,
+          path: request.target,
+          ...(requested !== undefined ? { host: requested } : {}),
+        },
+        request.signal,
+      );
+      upstreamMs = elapsed;
       response.body.once("end", () => record(response.status));
       response.body.once("error", () =>
         record(request.signal.aborted ? "cancelled" : "transport-error"),
@@ -213,14 +213,10 @@ export class NativeRouter {
       this.#log.info("native request", {
         definitionId: request.definitionId,
         method: request.method,
-        host: chosen.url.host,
+        host,
         status: response.status,
       });
-      return {
-        status: response.status,
-        headers: forwardableResponseHeaders(response.headers),
-        body: response.body,
-      };
+      return response;
     } catch (error) {
       if (
         error instanceof ServiceError &&
@@ -250,7 +246,44 @@ export class NativeRouter {
     }
   }
 
-  /** Runs a code capability with the same checkout and transport as native requests. */
+  async #send(
+    lease: CredentialLease,
+    request: ProviderRequest,
+    signal: AbortSignal,
+    observe?: { start(): void; finish(sent: boolean): void },
+  ): Promise<{ host: string; elapsed: number; response: NativeResponse }> {
+    signal.throwIfAborted();
+    const chosen = destination(lease.definition, request.path, request.host);
+    const outgoing: OutgoingRequest = {
+      target: chosen.target,
+      headers: forwardableRequestHeaders(request.headers ?? []),
+    };
+    lease.apply(outgoing);
+    outgoing.headers.push(["host", chosen.url.host]);
+    const started = performance.now();
+    observe?.start();
+    try {
+      const response = await this.#outbound.request(chosen.url, {
+        method: request.method,
+        rawTarget: outgoing.target,
+        headers: outgoing.headers,
+        body: request.body ?? null,
+        signal,
+        privateHosts: lease.definition.privateHosts,
+      });
+      observe?.finish(true);
+      return {
+        host: chosen.url.host,
+        elapsed: performance.now() - started,
+        response: { ...response, headers: forwardableResponseHeaders(response.headers) },
+      };
+    } catch (error) {
+      observe?.finish(!(error instanceof ServiceError && error.upstream === "not-sent"));
+      throw error;
+    }
+  }
+
+  /** Admits an attached operation against the live definition and scopes every send to that generation. */
   async capability(
     principal: Principal,
     definitionId: string,
@@ -258,15 +291,79 @@ export class NativeRouter {
     input: unknown,
     signal: AbortSignal,
   ): Promise<unknown> {
-    const definition = await this.#connections.definitions.get(definitionId);
-    const capability = this.#connections.definitions.extensions.capability(name);
-    if (!definition || !capability) throw notFound("capability-not-found", "No such capability");
-    const lease = await this.#connections.checkout(principal, definitionId, signal);
-    return await capability.run({
-      ...this.#connections.extensionContext(lease.definition, signal),
-      lease,
-      principal,
-      input,
-    });
+    const [admission] = await this.#connections.appDefinitions(principal, definitionId);
+    const definition = admission?.definition;
+    const binding = definition?.operations?.[name];
+    if (!admission || !definition || !binding?.enabled)
+      throw notFound("capability-not-found", "No such capability");
+    const resolved = this.#connections.definitions.extensions.resolve(name, binding, definition);
+    if (!resolved.ready)
+      throw new ServiceError(503, "capability-unavailable", "This operation is unavailable", {
+        upstream: "not-sent",
+      });
+    const { operation } = resolved.installed;
+    const args = operation.input.safeParse(input);
+    if (!args.success) throw invalid(fieldErrors(args.error, "input"));
+    if (operation.requirements?.connection && admission.view.status !== "connected")
+      throw checkoutError(admission.view.status);
+
+    const controller = new AbortController();
+    const scopedSignal = AbortSignal.any([signal, controller.signal]);
+    const responses = new Set<Readable>();
+    let mayHaveSent = false;
+    let sendsInProgress = 0;
+    const observe = {
+      start: () => {
+        sendsInProgress++;
+      },
+      finish: (sent: boolean) => {
+        sendsInProgress--;
+        mayHaveSent ||= sent;
+      },
+    };
+    try {
+      scopedSignal.throwIfAborted();
+      const result = await operation.run({
+        input: args.data,
+        options: resolved.options,
+        signal: scopedSignal,
+        upstream: {
+          request: async (request) => {
+            scopedSignal.throwIfAborted();
+            const lease = await this.#connections.checkout(
+              principal,
+              definitionId,
+              scopedSignal,
+              request.host,
+              definition.generation,
+            );
+            const { response } = await this.#send(lease, request, scopedSignal, observe);
+            responses.add(response.body);
+            response.body.on("error", () => {});
+            response.body.once("close", () => responses.delete(response.body));
+            return response;
+          },
+        },
+      });
+      const output = operation.output.safeParse(result);
+      if (!output.success || !z.json().safeParse(output.data).success)
+        throw new ServiceError(
+          502,
+          "capability-result-invalid",
+          "The operation returned an invalid result",
+        );
+      return output.data;
+    } catch (error) {
+      const upstream = mayHaveSent || sendsInProgress > 0 ? "may-have-been-sent" : "not-sent";
+      if (error instanceof ServiceError && error.code !== "sign-in-required")
+        throw new ServiceError(error.status, error.code, error.message, {
+          ...(error.fields ? { fields: error.fields } : {}),
+          upstream,
+        });
+      throw new ServiceError(502, "capability-failed", "The operation failed", { upstream });
+    } finally {
+      for (const body of responses) body.destroy();
+      controller.abort();
+    }
   }
 }

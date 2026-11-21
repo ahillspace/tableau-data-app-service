@@ -975,6 +975,11 @@ describe("http", () => {
 
     assert.equal((await cli("sites", "list")).code, 2);
     assert.match(err.join("\n"), /No service/);
+    const publicDiscovery = await cli("discover", "--service", origin);
+    assert.equal(publicDiscovery.code, 0);
+    assert.equal(publicDiscovery.json().providers, undefined);
+    assert.equal((await cli("discover", "--service", origin, "--operator")).code, 2);
+    assert.match(err.join("\n"), /run tdas login/);
     const login = await cli("login", "--service", origin);
     assert.equal(login.code, 0, err.join("\n"));
     assert.equal(stored.get("current-service"), origin);
@@ -982,6 +987,8 @@ describe("http", () => {
     assert.ok(bearer);
     assert.ok(!out.join("").includes(bearer), "the bearer is never printed");
     assert.equal(((await cli("whoami")).json().identity as { userId: string }).userId, "user-op");
+    assert.ok((await cli("discover", "--operator")).json().operator);
+    assert.equal((await cli("discover")).json().operator, undefined);
 
     const added = await cli("sites", "add", "cloud-test", "beta");
     assert.equal(added.code, 0, err.join("\n"));
@@ -1101,6 +1108,12 @@ describe("http", () => {
       view: "Sheet",
     });
 
+    const discovery = await (await service.request("/v1/discovery")).json();
+    assert.equal(discovery.operator, undefined);
+    assert.deepEqual(
+      discovery.providers.map(({ id }: { id: string }) => id),
+      ["files", "work"],
+    );
     const definitions = await service.definitions();
     assert.deepEqual(definitions.map((d) => [d.id, d.ownership, d.status]).sort(), [
       ["files", "shared", "connected"],

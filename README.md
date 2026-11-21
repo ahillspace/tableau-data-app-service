@@ -23,6 +23,7 @@ npm test
 ```
 
 Copy [.env.example](.env.example) and write a bootstrap file as [running](docs/running.md) describes, then run the `migrate`, `api` and `worker` roles.
+From an API installation, open `/v1/discovery` to get the matching CLI, browser SDK and sign-in guidance.
 The browser SDK is built to `dist/sdk/index.js`, and [examples](examples/) holds Data Apps that use it.
 
 ## Documentation

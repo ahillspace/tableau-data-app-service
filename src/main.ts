@@ -9,6 +9,8 @@ import { ConnectionService } from "./connections/service.ts";
 import { createEvents } from "./events/index.ts";
 import { installedExtensions } from "./extensions/index.ts";
 import { createApi } from "./http/app.ts";
+import { caller, operator } from "./http/auth.ts";
+import type { ServiceContribution, ServiceDeployment, ServiceGuards } from "./http/services.ts";
 import { applyBootstrap } from "./identity/directory.ts";
 import { IdentityService } from "./identity/sessions.ts";
 import {
@@ -48,7 +50,15 @@ class Resources {
     return value;
   }
   async close(): Promise<void> {
-    for (const close of this.#closers.splice(0).reverse()) await close();
+    const errors: unknown[] = [];
+    for (const close of this.#closers.splice(0).reverse()) {
+      try {
+        await close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, "Failed to close API or worker resources");
   }
   /** Runs startup; when it fails, whatever it opened is closed before the error propagates. */
   async starting<T>(start: () => Promise<T>): Promise<T> {
@@ -204,13 +214,22 @@ function startTelemetry(metrics: Metrics, operations: Operations, resources: Res
 
 export type Running = { port: number; stop: () => Promise<void> };
 
-export async function runApi(loaded: Loaded): Promise<Running> {
+export async function runApi(
+  loaded: Loaded,
+  deployments: readonly ServiceDeployment[] = [],
+): Promise<Running> {
   const resources = new Resources();
-  return await resources.starting(() => startApi(loaded, resources));
+  return await resources.starting(() => startApi(loaded, resources, deployments));
 }
 
-async function startApi(loaded: Loaded, resources: Resources): Promise<Running> {
+async function startApi(
+  loaded: Loaded,
+  resources: Resources,
+  deployments: readonly ServiceDeployment[],
+): Promise<Running> {
   const { settings, bootstrap, installation, log } = loaded;
+  if (new Set(deployments.map(({ id }) => id)).size !== deployments.length)
+    throw new Error("Duplicate service deployment ID");
   const db = database(settings, "api", resources);
   await assertSchemaCurrent(db);
   await applyBootstrap(db, bootstrap, log);
@@ -258,12 +277,27 @@ async function startApi(loaded: Loaded, resources: Resources): Promise<Running> 
     version: "0.1.0",
   });
   startTelemetry(metrics, operations, resources);
+  const services: ServiceContribution[] = [];
+  const guards: ServiceGuards = {
+    requireCaller: (request) => caller(identity, request),
+    requireOperator: (request) =>
+      operator(identity, request, {
+        publicOrigin: installation.publicOrigin,
+        consoleEnabled: settings.consoleEnabled,
+      }),
+  };
+  for (const { id, contractHref, open } of deployments) {
+    const mounted = await open?.(guards);
+    if (mounted?.close) resources.add(mounted, async (service) => service.close?.());
+    services.push({ id, contractHref, ...(mounted ? { mounted } : {}) });
+  }
   const app = await createApi({
     db,
     publicOrigin: installation.publicOrigin,
     consoleEnabled: settings.consoleEnabled,
     metrics,
     operations,
+    services,
     identity,
     connections,
     router: new NativeRouter({

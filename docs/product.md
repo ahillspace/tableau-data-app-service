@@ -27,6 +27,8 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   Operators enter them through write-only API fields, normal CLI input or the optional console.
   Reads expose only whether a value is set and when; logs and diagnostics never contain it.
   The one secret the host holds is the sealing key.
+- Builders and operators can start with the service URL and read `GET /v1/discovery` for the compatible CLI download, browser SDK and sign-in guidance.
+  Signed-in callers learn the installation resources and actions their existing Tableau grant can use.
 - Operators run the installation with the `tdas` command-line tool, which calls the operator API.
   The optional console uses the same API and operator grant through a same-origin protected cookie.
   Other tools can use an operator bearer from the existing sign-in flow.
@@ -40,13 +42,14 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - Definitions select authorization_code, client_credentials, jwt_bearer, signed_jwt_direct, static or none from one shared protocol engine.
   Grant acquisition, OAuth client authentication and native credential placement are separate.
 - [Catalog templates](presets.md) prefill independent definitions, including token mappings, account lookup, revocation, JSON credential import and inbound verification.
-  A supported provider needs data only; capabilities and Jobs retain explicit code extension points.
+  A provider that uses existing protocol features can use a data-only definition.
+  Operators can optionally attach named operations from deployed provider packages to independent definitions.
 - A connection definition is data with API hosts, typed protocol configuration, scopes, ownership, audience and an optional reauthorization interval.
   Application secrets and connection credentials have separate owners.
 - Ownership mode is either **shared**, where an operator connects one account that the definition's audience uses, or **personal**, where each viewer connects their own account.
 - A definition's audience is a set of trusted sites.
   Trusting a new site never widens an existing definition's audience.
-- Display name, scopes, audience, reauthorization interval, enabled state and secret values change in place.
+- Display name, scopes, audience, reauthorization interval, enabled state, named operation bindings and secret values change in place.
   Secret rotation invalidates superseded derived credentials across replicas without redefining the provider.
   Ordinary edits and application secret writes never establish or renew machine connection authorization; operators use Connect for local setup or recovery, with token exchange deferred until use.
   Concurrent writes require the safe view version and fail on conflict.
@@ -122,6 +125,13 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   A selected host is always concrete; the global host and regional wildcard are separate entries.
   Destinations are checked when each connection opens against private, loopback and metadata addresses, TLS is always verified, and redirects are returned to the app rather than followed.
   An operator may allow private addresses for a definition; metadata addresses are always refused.
+
+### Independent services
+
+- An installation can include a service that owns its own routes, dependencies and caller-specific actions.
+  It uses the existing Tableau caller and operator grants and can operate before any provider is defined.
+- A disabled service opens no dependency and exposes no service routes.
+  An enabled service can report itself unavailable while unrelated routes continue to serve.
 
 ### Jobs
 

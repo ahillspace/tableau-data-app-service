@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Selectable } from "kysely";
 import type { ConnectResult } from "../contracts/operator.ts";
 import { isOperator } from "../identity/directory.ts";
@@ -45,6 +46,7 @@ export const REVISION_CHECK_MS = 1000;
 export function definitionFromRow(row: Selectable<Database["definitions"]>): ConnectionDefinition {
   return {
     ...row.configuration,
+    operations: row.configuration.operations ?? {},
     audience: row.audience,
     displayName: row.display_name,
     ownership: row.ownership,
@@ -434,11 +436,13 @@ export class DefinitionStore {
     if (input.expectedVersion !== undefined)
       throw invalid([{ path: "expectedVersion", rule: "not-used-on-create" }]);
     const d = await this.#validate(write.definition, this.#db);
+    const { errors, operations } = this.extensions.validateBindings(d);
+    if (errors.length) throw invalid(errors);
     try {
       await transaction(this.#db, async (tx) => {
         const row = await tx
           .insertInto("definitions")
-          .values({ id: d.id, ...columns(d), updated_at: this.#clock.now() })
+          .values({ id: d.id, ...columns({ ...d, operations }), updated_at: this.#clock.now() })
           .returningAll()
           .executeTakeFirstOrThrow();
         const created = definitionFromRow(row);
@@ -471,10 +475,17 @@ export class DefinitionStore {
       const merged = { ...publicDefinition(current), ...write.definition };
       if (merged.reauthorizationInterval === null) delete merged.reauthorizationInterval;
       const d = await this.#validate(merged, tx);
-      await this.#writeSecrets(tx, { ...current, ...d }, write, actor);
+      const { errors, operations } = this.extensions.validateBindings(d, current.operations);
+      if (errors.length) throw invalid(errors);
+      const updated = { ...d, operations };
+      await this.#writeSecrets(tx, { ...current, ...updated }, write, actor);
       await tx
         .updateTable("definitions")
-        .set({ ...columns(d), version: version + 1, updated_at: this.#clock.now() })
+        .set({
+          ...columns(updated),
+          version: version + 1,
+          updated_at: this.#clock.now(),
+        })
         .where("id", "=", id)
         .execute();
       await bumpRevision(tx);
@@ -501,18 +512,34 @@ export class DefinitionStore {
     if (write.definition.id !== undefined && write.definition.id !== id)
       throw invalid([{ path: "id", rule: "matches-path" }]);
     const result = await transaction(this.#db, async (tx) => {
-      const existing = await this.#lock(tx, id, version),
-        d = await this.#validate({ ...write.definition, id }, tx),
-        now = this.#clock.now();
+      const existing = await this.#lock(tx, id, version);
+      const d = await this.#validate({ ...write.definition, id }, tx);
+      if (
+        write.definition.operations !== undefined &&
+        !isDeepStrictEqual(d.operations ?? {}, existing.operations ?? {})
+      )
+        throw invalid([{ path: "operations", rule: "edit-with-patch" }]);
+      const operations = Object.fromEntries(
+        Object.entries(existing.operations ?? {}).map(([name, binding]) => [
+          name,
+          { ...binding, enabled: false },
+        ]),
+      );
+      const now = this.#clock.now();
       const generation = existing.generation + 1;
       await tx
         .updateTable("definitions")
-        .set({ ...columns(d), generation, version: version + 1, updated_at: now })
+        .set({
+          ...columns({ ...d, operations }),
+          generation,
+          version: version + 1,
+          updated_at: now,
+        })
         .where("id", "=", id)
         .execute();
       const connectionsEnded = await endConnections(tx, id, "redefined", now);
       await failPendingConnects(tx, id);
-      const redefined = { ...existing, ...d, generation };
+      const redefined = { ...existing, ...d, operations, generation };
       await this.#writeSecrets(tx, redefined, write, actor);
       if (write.credential !== null) await this.#initializeMachine(tx, redefined);
       await bumpRevision(tx);

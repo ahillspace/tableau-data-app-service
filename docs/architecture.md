@@ -96,11 +96,11 @@ Components are listed in dependency order; a component depends only on component
 
 ### Router
 
-- **Owns:** native request forwarding, capability calls, API host selection and streaming.
+- **Owns:** native request forwarding, named provider operation admission, API host selection and streaming.
 - **Interface:** `NativeRouter.forward(request)` returning a streamed response, and `NativeRouter.capability(...)`.
 - **Invariants:** the router sets the credential and removes only hop-by-hop headers and the service's own headers and cookies; requests are never retried.
 - **Failure:** a provider's own error returns its native status and body; a transport failure returns a service error that says whether the request may have reached the provider.
-- **Extension:** definitions declare exact/pattern hosts and placement; capability code uses the same lease and transport.
+- **Extension:** attached provider operations use the native transport through a scoped request function.
 - **Detail:** [routing](routing.md).
 
 ### Jobs
@@ -172,3 +172,17 @@ Each runtime dependency has one job, where the job is security-sensitive or prot
 
 The browser SDK has no runtime dependencies.
 Development uses `typescript`, `esbuild`, `@biomejs/biome`, `@types/node`, `@types/pg` and Node's built-in test runner, with tests running against the developer's installed Postgres and Redis.
+
+## Independent services and discovery
+
+The API entry point opens each enabled service with the existing caller and operator guards, then mounts its Fastify routes.
+Service code owns its configuration validation, dependencies, routes and caller-specific discovery contribution.
+When a dependency becomes unavailable, the service contributes that state and its route can return a typed 503.
+The host closes opened services in reverse startup order.
+Operators receive state for deployed disabled services, while viewers receive links and actions from services exposed to them.
+
+The discovery endpoint serves the compatible release assets and projects authenticated state at request time.
+It uses current definition and owner connection data without refreshing credentials or probing provider endpoints.
+Provider package code is installed at deployment, while attachment and typed options live with each runtime definition and its ordinary version.
+An admitted operation captures its options and definition generation.
+Every provider send rechecks credential authority for that generation and releases database locks before the provider business request.

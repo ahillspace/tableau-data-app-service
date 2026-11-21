@@ -1,4 +1,4 @@
-import type { CredentialInput } from "../contracts/operator.ts";
+import type { CredentialInput } from "../contracts/operator.js";
 
 export type { CredentialInput };
 
