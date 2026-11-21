@@ -37,10 +37,12 @@ import {
 } from "./platform/settings.ts";
 import { NativeRouter } from "./router/router.ts";
 import { Sealer } from "./sealing/sealer.ts";
+import { type StorageConfiguration, storageConfiguration } from "./storage/config.ts";
 import { Maintenance } from "./worker/maintenance.ts";
 import { WorkerRole } from "./worker/role.ts";
 
 type Role = "migrate" | "api" | "worker";
+type Command = Role | "storage-init";
 
 /** What a role has opened, closed in reverse order on shutdown or when startup fails part-way. */
 class Resources {
@@ -70,13 +72,14 @@ class Resources {
     }
   }
 }
-const ROLES: readonly Role[] = ["migrate", "api", "worker"];
+const COMMANDS: readonly Command[] = ["migrate", "api", "worker", "storage-init"];
 
 export type Loaded = {
   settings: Settings;
   bootstrap: Bootstrap;
   installation: Installation;
   log: Log;
+  storage?: StorageConfiguration | undefined;
 };
 
 /** Settings, bootstrap and the values they share, with every secret registered with the log. */
@@ -89,7 +92,15 @@ export function load(
   log.protect(new URL(settings.databaseUrl).password || undefined);
   if (settings.redisUrl) log.protect(new URL(settings.redisUrl).password || undefined);
   const bootstrap = loadBootstrap(settings.bootstrapPath);
-  return { settings, bootstrap, installation: resolveInstallation(settings, bootstrap), log };
+  const storage = storageConfiguration(env, settings.databaseUrl);
+  if (storage && "url" in storage) log.protect(storage.url.password);
+  return {
+    settings,
+    bootstrap,
+    installation: resolveInstallation(settings, bootstrap),
+    log,
+    storage,
+  };
 }
 
 export function jobLimits(settings: Settings): JobLimits {
@@ -227,12 +238,22 @@ async function startApi(
   resources: Resources,
   deployments: readonly ServiceDeployment[],
 ): Promise<Running> {
-  const { settings, bootstrap, installation, log } = loaded;
-  if (new Set(deployments.map(({ id }) => id)).size !== deployments.length)
-    throw new Error("Duplicate service deployment ID");
+  const { settings, bootstrap, installation, log, storage } = loaded;
   const db = database(settings, "api", resources);
   await assertSchemaCurrent(db);
   await applyBootstrap(db, bootstrap, log);
+  const configured = storage
+    ? [
+        ...deployments,
+        (await import("./storage/service.ts")).storageDeployment(
+          storage,
+          db,
+          new Sealer(settings.sealingKeys),
+        ),
+      ]
+    : deployments;
+  if (new Set(configured.map(({ id }) => id)).size !== configured.length)
+    throw new Error("Duplicate service deployment ID");
   const out = outbound(settings, resources);
   const instanceId = randomUUID(),
     startedAt = new Date();
@@ -286,10 +307,15 @@ async function startApi(
         consoleEnabled: settings.consoleEnabled,
       }),
   };
-  for (const { id, contractHref, open } of deployments) {
+  for (const { id, contractHref, publicHref, open } of configured) {
     const mounted = await open?.(guards);
     if (mounted?.close) resources.add(mounted, async (service) => service.close?.());
-    services.push({ id, contractHref, ...(mounted ? { mounted } : {}) });
+    services.push({
+      id,
+      contractHref,
+      ...(publicHref ? { publicHref } : {}),
+      ...(mounted ? { mounted } : {}),
+    });
   }
   const app = await createApi({
     db,
@@ -378,16 +404,45 @@ async function startWorker(loaded: Loaded, resources: Resources): Promise<Runnin
   return { port, stop: () => resources.close() };
 }
 
+async function runStorageInit(loaded: Loaded): Promise<void> {
+  const { storage } = loaded;
+  if (!storage || "reason" in storage)
+    throw new ServiceError(
+      500,
+      "storage-settings-invalid",
+      storage?.reason ?? "Set STORAGE_DATABASE_URL before storage-init",
+    );
+  const [{ installStorage }, { storagePool }] = await Promise.all([
+    import("./storage/install.ts"),
+    import("./storage/postgres.ts"),
+  ]);
+  const pool = storagePool(storage.url.href, storage.ca, 1);
+  try {
+    await installStorage(pool);
+    loaded.log.info("Storage initialized");
+  } catch (error) {
+    throw new ServiceError(
+      500,
+      "storage-init-failed",
+      "Check the dedicated Storage database, TLS, PostgreSQL version and provisioner privileges",
+      { cause: error },
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
-  const role = argv[0] as Role;
+  const role = argv[0] as Command;
   const log = new Log();
-  if (!ROLES.includes(role)) {
-    log.error("unknown role", { role: argv[0] ?? null, roles: ROLES });
+  if (!COMMANDS.includes(role)) {
+    log.error("unknown role", { role: argv[0] ?? null, roles: COMMANDS });
     process.exitCode = 2;
     return;
   }
   try {
     const loaded = load(process.env, log.child({ role }));
+    if (role === "storage-init") return await runStorageInit(loaded);
     if (role === "migrate") return await runMigrate(loaded);
     const running = role === "api" ? await runApi(loaded) : await runWorker(loaded);
     onShutdown(loaded.log, running.stop);

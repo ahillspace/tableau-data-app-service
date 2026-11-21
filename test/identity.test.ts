@@ -238,7 +238,7 @@ describe("identity", () => {
       await code(h.identity.redeemAppSignIn(transactionId, { code: completion, proof })),
       "sign-in-transaction-invalid",
     );
-    assert.equal(await h.identity.appSignInPending(transactionId), false);
+    assert.equal(await h.identity.appSignInDelivery(transactionId), undefined);
     const principal = await h.identity.authenticate(redeemed.bearer);
     assert.equal(principal?.appId, "app-one");
     const stored = await db
@@ -258,7 +258,7 @@ describe("identity", () => {
       attribution: {},
     });
     h.clock.offsetMs = 601_000;
-    assert.equal(await h.identity.appSignInPending(transactionId), false);
+    assert.equal(await h.identity.appSignInDelivery(transactionId), undefined);
     assert.equal(
       await code(h.identity.issueCompletionCode(transactionId, session)),
       "sign-in-transaction-invalid",

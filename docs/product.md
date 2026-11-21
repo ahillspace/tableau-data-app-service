@@ -4,7 +4,7 @@ Tableau Data App Service is an authenticated router between Tableau Data Apps an
 An operator installs it once.
 From then on, operators add connection definitions at runtime, and Data App viewers sign in with Tableau and reach each connected provider's native API through the service.
 The Data App owns its behavior.
-The service owns identity, credential custody, routing, durable Jobs and optional live events.
+The service owns identity, credential custody, routing, durable Jobs, optional relational Storage and optional live events.
 The service secures what it holds and what it verifies.
 It does not secure Data Apps, and it does not impose practices on how an app is built or what it does with the access it is given.
 
@@ -26,7 +26,7 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
 - Client secrets, signing secrets and provider credentials are sealed in Postgres and never shown again.
   Operators enter them through write-only API fields, normal CLI input or the optional console.
   Reads expose only whether a value is set and when; logs and diagnostics never contain it.
-  The one secret the host holds is the sealing key.
+  The host holds the sealing key and the credentials for its private database connections.
 - Builders and operators can start with the service URL and read `GET /v1/discovery` for the compatible CLI download, browser SDK and sign-in guidance.
   Signed-in callers learn the installation resources and actions their existing Tableau grant can use.
 - Operators run the installation with the `tdas` command-line tool, which calls the operator API.
@@ -132,6 +132,15 @@ It does not secure Data Apps, and it does not impose practices on how an app is 
   It uses the existing Tableau caller and operator grants and can operate before any provider is defined.
 - A disabled service opens no dependency and exposes no service routes.
   An enabled service can report itself unavailable while unrelated routes continue to serve.
+
+### Relational Storage
+
+- An installation can enable a dedicated PostgreSQL database for relational data in Data Apps.
+- Verified members of an enabled Tableau site can create private workspaces, each with its own PostgreSQL schema.
+- Builders write SQL migrations and use a generated GraphQL API with the existing Tableau session.
+- Workspace owners share read or edit access with named people or the home site.
+- Data access follows the verified Tableau identity, workspace grants and the author's PostgreSQL policies.
+- Start with [Relational Storage](storage.md) to deploy the service, build a model and export its API contract.
 
 ### Jobs
 

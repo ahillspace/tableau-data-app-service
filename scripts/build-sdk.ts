@@ -1,6 +1,5 @@
 /**
- * Bundles the browser SDK into one minified ES module and its type declarations, and fails when
- * the bundle reaches the size budget.
+ * Builds standalone browser SDK modules and declarations, with a size budget for the base SDK.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, statSync } from "node:fs";
@@ -10,6 +9,7 @@ import { build } from "esbuild";
 
 export const SDK_BUDGET_BYTES = 15 * 1024;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const entries = ["index", "storage"].map((name) => join(root, "src", "sdk", `${name}.ts`));
 
 export async function buildSdk(
   outdir = join(root, "dist", "sdk"),
@@ -17,8 +17,8 @@ export async function buildSdk(
   mkdirSync(outdir, { recursive: true });
   const file = join(outdir, "index.js");
   await build({
-    entryPoints: [join(root, "src", "sdk", "index.ts")],
-    outfile: file,
+    entryPoints: entries,
+    outdir,
     bundle: true,
     minify: true,
     format: "esm",
@@ -38,7 +38,7 @@ export function buildSdkTypes(outdir = join(root, "dist", "sdk")): void {
     process.execPath,
     [
       join(root, "node_modules", "typescript", "bin", "tsc"),
-      join(root, "src", "sdk", "index.ts"),
+      ...entries,
       "--declaration",
       "--emitDeclarationOnly",
       "--strict",

@@ -7,6 +7,7 @@ How to install, configure and operate an installation.
 - Node 26.13 or later within Node 26.
 - Postgres 16 or later, reachable with TLS.
 - Redis 7 or later, only for events.
+- A dedicated PostgreSQL database, only for [Relational Storage](storage.md).
 - An HTTPS public origin for the service, reachable from Tableau's sign-in service.
 
 ## Install
@@ -49,6 +50,8 @@ node dist/main.js worker
 
 Each role reads the host settings from its environment; `node --env-file=.env dist/main.js api` loads them from a file.
 Run `migrate` once per release before starting the other roles.
+For an opt-in Storage database, run `node dist/main.js storage-init` once before starting the API.
+Follow the [Storage deployment instructions](storage.md#deploy) for the required database owner and grants.
 
 ## Operate
 
@@ -56,7 +59,7 @@ Start at `https://<service>/v1/discovery` and resolve `cli.href` against that or
 Download the CLI archive into a directory where you want to install the client, keeping the versioned filename.
 Verify its size and SHA-256 against discovery, then run the command shown in `cli.install` from that directory.
 The archive requires the Node range shown in discovery and access to the npm registry for its runtime keyring dependency.
-Operator sign-in also requires a working system credential store, such as an unlocked Secret Service keyring on Linux.
+Viewer and operator sign-in require a working system credential store, such as an unlocked Secret Service keyring on Linux.
 Run `./node_modules/.bin/tdas --help` for command usage.
 You can also run the CLI from the service checkout with `node dist/cli/tdas.js`.
 The separate `tdas-admin` executable is available on the service host.
@@ -83,8 +86,8 @@ tdas apps
 
 | Command | Does |
 | --- | --- |
-| `discover --service <origin> [--operator]` | Read public discovery or use a stored operator bearer for installation details. |
-| `login --service <origin>`, `logout`, `whoami` | Operator sign-in through the browser, sign-out, and the signed-in operator. |
+| `discover --service <origin> [--operator or --viewer]` | Read public discovery or use a stored bearer for caller-specific details. |
+| `login --service <origin>`, `logout`, `whoami` | Sign in through the browser, sign out, or inspect an operator identity. Add `--viewer` to use a separate viewer credential. |
 | `definitions list`, `definitions show <id>` | Read definitions. |
 | `definitions create <file.json>` | Create a definition. |
 | `definitions secret <id> <field>` | Write clientSecret, signingSecret, signingPrivateKey or a shared credential using piped stdin, --from-file, hidden prompt or warned --value. |

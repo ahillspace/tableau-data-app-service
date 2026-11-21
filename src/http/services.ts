@@ -13,6 +13,7 @@ import type { NativeRouter } from "../router/router.ts";
 export type ServiceDiscovery = {
   state: "available" | "unavailable";
   reason?: string;
+  canCreate?: boolean;
   actions?: readonly { method: string; href: string }[];
 };
 
@@ -32,11 +33,12 @@ export type ServiceGuards = {
 export type ServiceDeployment = {
   id: string;
   contractHref: string;
+  publicHref?: string;
   /** Omit open to declare a deployed but disabled service. */
   open?(guards: ServiceGuards): Promise<MountedService> | MountedService;
 };
 
-export type ServiceContribution = Pick<ServiceDeployment, "id" | "contractHref"> & {
+export type ServiceContribution = Pick<ServiceDeployment, "id" | "contractHref" | "publicHref"> & {
   mounted?: MountedService;
 };
 

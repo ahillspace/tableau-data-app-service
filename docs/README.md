@@ -16,6 +16,7 @@ The provider-intake and console changes are authorized for implementation; [veri
 | [Operator console](console.md) | Optional two-tab UI, shared operator transport and failure states. |
 | [Metrics](metrics.md) | Minute counts, merged histograms, freshness, boundedness and loss semantics. |
 | [Routing](routing.md) | Native request forwarding, streaming and destination checks. |
+| [Relational Storage](storage.md) | Opt-in PostgreSQL workspaces, SQL authoring, GraphQL data access and sharing. |
 | [Jobs](jobs.md) | Durable work. |
 | [Events and SDK](events-sdk.md) | Live events and the browser SDK. |
 | [Persistence and operations](operations.md) | Tables, TLS, sealing keys, configuration and health. |

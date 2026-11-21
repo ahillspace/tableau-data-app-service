@@ -1,41 +1,31 @@
 #!/usr/bin/env node
 /**
- * The operator command-line tool. It signs in with a loopback redirect and PKCE, keeps the operator
- * bearer in the system credential store, and drives the operator API. It holds no business rules:
- * every command is one or two operator API calls.
+ * The TDAS command-line tool for operators and Storage authors. Sign-in uses a loopback redirect
+ * and PKCE, with separate system credential store entries for operator and viewer sessions.
  */
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import type { ConnectResult, CredentialInput, DefinitionView } from "../contracts/operator.ts";
-import { pkceChallenge, randomToken } from "../platform/secrets.ts";
-import { canonicalOrigin } from "../platform/settings.ts";
-import { readSecret, type SecretInput, SecretInputError } from "./secret-input.ts";
+import {
+  ApiError,
+  type CliDeps,
+  Client,
+  type CredentialStore,
+  credentialAccount,
+  login,
+  type Mode,
+  type Options,
+  serviceOrigin,
+  signedIn,
+  UsageError,
+} from "./auth.ts";
+import { readSecret, SecretInputError } from "./secret-input.ts";
+import { storageCommand, storageUsage } from "./storage.ts";
+
+export type { CliDeps, CredentialStore } from "./auth.ts";
+export { ApiError } from "./auth.ts";
 
 const KEYRING_SERVICE = "tableau-data-app-service";
-const CURRENT = "current-service";
-const BEARER_HEADER = "Tableau-Service-Authorization";
-const LOGIN_TIMEOUT_MS = 5 * 60_000;
-
-/** Where the CLI keeps the service origin and the operator bearer for it. */
-export type CredentialStore = {
-  get(account: string): Promise<string | undefined>;
-  set(account: string, value: string): Promise<void>;
-  delete(account: string): Promise<void>;
-};
-
-export type CliDeps = {
-  fetch: typeof fetch;
-  store: CredentialStore;
-  /** Opens a URL in the user's browser. */
-  open(url: string): Promise<void>;
-  out(text: string): void;
-  err(text: string): void;
-  env: Record<string, string | undefined>;
-  secretInput?: SecretInput;
-};
-
 /** The system credential store. The native module loads only when a command needs it. */
 export function keyringStore(): CredentialStore {
   const entry = async (account: string) =>
@@ -69,10 +59,10 @@ export function openInBrowser(url: string): Promise<void> {
 
 const USAGE = `Usage: tdas <command>
 
-  discover --service <origin> [--operator]  Show public or operator discovery
-  login --service <origin>                 Sign in as an operator in the browser
-  logout                                   Forget the stored operator bearer
-  whoami                                   Show the signed-in operator
+  discover --service <origin> [--operator|--viewer]  Show public or signed-in discovery
+  login --service <origin> [--viewer]      Sign in through Tableau in the browser
+  logout [--viewer]                        Forget the stored bearer
+  whoami [--viewer]                        Show the signed-in identity
 
   definitions list
   definitions show <id>
@@ -100,27 +90,16 @@ const USAGE = `Usage: tdas <command>
   sessions revoke <deployment:siteId:userId>
   audit [--limit <n>] [--before <id>]
 
+${storageUsage}
+
 Options:
   --service <origin>   Service to use; defaults to TDAS_SERVICE, then the last login
   --from-file <path>   Read the secret from a file (preserves newlines)
   --value <value>      Read a secret from the command argument (exposure warning)
   --clear              Explicitly clear the selected secret`;
 
-class UsageError extends Error {}
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly body: unknown;
-  constructor(status: number, body: unknown) {
-    const error = (body as { error?: { code?: string; message?: string } } | undefined)?.error;
-    super(error?.message ?? `The service answered ${status}`);
-    this.status = status;
-    this.body = body;
-  }
-}
-
 /** Splits `--name value` and `--flag` options from positional arguments. */
-function parse(argv: string[]): { positional: string[]; options: Map<string, string[]> } {
+function parse(argv: string[]): { positional: string[]; options: Options } {
   const positional: string[] = [];
   const options = new Map<string, string[]>();
   const valued = new Set([
@@ -134,6 +113,18 @@ function parse(argv: string[]): { positional: string[]; options: Map<string, str
     "before",
     "from-file",
     "value",
+    "name",
+    "workspace",
+    "file",
+    "config",
+    "migration-id",
+    "predecessor",
+    "values",
+    "output",
+    "variables",
+    "operation-name",
+    "username",
+    "confirm",
   ]);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string;
@@ -153,123 +144,12 @@ function parse(argv: string[]): { positional: string[]; options: Map<string, str
       const value = argv[++i];
       if (value === undefined) throw new UsageError(`--${name} needs a value`);
       values.push(value);
-    } else if (name === "enable" || name === "disable" || name === "clear" || name === "operator")
+    } else if (["enable", "disable", "clear", "operator", "viewer", "describe"].includes(name))
       values.push("");
     else throw new UsageError(`Unknown option --${name}`);
     options.set(name, values);
   }
   return { positional, options };
-}
-
-class Client {
-  readonly origin: string;
-  readonly #deps: CliDeps;
-  readonly #bearer: string | undefined;
-
-  constructor(deps: CliDeps, origin: string, bearer: string | undefined) {
-    this.#deps = deps;
-    this.origin = origin;
-    this.#bearer = bearer;
-  }
-
-  async call<T = Record<string, unknown>>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (this.#bearer) headers[BEARER_HEADER] = `Bearer ${this.#bearer}`;
-    if (body !== undefined) headers["content-type"] = "application/json";
-    const response = await this.#deps.fetch(`${this.origin}${path}`, {
-      method,
-      headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      redirect: "manual",
-    });
-    const text = await response.text();
-    let parsed: unknown;
-    try {
-      parsed = text ? JSON.parse(text) : undefined;
-    } catch {
-      parsed = undefined;
-    }
-    if (!response.ok) throw new ApiError(response.status, parsed);
-    return parsed as T;
-  }
-}
-
-async function serviceOrigin(deps: CliDeps, options: Map<string, string[]>): Promise<string> {
-  const given =
-    options.get("service")?.at(-1) ?? deps.env.TDAS_SERVICE ?? (await deps.store.get(CURRENT));
-  if (!given) throw new UsageError("No service: run tdas login --service <origin>");
-  const origin = canonicalOrigin(given.replace(/\/$/, ""));
-  if (!origin) throw new UsageError("--service must be an HTTPS origin, or HTTP on loopback");
-  return origin;
-}
-
-async function signedIn(deps: CliDeps, options: Map<string, string[]>): Promise<Client> {
-  const origin = await serviceOrigin(deps, options);
-  const bearer = await deps.store.get(origin);
-  if (!bearer) throw new UsageError(`Not signed in to ${origin}: run tdas login`);
-  return new Client(deps, origin, bearer);
-}
-
-/** The loopback sign-in: a one-shot listener on 127.0.0.1, PKCE, and a code redeemed with the verifier. */
-async function login(deps: CliDeps, origin: string): Promise<void> {
-  const verifier = randomToken();
-  const state = randomToken();
-  let settle: { resolve(code: string): void; reject(error: Error): void } | undefined;
-  const received = new Promise<string>((resolve, reject) => {
-    settle = { resolve, reject };
-  });
-  const server = createServer((request, response) => {
-    const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (url.pathname !== "/callback") {
-      response.writeHead(404).end();
-      return;
-    }
-    const code = url.searchParams.get("code");
-    const ok = code !== null && url.searchParams.get("state") === state;
-    response.writeHead(ok ? 200 : 400, {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "no-store",
-    });
-    response.end(
-      ok
-        ? "Signed in. You can close this window and return to the terminal.\n"
-        : "Sign-in failed.\n",
-    );
-    if (ok) settle?.resolve(code);
-    else settle?.reject(new Error("The sign-in redirect did not match this login"));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const timer = setTimeout(
-    () => settle?.reject(new Error("Timed out waiting for the browser sign-in")),
-    LOGIN_TIMEOUT_MS,
-  );
-  try {
-    const port = (server.address() as AddressInfo).port;
-    const query = new URLSearchParams({
-      redirect_uri: `http://127.0.0.1:${port}/callback`,
-      code_challenge: pkceChallenge(verifier),
-      state,
-    });
-    const url = `${origin}/operator-sign-in?${query}`;
-    deps.err(`Opening ${url}`);
-    await deps.open(url);
-    const code = await received;
-    const token = await new Client(deps, origin, undefined).call<{
-      bearer: string;
-      session: unknown;
-    }>("POST", "/v1/operator-sign-ins/token", { code, verifier });
-    await deps.store.set(origin, token.bearer);
-    await deps.store.set(CURRENT, origin);
-    deps.out(JSON.stringify({ service: origin, session: token.session }, null, 2));
-  } finally {
-    clearTimeout(timer);
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
-  }
 }
 
 async function readJson(path: string | undefined): Promise<unknown> {
@@ -324,25 +204,37 @@ async function run(argv: string[], deps: CliDeps): Promise<void> {
     return s ? `?${s}` : "";
   };
 
+  if (options.has("viewer") && options.has("operator"))
+    throw new UsageError("Choose either --viewer or --operator");
+  const mode: Mode = options.has("viewer") ? "viewer" : "operator";
+  if (
+    mode === "viewer" &&
+    !["discover", "login", "logout", "whoami", "storage"].includes(group ?? "")
+  )
+    throw new UsageError("This command requires operator sign-in");
+
   switch (group) {
     case "discover": {
       if (action !== undefined)
-        throw new UsageError("Usage: tdas discover --service <origin> [--operator]");
-      const client = options.has("operator")
-        ? await signedIn(deps, options)
-        : new Client(deps, await serviceOrigin(deps, options), undefined);
+        throw new UsageError("Usage: tdas discover --service <origin> [--operator|--viewer]");
+      const client =
+        options.has("operator") || options.has("viewer")
+          ? await signedIn(deps, options, mode)
+          : new Client(deps, await serviceOrigin(deps, options), undefined);
       return print(await client.call("GET", "/v1/discovery"));
     }
     case "login":
-      return await login(deps, await serviceOrigin(deps, options));
+      return await login(deps, await serviceOrigin(deps, options, mode), mode);
     case "logout": {
-      const origin = await serviceOrigin(deps, options);
-      await deps.store.delete(origin);
+      const origin = await serviceOrigin(deps, options, mode);
+      await deps.store.delete(credentialAccount(origin, mode));
       deps.err(`Signed out of ${origin}`);
       return;
     }
     case "whoami":
-      return print(await (await signedIn(deps, options)).call("GET", "/v1/session"));
+      return print(await (await signedIn(deps, options, mode)).call("GET", "/v1/session"));
+    case "storage":
+      return await storageCommand(deps, action, rest, options);
     case "apps":
       return print(await (await signedIn(deps, options)).call("GET", "/v1/admin/apps"));
     case "audit":
@@ -564,7 +456,8 @@ export async function tdas(argv: string[], deps: CliDeps): Promise<number> {
     }
     if (error instanceof ApiError) {
       deps.err(JSON.stringify(error.body ?? { error: { message: error.message } }, null, 2));
-      if (error.status === 401) deps.err("Sign in again with tdas login.");
+      if (error.status === 401)
+        deps.err(`Sign in again with tdas login${error.mode === "viewer" ? " --viewer" : ""}.`);
       return 1;
     }
     deps.err((error as Error).message);

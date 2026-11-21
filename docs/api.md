@@ -149,3 +149,7 @@ Catalog returns templates, audit returns entries, and status/metrics use the exa
 | `GET /health/ready` | The database answers, the schema is current and, with events on, the event bus is connected. |
 
 The worker role serves the same two routes on `WORKER_HEALTH_PORT`, where readiness checks the database and that maintenance ran recently; other methods answer 405.
+
+## Storage routes
+
+The optional service publishes [its own workspace and operator routes](storage.md#http-reference), including discovery, migrations, sharing and GraphQL.
