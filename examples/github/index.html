@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GitHub repository explorer</title>
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>GitHub repository explorer</h1>
+        <p id="identity">Checking for a Tableau session…</p>
+        <button id="sign-in" type="button" hidden>Sign in with Tableau</button>
+        <button id="reload" type="button" hidden>Refresh connection and repositories</button>
+      </header>
+      <p id="status" role="status"></p>
+      <form id="token" hidden>
+        <label for="token-value">GitHub access token</label>
+        <div class="controls">
+          <input id="token-value" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+          <button type="submit">Save token</button>
+          <button type="button" id="disconnect" hidden>Disconnect GitHub</button>
+        </div>
+      </form>
+      <fieldset id="workspace" hidden>
+        <legend class="sr-only">GitHub repository browser</legend>
+        <section class="repository">
+          <label for="repository">Repository</label>
+          <div class="controls">
+            <select id="repository"></select>
+            <button id="more-repos" type="button" hidden>More repositories</button>
+          </div>
+        </section>
+        <div class="columns" id="repo-content" hidden>
+          <section>
+            <h2>Commit history</h2>
+            <label for="branch">Branch</label>
+            <div class="controls">
+              <select id="branch"></select>
+              <button id="more-branches" type="button" hidden>More branches</button>
+            </div>
+            <ul id="commits" class="results"></ul>
+            <button id="more-commits" type="button" hidden>More commits</button>
+          </section>
+          <section>
+            <h2>Pull requests</h2>
+            <div class="controls">
+              <label for="pull-state">Filter</label>
+              <select id="pull-state">
+                <option value="open">Open</option>
+                <option value="closed">Closed and merged</option>
+                <option value="all">All</option>
+              </select>
+              <label for="pull" class="sr-only">Pull request</label>
+              <select id="pull"></select>
+              <button id="more-pulls" type="button" hidden>More pull requests</button>
+            </div>
+            <article id="detail" hidden>
+              <h3 id="pull-title"></h3>
+              <p id="pull-meta"></p>
+              <div class="controls pull-links">
+                <a id="pull-link" href="https://github.com" target="_blank" rel="noopener noreferrer">Open in GitHub</a>
+                <button id="refresh-pull" type="button">Refresh pull request</button>
+              </div>
+              <p id="pull-body" class="pull-description"></p>
+              <div class="checks">
+                <h4>Check runs</h4>
+                <ul id="checks" class="results"></ul>
+                <button id="more-checks" type="button" hidden>More check runs</button>
+                <h4>Commit statuses</h4>
+                <ul id="statuses" class="results"></ul>
+                <button id="more-statuses" type="button" hidden>More commit statuses</button>
+              </div>
+              <div id="actions" hidden>
+                <h4>Review</h4>
+                <label for="review-body">Review comment <span class="secondary">Required when requesting changes</span></label>
+                <textarea id="review-body" rows="3"></textarea>
+                <div class="controls">
+                  <button id="approve" type="button">Approve</button>
+                  <button id="request-changes" type="button">Request changes</button>
+                </div>
+                <h4>Close or merge</h4>
+                <div class="controls">
+                  <button id="close" type="button">Close pull request</button>
+                  <label for="merge-method" class="sr-only">Merge method</label>
+                  <select id="merge-method">
+                    <option value="merge">Merge commit</option>
+                    <option value="squash">Squash</option>
+                    <option value="rebase">Rebase</option>
+                  </select>
+                  <button id="merge" type="button">Merge pull request</button>
+                </div>
+              </div>
+            </article>
+          </section>
+        </div>
+      </fieldset>
+      <dialog id="confirm" aria-labelledby="confirm-title">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-target"></p>
+        <form method="dialog" class="controls">
+          <button value="cancel" autofocus>Cancel</button>
+          <button id="confirm-action" value="proceed"></button>
+        </form>
+      </dialog>
+    </main>
+  </body>
+</html>

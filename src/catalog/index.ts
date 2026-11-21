@@ -2,6 +2,7 @@ import { z } from "zod";
 import { definitionTemplateSchema, validateDefinition } from "../connections/validation.ts";
 import type { CatalogTemplate } from "../contracts/operator.ts";
 import apiKey from "./templates/api-key.json" with { type: "json" };
+import github from "./templates/github.json" with { type: "json" };
 import googleServiceAccount from "./templates/google-service-account.json" with { type: "json" };
 import oauth2 from "./templates/oauth2.json" with { type: "json" };
 import slackBot from "./templates/slack-bot.json" with { type: "json" };
@@ -43,4 +44,11 @@ export function loadCatalog(values: readonly unknown[]): CatalogTemplate[] {
 }
 
 /** JSON defaults are copied into independent runtime definitions; no provider code executes. */
-export const templates = loadCatalog([slackBot, slackUser, googleServiceAccount, apiKey, oauth2]);
+export const templates = loadCatalog([
+  slackBot,
+  slackUser,
+  github,
+  googleServiceAccount,
+  apiKey,
+  oauth2,
+]);
