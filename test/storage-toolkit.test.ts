@@ -360,7 +360,7 @@ test("discovery serves version-matched CLI and optional Storage SDK assets with 
   const archive = await app.inject(discovery.cli.href);
   assert.equal(archive.statusCode, 200);
   assert.equal(createHash("sha256").update(archive.rawPayload).digest("hex"), discovery.cli.sha256);
-  for (const key of ["sdk", "sdkTypes", "storageSdk", "storageSdkTypes"]) {
+  for (const key of ["sdk", "sdkTypes", "storageSdk", "storageSdkTypes", "filesSdkTypes"]) {
     const href = discovery.links[key];
     assert.ok(href);
     const file = await app.inject(href);
@@ -371,6 +371,8 @@ test("discovery serves version-matched CLI and optional Storage SDK assets with 
     );
     if (key === "storageSdk" || key === "storageSdkTypes")
       assert.match(file.body, /StorageGraphQLError/);
+    else if (key === "filesSdkTypes")
+      assert.match(file.body, /FilesApi|FilesObject|upload/);
     else assert.doesNotMatch(file.body, /StorageGraphQLError/);
   }
 });

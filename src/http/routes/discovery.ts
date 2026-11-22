@@ -26,6 +26,7 @@ const links = {
   sdkContractTypes: "/v1/tools/contracts/operator.d.ts",
   storageSdk: "/v1/tools/sdk/storage.js",
   storageSdkTypes: "/v1/tools/sdk/storage.d.ts",
+  filesSdkTypes: "/v1/tools/sdk/files.d.ts",
   sdkExample: "/v1/tools/example/index.html",
   documentation: "/v1/tools/specification.html",
   viewerSignIn: "/v1/tools/specification.html#documents/identity/app-sign-in",
@@ -37,6 +38,7 @@ const assets = [
   [links.sdkContractTypes, "sdk/contracts/operator.d.ts", "text/plain"],
   [links.storageSdk, "sdk/storage.js", "text/javascript"],
   [links.storageSdkTypes, "sdk/sdk/storage.d.ts", "text/plain"],
+  [links.filesSdkTypes, "sdk/sdk/files.d.ts", "text/plain"],
   [links.sdkExample, "release/example/index.html", "text/html"],
   [links.documentation, "release/specification.html", "text/html"],
 ] as const;
