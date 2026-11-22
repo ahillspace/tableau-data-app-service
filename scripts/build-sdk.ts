@@ -49,6 +49,7 @@ export function buildSdkTypes(outdir = join(root, "dist", "sdk")): void {
       "--module",
       "nodenext",
       "--skipLibCheck",
+      "--allowImportingTsExtensions",
       "--ignoreConfig",
       "--outDir",
       outdir,

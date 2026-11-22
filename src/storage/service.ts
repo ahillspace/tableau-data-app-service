@@ -500,17 +500,55 @@ class Storage {
   }
 }
 
-export function storageDeployment(
-  config: StorageConfiguration,
-  core: Db,
+export type StorageRuntime = {
+  pool: pg.Pool;
+  scopes: WorkspaceScopes;
+  registry: Registry;
+};
+
+export function createStorageRuntime(
+  config: Exclude<StorageConfiguration, { reason: string }>,
   sealer: Sealer,
+): StorageRuntime {
+  const pool = storagePool(config.url.href, config.ca, 2);
+  const scopes = new WorkspaceScopes(config.ca, config.connections);
+  const registry = new Registry(pool, config.url, sealer);
+  return { pool, scopes, registry };
+}
+
+export function storageDeploymentFromRuntime(
+  config: Exclude<StorageConfiguration, { reason: string }>,
+  core: Db,
+  runtime: StorageRuntime,
 ): ServiceDeployment {
   return {
     id: "storage",
     contractHref: CONTRACT,
     publicHref: WORKSPACES,
     open(guards) {
-      if ("reason" in config) {
+      const storage = new Storage(core, runtime.registry, runtime.scopes, runtime.pool);
+      return {
+        routes: (app) => storage.routes(app, guards),
+        discover: (principal) => storage.discover(principal),
+        close: async () => {
+          await Promise.all([runtime.scopes.close(), runtime.pool.end()]);
+        },
+      };
+    },
+  };
+}
+
+export function storageDeployment(
+  config: StorageConfiguration,
+  core: Db,
+  sealer: Sealer,
+): ServiceDeployment {
+  if ("reason" in config) {
+    return {
+      id: "storage",
+      contractHref: CONTRACT,
+      publicHref: WORKSPACES,
+      open(guards) {
         return {
           routes(app) {
             app.get(
@@ -533,17 +571,9 @@ export function storageDeployment(
             ...(principal.kind === "operator" ? { actions: [{ method: "GET", href: ADMIN }] } : {}),
           }),
         };
-      }
-      const pool = storagePool(config.url.href, config.ca, 2);
-      const scopes = new WorkspaceScopes(config.ca, config.connections);
-      const storage = new Storage(core, new Registry(pool, config.url, sealer), scopes, pool);
-      return {
-        routes: (app) => storage.routes(app, guards),
-        discover: (principal) => storage.discover(principal),
-        close: async () => {
-          await Promise.all([scopes.close(), pool.end()]);
-        },
-      };
-    },
-  };
+      },
+    };
+  }
+  const runtime = createStorageRuntime(config, sealer);
+  return storageDeploymentFromRuntime(config, core, runtime);
 }

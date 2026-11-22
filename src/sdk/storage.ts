@@ -1,3 +1,5 @@
+import type { FilesApi } from "./files.js";
+import { filesApi } from "./files.ts";
 import type { Service } from "./index.js";
 
 export type GraphQLError = {
@@ -19,8 +21,17 @@ export class StorageGraphQLError<Data = unknown> extends Error {
   }
 }
 
-/** Use the Data App's existing Service instance for this workspace's GraphQL requests. */
-export function workspace(service: Pick<Service, "request">, id: string) {
+export type StorageWorkspace = {
+  graphql<Data = unknown>(
+    query: string,
+    variables?: Record<string, unknown> | null,
+    operationName?: string | null,
+  ): Promise<Data>;
+  files: FilesApi;
+};
+
+/** Use the Data App's existing Service instance for this workspace's GraphQL and Files requests. */
+export function workspace(service: Pick<Service, "request">, id: string): StorageWorkspace {
   if (!id || id === "." || id === "..") throw new Error("A valid Storage workspace ID is required");
   const path = `/v1/storage/workspaces/${encodeURIComponent(id)}/graphql`;
   return {
@@ -39,5 +50,6 @@ export function workspace(service: Pick<Service, "request">, id: string) {
       if (result?.data == null) throw new Error("Storage GraphQL returned no data");
       return result.data;
     },
+    files: filesApi(service, id),
   };
 }

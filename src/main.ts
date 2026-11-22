@@ -8,6 +8,7 @@ import { DefinitionStore } from "./connections/definitions.ts";
 import { ConnectionService } from "./connections/service.ts";
 import { createEvents } from "./events/index.ts";
 import { installedExtensions } from "./extensions/index.ts";
+import { type FilesConfiguration, filesConfiguration } from "./files/index.ts";
 import { createApi } from "./http/app.ts";
 import { caller, operator } from "./http/auth.ts";
 import type { ServiceContribution, ServiceDeployment, ServiceGuards } from "./http/services.ts";
@@ -80,6 +81,7 @@ export type Loaded = {
   installation: Installation;
   log: Log;
   storage?: StorageConfiguration | undefined;
+  files?: FilesConfiguration | undefined;
 };
 
 /** Settings, bootstrap and the values they share, with every secret registered with the log. */
@@ -94,12 +96,18 @@ export function load(
   const bootstrap = loadBootstrap(settings.bootstrapPath);
   const storage = storageConfiguration(env, settings.databaseUrl);
   if (storage && "url" in storage) log.protect(storage.url.password);
+  const files = filesConfiguration(env);
+  if (files && "accessKeyId" in files) {
+    log.protect(files.secretAccessKey);
+    log.protect(files.sessionToken);
+  }
   return {
     settings,
     bootstrap,
     installation: resolveInstallation(settings, bootstrap),
     log,
     storage,
+    files,
   };
 }
 
@@ -238,20 +246,39 @@ async function startApi(
   resources: Resources,
   deployments: readonly ServiceDeployment[],
 ): Promise<Running> {
-  const { settings, bootstrap, installation, log, storage } = loaded;
+  const { settings, bootstrap, installation, log, storage, files } = loaded;
   const db = database(settings, "api", resources);
   await assertSchemaCurrent(db);
   await applyBootstrap(db, bootstrap, log);
-  const configured = storage
-    ? [
-        ...deployments,
-        (await import("./storage/service.ts")).storageDeployment(
-          storage,
-          db,
-          new Sealer(settings.sealingKeys),
-        ),
-      ]
-    : deployments;
+  const configured: ServiceDeployment[] = [...deployments];
+  if (storage) {
+    const sealer = new Sealer(settings.sealingKeys);
+    if ("reason" in storage) {
+      const { storageDeployment } = await import("./storage/service.ts");
+      configured.push(storageDeployment(storage, db, sealer));
+      if (files) {
+        const { filesDeployment } = await import("./files/index.ts");
+        configured.push(
+          filesDeployment(files, { unavailable: "Files requires Storage to be available" }),
+        );
+      }
+    } else {
+      const { createStorageRuntime, storageDeploymentFromRuntime } = await import(
+        "./storage/service.ts"
+      );
+      const runtime = createStorageRuntime(storage, sealer);
+      configured.push(storageDeploymentFromRuntime(storage, db, runtime));
+      if (files) {
+        const { filesDeployment } = await import("./files/index.ts");
+        configured.push(filesDeployment(files, runtime.registry));
+      }
+    }
+  } else if (files) {
+    const { filesDeployment } = await import("./files/index.ts");
+    configured.push(
+      filesDeployment(files, { unavailable: "Files requires Storage to be configured" }),
+    );
+  }
   if (new Set(configured.map(({ id }) => id)).size !== configured.length)
     throw new Error("Duplicate service deployment ID");
   const out = outbound(settings, resources);

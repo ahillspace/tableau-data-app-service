@@ -133,6 +133,13 @@
       "path": "docs/storage.md",
       "kind": "Component",
       "description": "Optional workspace authoring, relational data access, sharing and operation."
+    },
+    {
+      "id": "files",
+      "title": "Files",
+      "path": "docs/files.md",
+      "kind": "Component",
+      "description": "Optional workspace-scoped file objects backed by a private S3-compatible bucket."
     }
   ]
 }
