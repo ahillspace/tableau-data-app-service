@@ -172,7 +172,7 @@ describe("connections", () => {
         apiHosts: ["http://plain.example", "https://ok.example/api"],
         authentication: { ...oauthAuthentication(provider), tokenEndpoint: "not a url" },
         credentialPlacement: { kind: "header", name: "Host" },
-        audience: ["00000000-0000-0000-0000-000000000000"],
+        audience: [siteId],
         reauthorizationInterval: 5,
         secrets: { clientSecret: "never-accepted" },
         mystery: 1,
@@ -188,7 +188,15 @@ describe("connections", () => {
       "reauthorizationInterval",
     ])
       assert.ok(rules[path], `missing error for ${path}`);
+    assert.equal(rules["authentication.tokenEndpoint"], "https-url");
+    assert.equal(rules[""], "unknown-field:mystery");
     assert.ok(!JSON.stringify(error.toBody()).includes("never-accepted"));
+
+    const unknownAudience = oauthDefinition({ audience: ["00000000-0000-0000-0000-000000000000"] });
+    await assert.rejects(c.definitions.create("test", unknownAudience), (error) => {
+      assert.deepEqual(fieldRules(error), { "audience.0": "trusted-site" });
+      return true;
+    });
     assert.equal(await db.selectFrom("definitions").select("id").executeTakeFirst(), undefined);
 
     const view = await c.definitions.create("test", oauthDefinition());

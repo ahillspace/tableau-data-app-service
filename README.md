@@ -3,7 +3,7 @@
 An authenticated router between Tableau Data Apps and the external APIs they use.
 An operator installs it once and adds connection definitions at runtime.
 Viewers sign in with Tableau, and Data Apps reach each connected provider's native API through the service.
-Durable Jobs and optional live events are included.
+Durable Jobs, optional live events, and optional Relational Storage and Files workspaces are included.
 
 Built with TypeScript on Node 26, Fastify, Kysely and Postgres, with Redis only for events.
 
@@ -31,4 +31,4 @@ The browser SDK is built to `dist/sdk/index.js`, and [examples](examples/) holds
 Start with [docs](docs/README.md).
 [specification.json](specification.json) lists the documentation sources, and [docs/specification.html](docs/specification.html) is the offline view generated from them.
 
-This platform is not assiciated with Tableau or Salesforce directly, has no plan for monetization, and is strictly OSS. 
+This project is open source, is not affiliated with Tableau or Salesforce, and has no monetization plans.

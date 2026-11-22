@@ -19,8 +19,8 @@
   "scripts": {
     "build": "node scripts/clean-build.ts && tsc -p tsconfig.build.json && node scripts/build-sdk.ts && node scripts/build-console.ts && node scripts/build-cli.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src test scripts/*.ts examples/slack",
-    "format": "biome check --write src test scripts/*.ts examples/slack",
+    "lint": "biome check src test scripts/*.ts examples",
+    "format": "biome check --write src test scripts/*.ts examples",
     "test": "node --test --test-global-setup=test/support/global.ts --test-concurrency=1 'test/**/*.test.ts'",
     "example": "node examples/slack/dev.ts",
     "examples:slack": "node scripts/build-slack-definitions.ts && biome format --write examples/slack/definitions",

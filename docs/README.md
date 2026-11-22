@@ -1,7 +1,7 @@
 # Documentation
 
 These documents specify the current service contract.
-The provider-intake and console changes are authorized for implementation; [verification](verification.md) distinguishes required gates from completed implementation and live evidence.
+[Verification](verification.md) describes retained automated coverage, validation commands and remaining live acceptance checks.
 [specification.json](../specification.json) lists them, and [specification.html](specification.html) is an offline view generated from them.
 
 | Document | Owns |
@@ -9,7 +9,7 @@ The provider-intake and console changes are authorized for implementation; [veri
 | [Product](product.md) | What the service does, who uses it, journeys, and what it does not include. |
 | [Architecture](architecture.md) | Topology, trust boundaries, components and dependency direction. |
 | [Shared contracts](contracts.md) | Types and rules shared across components. |
-| [Identity](identity.md) | Tableau sign-in, sessions, app sign-in, verify app location, operators and bootstrap. |
+| [Identity](identity.md) | Tableau sign-in, sessions, app sign-in, app location limitations, operators and bootstrap. |
 | [Connections](connections.md) | Definition, application-secret and owner-credential boundaries, setup and generations. |
 | [Provider protocol data](provider-protocol.md) | Typed acquisition, client authentication, response mapping, import, hosts and inbound verification. |
 | [Provider catalog](presets.md) | Independent templates, provider recipes and code extension boundaries. |
@@ -17,7 +17,7 @@ The provider-intake and console changes are authorized for implementation; [veri
 | [Metrics](metrics.md) | Minute counts, merged histograms, freshness, boundedness and loss semantics. |
 | [Routing](routing.md) | Native request forwarding, streaming and destination checks. |
 | [Relational Storage](storage.md) | Opt-in PostgreSQL workspaces, SQL authoring, GraphQL data access and sharing. |
-| [Files](files.md) | Optional workspace-scoped file objects backed by a private S3-compatible bucket. |
+| [Files](files.md) | Optional workspace-scoped file objects backed by an S3-compatible bucket, GCS or one persistent local directory. |
 | [Jobs](jobs.md) | Durable work. |
 | [Events and SDK](events-sdk.md) | Live events and the browser SDK. |
 | [Persistence and operations](operations.md) | Tables, TLS, sealing keys, configuration and health. |
