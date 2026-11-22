@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
-import { MAX_SIGNED_URL_SECONDS, stableId } from "../src/files/backend.ts";
+import { MAX_FILE_KEY_LENGTH, MAX_SIGNED_URL_SECONDS, stableId } from "../src/files/backend.ts";
 import { filesConfiguration } from "../src/files/config.ts";
 import { LocalDownloads, LocalStore } from "../src/files/local.ts";
 import { load, runApi } from "../src/main.ts";
@@ -193,6 +193,52 @@ test("Files local mapping uses bounded physical names and keeps exact logical ke
   assert.deepEqual(
     nested.map((row) => row.name),
     ["nested.txt"],
+  );
+});
+
+test("Files local listBuckets isolates markers by exact workspace prefix", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tdas-files-local-buckets-"));
+  const store = new LocalStore({
+    root,
+    downloads: new LocalDownloads(new Sealer(testKeys()), "https://service.test"),
+  });
+  t.after(async () => {
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  await store.createBucket(first, "alpha");
+  await store.createBucket(second, "beta");
+  await store.putObject({
+    key: `${second}/files/buckets/assets/report.json`,
+    body: Buffer.from("{}"),
+    contentType: "application/json",
+  });
+  assert.deepEqual(await store.listBuckets(first), [{ name: "alpha" }]);
+  assert.deepEqual(await store.listBuckets(second), [{ name: "beta" }]);
+});
+
+test("Files local accepts the longest logical key expanded from the HTTP contract", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tdas-files-local-max-key-"));
+  const store = new LocalStore({
+    root,
+    downloads: new LocalDownloads(new Sealer(testKeys()), "https://service.test"),
+  });
+  t.after(async () => {
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const key = `${"w".repeat(36)}/files/buckets/${"b".repeat(128)}/${"p".repeat(1024)}`;
+  assert.equal(key.length, MAX_FILE_KEY_LENGTH);
+  await store.putObject({ key, body: Buffer.from("maximum"), contentType: "text/plain" });
+  const object = await store.getObject(key);
+  const chunks: Buffer[] = [];
+  for await (const chunk of object.body) chunks.push(Buffer.from(chunk));
+  assert.equal(Buffer.concat(chunks).toString(), "maximum");
+  await assert.rejects(
+    store.putObject({ key: `${key}p`, body: Buffer.from("too-long"), contentType: "text/plain" }),
+    (error: unknown) => error instanceof ServiceError && error.status === 404,
   );
 });
 
@@ -420,6 +466,47 @@ test("Files local service supports the full HTTP and SDK flow against isolated P
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (entry.isDirectory()) assert.match(entry.name, /^e\.[a-f0-9]{64}$/);
   }
+
+  const boundary = async (path: string, body: string) => {
+    const encoded = encodeURIComponent(path);
+    const uploadBoundary = await req(
+      `${base}/objects?path=${encoded}&contentType=text/plain`,
+      author.bearer,
+      { method: "POST", body: Buffer.from(body) },
+    );
+    assert.equal(uploadBoundary.body.error, null);
+    const ref = JSON.parse(
+      await readFile(
+        join(physicalDir(root, logicalKey(workspaceId, "assets", path)), "_object.json"),
+        "utf8",
+      ),
+    ) as { key: string };
+    assert.equal(ref.key, logicalKey(workspaceId, "assets", path));
+    const signedBoundary = await req(`${base}/sign`, author.bearer, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path, expiresIn: 60 }),
+    });
+    const url = new URL(signedBoundary.body.data.signedUrl);
+    const token = url.searchParams.get("token") ?? "";
+    url.protocol = "http:";
+    url.host = `127.0.0.1:${runner.port}`;
+    const bearerBoundary = await fetch(url);
+    assert.equal(bearerBoundary.status, 200);
+    assert.equal(await bearerBoundary.text(), body.toString());
+    return token;
+  };
+  const asciiPath = `reports/${"a".repeat(992)}`;
+  const japanesePath = `reports/${"日".repeat(792)}`;
+  assert.equal(asciiPath.length, 1000);
+  assert.equal(japanesePath.length, 800);
+  const controlPath = `reports/${"\u0001".repeat(792)}`;
+  assert.equal(controlPath.length, 800);
+  await boundary(asciiPath, "ascii-boundary");
+  const japaneseToken = await boundary(japanesePath, "japanese-boundary");
+  const controlToken = await boundary(controlPath, "control-boundary");
+  assert.ok(japaneseToken.length > 4096);
+  assert.ok(controlToken.length > 8192);
 
   const interrupted = new ReadableStream<Uint8Array>({
     start(controller) {

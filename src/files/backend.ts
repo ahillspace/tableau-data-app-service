@@ -50,3 +50,19 @@ export function compareKeys(a: string, b: string): number {
 
 /** Signed Files links, on every backend, may not outlive one week. */
 export const MAX_SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;
+
+export const WORKSPACE_ID_LENGTH = 36;
+export const BUCKET_NAME_MAX_LENGTH = 128;
+export const OBJECT_PATH_MAX_LENGTH = 1024;
+export const FILES_OBJECT_PREFIX = "files/buckets";
+export const FILES_MARKER_PREFIX = "files/_meta/buckets/";
+
+/** The longest logical key the HTTP contract can produce, including prefix expansion. */
+export const MAX_FILE_KEY_LENGTH =
+  WORKSPACE_ID_LENGTH +
+  1 +
+  FILES_OBJECT_PREFIX.length +
+  1 +
+  BUCKET_NAME_MAX_LENGTH +
+  1 +
+  OBJECT_PATH_MAX_LENGTH;

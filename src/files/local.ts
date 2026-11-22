@@ -7,15 +7,25 @@ import { pipeline } from "node:stream/promises";
 import type { SealedJson } from "../persistence/schema.ts";
 import { ServiceError } from "../platform/errors.ts";
 import type { Sealer } from "../sealing/sealer.ts";
-import { compareKeys, type FilesBackend, type ListedObject, stableId } from "./backend.ts";
+import {
+  compareKeys,
+  FILES_MARKER_PREFIX,
+  type FilesBackend,
+  type ListedObject,
+  MAX_FILE_KEY_LENGTH,
+  stableId,
+} from "./backend.ts";
 
 export const FILES_DOWNLOAD = "/v1/files/download";
 const DOWNLOAD_PURPOSE = "files-local-download";
-const BUCKETS_PREFIX = "files/_meta/buckets/";
 const REF_NAME = "_object.json";
 const PAYLOAD_PATTERN = /^[0-9a-f-]{36}\.bin$/;
 const RECORD_PATTERN = /^[a-f0-9]{32}$/;
 const PHYSICAL_PATTERN = /^e\.[a-f0-9]{64}$/;
+// The grant stays in the query string, so the route parameter limit does not apply. This bound
+// covers the largest HTTP-accepted key after sealing, including JSON escaping of control and
+// non-ASCII path characters, and remains below the configured request-line ceiling.
+const MAX_GRANT_TOKEN_LENGTH = 16384;
 
 type ObjectRef = {
   version: 1;
@@ -43,7 +53,7 @@ function backendError(error: unknown, op: string): ServiceError {
 function safeKey(key: string): boolean {
   return (
     key.length > 0 &&
-    key.length <= 1024 &&
+    key.length <= MAX_FILE_KEY_LENGTH &&
     !key.includes("\0") &&
     !key.startsWith("/") &&
     !key.includes("//") &&
@@ -77,7 +87,7 @@ function parseRef(raw: string): ObjectRef | undefined {
 }
 
 function readGrant(token: string): SealedJson | undefined {
-  if (token.length === 0 || token.length > 4096) return undefined;
+  if (token.length === 0 || token.length > MAX_GRANT_TOKEN_LENGTH) return undefined;
   const bytes = Buffer.from(token, "base64url");
   if (bytes.toString("base64url") !== token) return undefined;
   try {
@@ -171,7 +181,7 @@ export class LocalStore implements FilesBackend {
   }
 
   #bucketMarkerKey(workspaceId: string, bucket: string): string {
-    return `${workspaceId}/${BUCKETS_PREFIX}${bucket}.json`;
+    return `${workspaceId}/${FILES_MARKER_PREFIX}${bucket}.json`;
   }
 
   /** Serializes the short read-open, publish and reclaim steps; streaming stays outside. */
@@ -274,9 +284,10 @@ export class LocalStore implements FilesBackend {
   }
 
   async listBuckets(workspaceId: string): Promise<{ name: string }[]> {
-    const prefix = `${workspaceId}/${BUCKETS_PREFIX}`;
+    const prefix = `${workspaceId}/${FILES_MARKER_PREFIX}`;
     const refs = await this.#collect();
     return refs
+      .filter(({ key }) => key.startsWith(prefix))
       .map(({ key }) => key.slice(prefix.length))
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -5))

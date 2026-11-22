@@ -1,14 +1,18 @@
 import { readFileSync } from "node:fs";
+import pg from "pg";
 
 export type StorageConfiguration =
   | { url: URL; ca: string | undefined; connections: number }
   | { reason: string };
 
-/** Credentials do not identify a database; host, effective port and decoded name do. */
-function databaseIdentity(url: URL): string {
-  const host = url.hostname.toLowerCase().replace(/\.+$/, "");
-  const port = url.port || "5432";
-  const name = decodeURIComponent(url.pathname.slice(1));
+/** Credentials do not identify a database; the driver's effective host, port and name do. */
+function databaseIdentity(connectionString: string): string {
+  const client = new pg.Client({ connectionString });
+  const host = (client.host ?? "").toLowerCase().replace(/\.+$/, "");
+  const port = client.port ?? 5432;
+  const name = client.database ?? "";
+  if (!host || !name || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("Invalid connection options");
   return `${host}:${port}/${name}`;
 }
 
@@ -32,7 +36,7 @@ export function storageConfiguration(
       url.hash
     )
       throw new Error("Invalid URL");
-    if (databaseIdentity(url) === databaseIdentity(new URL(coreUrl)))
+    if (databaseIdentity(raw ?? "") === databaseIdentity(coreUrl))
       return {
         reason:
           "STORAGE_DATABASE_URL must name a dedicated Storage database distinct from DATABASE_URL",

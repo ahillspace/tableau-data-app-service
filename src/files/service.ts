@@ -7,14 +7,20 @@ import { invalid, ServiceError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
 import type { Sealer } from "../sealing/sealer.ts";
 import { requireActive, type Workspace } from "../storage/registry.ts";
-import { type FilesBackend, MAX_SIGNED_URL_SECONDS, stableId } from "./backend.ts";
+import {
+  BUCKET_NAME_MAX_LENGTH,
+  FILES_OBJECT_PREFIX,
+  type FilesBackend,
+  MAX_SIGNED_URL_SECONDS,
+  OBJECT_PATH_MAX_LENGTH,
+  stableId,
+} from "./backend.ts";
 import type { FilesConfiguration } from "./config.ts";
 import { FILES_DOWNLOAD, LocalDownloads, LocalStore } from "./local.ts";
 import { S3Store } from "./s3.ts";
 
 export const FILES = "/v1/storage/workspaces";
 const CONTRACT = "/v1/tools/specification.html#documents/files";
-const BUCKETS_PREFIX = "files/buckets";
 const uuid = z.uuid();
 
 export interface FilesWorkspaceAuthority {
@@ -31,12 +37,12 @@ const id = (value: unknown) => {
 const bucketName = z
   .string()
   .min(1)
-  .max(128)
+  .max(BUCKET_NAME_MAX_LENGTH)
   .regex(/^[A-Za-z0-9._-]+$/);
 const objectPath = z
   .string()
   .min(1)
-  .max(1024)
+  .max(OBJECT_PATH_MAX_LENGTH)
   .refine(
     (v) =>
       !v.includes("\0") && !v.startsWith("/") && !v.includes("//") && !v.split("/").includes(".."),
@@ -72,10 +78,10 @@ function handle(
 }
 
 function bucketObjectKey(workspaceId: string, bucket: string, path: string): string {
-  return `${workspaceId}/${BUCKETS_PREFIX}/${bucket}/${path}`;
+  return `${workspaceId}/${FILES_OBJECT_PREFIX}/${bucket}/${path}`;
 }
 function bucketPrefix(workspaceId: string, bucket: string, prefix = ""): string {
-  const base = `${workspaceId}/${BUCKETS_PREFIX}/${bucket}/`;
+  const base = `${workspaceId}/${FILES_OBJECT_PREFIX}/${bucket}/`;
   return prefix ? `${base}${prefix.replace(/^\/+/, "")}` : base;
 }
 function canWrite(access: Workspace["access"]): boolean {
