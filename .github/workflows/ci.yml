@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.1
+          cache: npm
+      - name: Prepare native test fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes redis-server
+          PG_CONFIG="$(command -v pg_config || find /usr/lib/postgresql -type f -name pg_config | sort -V | tail -1)"
+          PG_BINDIR="$("$PG_CONFIG" --bindir)"
+          echo "$PG_BINDIR" >> "$GITHUB_PATH"
+          echo "TDAS_TEST_INITDB=$PG_BINDIR/initdb" >> "$GITHUB_ENV"
+          echo "TDAS_TEST_POSTGRES=$PG_BINDIR/postgres" >> "$GITHUB_ENV"
+          echo "TDAS_TEST_PG_ISREADY=$PG_BINDIR/pg_isready" >> "$GITHUB_ENV"
+          echo "TDAS_TEST_REDIS_SERVER=$(command -v redis-server)" >> "$GITHUB_ENV"
+          echo "TDAS_TEST_REDIS_CLI=$(command -v redis-cli)" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test

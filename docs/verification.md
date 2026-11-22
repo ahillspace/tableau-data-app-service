@@ -1,8 +1,8 @@
 # Verification
 
-This document describes verification checks, recorded synthetic evidence and remaining live acceptance gaps.
-The provider-intake and console implementation has been integrated and exercised against synthetic Tableau and provider servers with real Postgres and Redis.
-Recorded results apply to the builds exercised; they do not establish that a later revision passes or that real provider deployments behave identically.
+This document describes retained verification coverage, validation gates and remaining live acceptance gaps.
+The suite exercises the service against synthetic Tableau and provider servers with real Postgres and Redis.
+Passing synthetic checks does not establish that real provider deployments behave identically.
 
 ## Automated tests
 
@@ -45,24 +45,23 @@ V17 measures bytes in flight on each leg rather than process memory, which tells
 
 ## Provider intake and console gates
 
-These behavioral gates are exercised by the integrated implementation.
-The recorded automated runs used Node 26.13.1, Postgres 18.6 and Redis 7.2.4.
-Browser checks use Chromium against the same HTTPS origin declared by the actual API, with a certificate exception limited to the synthetic leaf key.
+These gates combine retained automated coverage with manual browser and terminal checks.
 Use production API/CLI/browser/worker composition with synthetic Tableau/provider servers and real Postgres/Redis fixtures.
+Browser checks must use the same HTTPS origin declared by the actual API.
+Any certificate exception must be limited to the synthetic leaf key.
 
 | Gate | Required evidence | State |
 | --- | --- | --- |
-| V28 | Actual API and CLI create/update/set/clear, piped/file/TTY/value conflicts, multiline keys, safe errors and no submitted values in output. Evidence: test/intake.test.ts, test/cli-secret.test.ts and test/http.test.ts; actual PTY no-echo/editing check. | Synthetic pass. |
-| V29 | Every acquisition method, client authentication and placement, nested and refresh mappings, HTTP 200 failures and data-only JSON import with endpoint mismatch. Evidence: test/intake-protocol.test.ts verifies provider-observed grants, independent RS256/ES256 signatures and normal/SSE calls; test/catalog.test.ts validates JSON sources. | Synthetic pass. |
-| V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. Evidence: test/intake-protocol.test.ts and test/connections.test.ts use distinct pools and observed row-lock waits. | Synthetic pass. |
-| V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. Evidence: test/intake-protocol.test.ts, test/router.test.ts and test/outbound.test.ts; actual bundled-SDK browser shared/personal calls and normal/SSE delivery. | Synthetic pass. |
-| V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. Evidence: test/intake-webhook.test.ts exercises actual HTTP ingress and cross-replica Redis delivery; test/slack.test.ts retains catalog mapping coverage. | Synthetic pass. |
-| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. Evidence: test/operator-auth.test.ts and test/console.test.ts; Chromium sign-in, denied/approved consent, both tabs and generic SDK. | Synthetic pass. |
-| V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. Evidence: test/operations.test.ts plus test/composition.test.ts with two actual API child processes, a worker, real ten-second flushes and the observed minute closing. | Synthetic pass. |
-| V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. Evidence: Initial-schema fixtures, retained regression suite and package checks; built catalog JSON, local console assets and 8,042-byte SDK verified. | Synthetic pass. |
+| V28 | Actual API and CLI create/update/set/clear, piped/file/TTY/value conflicts, multiline keys, safe errors and no submitted values in output. Evidence: test/intake.test.ts, test/cli-secret.test.ts and test/http.test.ts; actual PTY no-echo/editing check. | Coverage retained; manual checks required. |
+| V29 | Every acquisition method, client authentication and placement, nested and refresh mappings, HTTP 200 failures and data-only JSON import with endpoint mismatch. Evidence: test/intake-protocol.test.ts verifies provider-observed grants, independent RS256/ES256 signatures and normal/SSE calls; test/catalog.test.ts validates JSON sources. | Coverage retained. |
+| V30 | Independent Postgres pools prove concurrent exchange, secret rotation/cache invalidation, disconnect races and stale generation commit rejection. Evidence: test/intake-protocol.test.ts and test/connections.test.ts use distinct pools and observed row-lock waits. | Coverage retained. |
+| V31 | Exact/wildcard hosts, port/path/label boundaries, socket checks and synthetic service-account normal/SSE native calls through a generic Data App. Evidence: test/intake-protocol.test.ts, test/router.test.ts and test/outbound.test.ts; actual bundled-SDK browser shared/personal calls and normal/SSE delivery. | Coverage retained; manual checks required. |
+| V32 | Slack, GitHub and Stripe original-byte fixtures; Graph basic clientState removal and validationToken echo; handshakes never fan out. Evidence: test/intake-webhook.test.ts exercises actual HTTP ingress and cross-replica Redis delivery; test/slack.test.ts retains catalog mapping coverage. | Coverage retained. |
+| V33 | Actual console sign-in/consent/non-operator/session expiry, shared mutation API, CSRF/origin checks, both tabs, secret-safe forms and keyboard/narrow-layout behavior. Evidence: test/operator-auth.test.ts and test/console.test.ts; Chromium sign-in, denied/approved consent, both tabs and generic SDK. | Coverage retained; manual checks required. |
+| V34 | Two-replica histogram/count aggregation, idempotent retry/out-of-order snapshots, restart identity, stale heartbeat and telemetry failure isolation. Evidence: test/operations.test.ts plus test/composition.test.ts with two actual API child processes, a worker, real ten-second flushes and the observed minute closing. | Coverage retained. |
+| V35 | Fresh initial schema, obsolete interface removal, full tests, typecheck, lint and build under the required Node version. Evidence: Initial-schema fixtures, retained regression suite and package checks; built catalog JSON, local console assets and SDK size gate. | Coverage retained. |
 
 The synthetic evidence covers finite fixtures, not universal vendor conformance or a proof that every possible secret value can never be disclosed.
-The browser fixture emits its synthetic business event through the actual verification owner and Redis; actual HTTP ingress and multi-replica event fan-out are independently exercised by the automated protocol fixtures.
 The `test/intake-corrections.test.ts` fixtures cover production-path disable/secret staging, optional enrichment preparation failure, rejected shared OAuth readiness/reconnect, exact configured interval boundaries, activity statement counts and activity-only failure isolation.
 The activity failure cases retain negative checks for expired, revoked and untrusted sessions.
 No live provider keys, cloud IAM changes or unrelated credentials are needed for synthetic verification.
@@ -74,6 +73,14 @@ The provider integration compiles a separate package against the public entry po
 The discovery checks cover public asset links, viewer filtering, operator removal, revoked or expired credentials and download bytes matching the public SHA-256.
 A clean Linux client downloaded the CLI over test HTTPS, installed the archive with npm, ran help and used an isolated Secret Service keyring for the existing operator loopback sign-in.
 The browser SDK and its declarations were downloaded and compiled outside the checkout, and the existing SDK popup test reads the viewer discovery projection after sign-in to the Tableau stand-in.
+
+## Run the checks
+
+Use the supported Node version and local Postgres/Redis setup in [running](running.md).
+Run `npm ci`, `npm run typecheck`, `npm run lint` and `npm test`; the test command builds the application first.
+The lint script covers both shipped examples.
+Complete the manual PTY and browser checks in V28, V31 and V33 separately; automated tests do not replace them.
+Record the revision and environment with any acceptance results.
 
 ## Not verified live
 
@@ -103,5 +110,6 @@ These have not yet been run against a deployed installation with a published Tab
 
 `test/storage.test.ts` exercises opt-in startup and availability, two API replicas and real restricted PostgreSQL logins, Tableau stand-in identities, private workspace creation and creation replay, generated CRUD, migration replay and rollback, foreign-key navigation, exact decimals, atomic SQL function calls, row policies, role changes, revision repair, and operator suspension, transfer and purge.
 `test/storage-toolkit.test.ts` covers viewer CLI handoff, workspace configuration and replay, request contracts, discovery artifacts, and the optional browser helper.
+`test/files.test.ts`, `test/files-gcs.test.ts` and `test/files-local.test.ts` cover the S3-compatible, GCS and persistent local backends, workspace authority and signed URLs.
 These automated journeys use synthetic Tableau identities.
 Live Tableau Cloud and Desktop Storage sign-in and application use remain to be verified.

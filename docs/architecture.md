@@ -26,7 +26,7 @@ Shared types are in [contracts](contracts.md).
 ```
 
 The generated [offline specification](specification.html) includes the current interactive system map.
-The earlier static diagram is retained as design history and does not define current interfaces.
+Relational Storage uses a dedicated PostgreSQL database, and Files uses one configured S3-compatible, GCS or local directory backend; both are optional and report their state through discovery.
 The API and worker roles are one codebase started with a role argument.
 Both scale to several replicas.
 Postgres is the only authoritative store.
@@ -121,6 +121,24 @@ Components are listed in dependency order; a component depends only on component
 - **Extension:** webhook data selects shared verification primitives; a genuinely new protocol adds one bounded verifier.
 - **Detail:** [events and SDK](events-sdk.md).
 
+### Relational Storage
+
+- **Owns:** a dedicated PostgreSQL database, workspace control records, scoped workspace logins and generated GraphQL models.
+- **Interface:** workspace and operator routes mounted as an independent service, `storage-init` for fresh installation and `tdas storage` for authors and operators.
+- **Invariants:** each workspace is one schema with its own model, reader and editor logins; every transaction sets the verified caller identity, and admissions recheck current grants, site trust and the session.
+- **Failure:** an unusable database leaves Storage unavailable while unrelated routes keep serving; a failed migration leaves the previous revision intact, and a failed purge keeps the workspace retired with its data.
+- **Extension:** an app adds SQL tables, views and functions in migrations, and Storage generates the GraphQL surface from that model.
+- **Detail:** [storage](storage.md).
+
+### Files
+
+- **Owns:** workspace-scoped logical buckets and objects in one selected backend: S3-compatible storage, GCS through its XML API or one persistent local directory.
+- **Interface:** workspace-scoped bucket, upload, download, list, remove and sign routes, plus the `files` part of the browser Storage SDK.
+- **Invariants:** Files is available only when Storage is available, every route rechecks workspace authority, and one installation selects exactly one backend.
+- **Failure:** a bad backend configuration or unavailable object store makes Files unavailable without stopping unrelated routes; a failed or interrupted local upload never replaces the old object.
+- **Extension:** another object store adds one backend implementation behind the existing Files service.
+- **Detail:** [files](files.md).
+
 ### HTTP surface
 
 - **Owns:** Fastify routes, request parsing, error shapes, CORS, cookies and service pages.
@@ -141,6 +159,8 @@ Sealing depends on platform.
 Identity and connections depend on persistence and sealing.
 Router depends on identity and connections.
 Jobs and events depend on identity and connections.
+Relational Storage depends on Persistence for core identity records and owns a separate database for workspace data.
+Files depends on Relational Storage workspace authority and one configured object backend.
 The HTTP surface depends on every component and holds no business rules.
 Catalog depends only on Connections for its finite data schema.
 Browser SDK and CLI depend on HTTP surface through the shared API, including the optional console.
@@ -149,9 +169,10 @@ Browser SDK and CLI depend on HTTP surface through the shared API, including the
 
 | Role | Runs | Scales |
 | --- | --- | --- |
-| `api` | HTTP surface, router, sign-in, shared operator API, optional console, metric flushes, heartbeats, event ingest and streams. | Horizontally; no affinity is required. |
+| `api` | HTTP surface, router, sign-in, shared operator API, optional console, optional Storage and Files services, metric flushes, heartbeats, event ingest and streams. | Horizontally; no affinity is required except local Files runs against one local root. |
 | `worker` | Job execution, lease recovery, retention cleanup including telemetry, expired session cleanup, heartbeats and its own health routes. | Horizontally; claims rows with `FOR UPDATE SKIP LOCKED`. |
 | `migrate` | Migrations, then exits. | Once per release. |
+| `storage-init` | Host-local initialization of the dedicated Storage database, then exits. | Once per Storage installation. |
 | `tdas-admin` | Host-local commands: operator recovery and resealing. A separate command, not a role of the service process. | On demand. |
 
 ## Dependencies
@@ -169,6 +190,7 @@ Each runtime dependency has one job, where the job is security-sensitive or prot
 | `canonicalize` | Jobs | Canonical JSON for submission key comparison. |
 | `redis` | Events | Publish and subscribe, loaded only when events are on. |
 | `@napi-rs/keyring` | CLI | Stores the operator bearer in the system credential store. |
+| `@aws-sdk/client-s3`, `@aws-sdk/lib-storage` and `@aws-sdk/s3-request-presigner` | Files | S3-compatible and GCS object operations, streamed uploads and presigned GET URLs. |
 
 The browser SDK has no runtime dependencies.
 Development uses `typescript`, `esbuild`, `@biomejs/biome`, `@types/node`, `@types/pg` and Node's built-in test runner, with tests running against the developer's installed Postgres and Redis.
@@ -180,6 +202,7 @@ Service code owns its configuration validation, dependencies, routes and caller-
 When a dependency becomes unavailable, the service contributes that state and its route can return a typed 503.
 The host closes opened services in reverse startup order.
 Operators receive state for deployed disabled services, while viewers receive links and actions from services exposed to them.
+Storage and Files are mounted this way, and their state and links appear in discovery according to their exposure.
 
 The discovery endpoint serves the compatible release assets and projects authenticated state at request time.
 It uses current definition and owner connection data without refreshing credentials or probing provider endpoints.

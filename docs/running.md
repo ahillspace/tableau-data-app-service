@@ -52,6 +52,7 @@ Each role reads the host settings from its environment; `node --env-file=.env di
 Run `migrate` once per release before starting the other roles.
 For an opt-in Storage database, run `node dist/main.js storage-init` once before starting the API.
 Follow the [Storage deployment instructions](storage.md#deploy) for the required database owner and grants.
+For optional Files, select exactly one S3-compatible, GCS or persistent local backend and prepare its storage before the API starts; [Files configuration](files.md#configuration) lists the settings and deployment limits.
 
 ## Operate
 
