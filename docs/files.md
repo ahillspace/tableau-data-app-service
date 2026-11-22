@@ -61,7 +61,7 @@ import { workspace } from "/v1/tools/sdk/storage.js";
 
 const service = createService({
   appId: "example.data-app",
-  serviceOrigin: "https://service.example.com",
+  origin: "https://service.example.com",
 });
 
 const files = workspace(service, workspaceId).files;
@@ -88,4 +88,4 @@ Signed URLs are presigned S3 GET URLs. They expire by `expiresIn` and grant read
 - Upload bodies are streamed from the request payload when `Content-Length` is known; unknown-length streaming bodies are not a supported v1 upload mode.
 - Authenticated TDAS download responses use `Cache-Control: no-store` to avoid shared-cache leaks; object `cacheControl` is preserved on the stored object and signed S3 URLs.
 - List uses S3 delimiter semantics and includes direct folder rows (`CommonPrefixes`) alongside direct object rows.
-- Returned object ids are stable content/object identifiers derived from the backend ETag when available.
+- Object IDs in responses are stable workspace/bucket/path-derived IDs; ETag is exposed in metadata when available.
