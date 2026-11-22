@@ -90,6 +90,7 @@ These have not yet been run against a deployed installation with a published Tab
 - Provider events reaching a Data App.
 - Verified TLS to a hosted Postgres.
 - Both supported development operating systems on the final integrated revision; prior runs do not prove a changed revision.
+- A live GCS bucket with HMAC credentials has not been exercised.
 
 ## Known limitations
 

@@ -6,6 +6,13 @@ It reuses the existing Storage workspace authority, Tableau caller identity, and
 ## Configuration
 
 Files requires Storage to be configured and available.
+Select exactly one backend with `FILES_BACKEND`, which accepts `s3` or `gcs`.
+Mixing S3 and GCS settings is rejected.
+Misconfiguration makes the Files service unavailable without stopping unrelated TDAS routes.
+When Files is disabled, Storage workspaces and data remain unchanged.
+
+### S3
+
 Configure one private S3-compatible bucket and server-side credentials:
 
 - `FILES_S3_ENDPOINT`
@@ -17,8 +24,24 @@ Configure one private S3-compatible bucket and server-side credentials:
 - `FILES_S3_FORCE_PATH_STYLE` (default `true`)
 - `FILES_S3_CA_CERT` (optional PEM or file path)
 
-Misconfiguration makes the Files service unavailable without stopping unrelated TDAS routes.
-When Files is disabled, Storage workspaces and data remain unchanged.
+When no `FILES_BACKEND` is set, any `FILES_S3_*` setting selects S3.
+
+### GCS
+
+GCS uses a Google Cloud Storage bucket as the object store, and the TDAS installation can run on any host that reaches the XML API endpoint.
+The bucket must already exist before Files is configured.
+Create an HMAC key for a service account with read, write, list and delete grants on objects in that bucket.
+
+Set `FILES_BACKEND=gcs` and the three required variables:
+
+- `FILES_GCS_BUCKET`
+- `FILES_GCS_ACCESS_KEY_ID`
+- `FILES_GCS_SECRET_ACCESS_KEY`
+
+The HMAC access ID is used exactly as supplied.
+The endpoint is fixed to `https://storage.googleapis.com` and the region is fixed to `auto`.
+GCS uses path-style requests and accepts no endpoint, region, session-token or CA setting.
+When no `FILES_BACKEND` is set, any `FILES_GCS_*` setting selects GCS.
 
 ## Workspace model
 
@@ -77,7 +100,8 @@ await bucket.remove(["reports/q1.csv"]);
 
 Supported upload options are `upsert`, `contentType`, and `cacheControl`.
 Default upload rejects an existing object; `upsert: true` replaces it.
-The service uses the S3 conditional write `If-None-Match: *` for no-upsert uploads and maps the provider conflict to TDAS `400 files-already-exists`.
+The S3 path sends `If-None-Match: *` and the GCS path sends `x-goog-if-generation-match: 0` for no-upsert uploads.
+Both backends map the provider conflict to TDAS `400 files-already-exists`.
 
 Signed URLs are presigned S3 GET URLs. They expire by `expiresIn` and grant read access to the object key; callers should treat them as bearer links.
 

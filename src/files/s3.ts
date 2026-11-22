@@ -68,6 +68,27 @@ export class S3Store {
       });
     }
     this.#client = new S3Client(clientConfig);
+    if (config.backend === "gcs") {
+      this.#client.middlewareStack.add(
+        (next) => async (args) => {
+          const request = args.request as
+            | { headers?: Record<string, string | string[]> }
+            | undefined;
+          const headers = request?.headers;
+          if (!headers) return next(args);
+          const conditional = Object.keys(headers).filter(
+            (name) =>
+              name.toLowerCase() === "if-none-match" && String(headers[name]).trim() === "*",
+          );
+          if (conditional.length > 0) {
+            for (const name of conditional) delete headers[name];
+            headers["x-goog-if-generation-match"] = "0";
+          }
+          return next(args);
+        },
+        { step: "build", priority: "high" },
+      );
+    }
   }
 
   async close(): Promise<void> {

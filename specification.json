@@ -139,7 +139,7 @@
       "title": "Files",
       "path": "docs/files.md",
       "kind": "Component",
-      "description": "Optional workspace-scoped file objects backed by a private S3-compatible bucket."
+      "description": "Optional workspace-scoped file objects backed by an S3-compatible or Google Cloud Storage bucket."
     }
   ]
 }
