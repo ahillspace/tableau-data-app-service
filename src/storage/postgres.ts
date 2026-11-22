@@ -16,6 +16,24 @@ export function storagePool(url: string, caCert: string | undefined, size: numbe
   return openDatabase({ url, caCert, applicationName: "tdas-storage", poolSize: size }).pool;
 }
 
+/** Reassert runner-owned settings immediately before each authored statement. */
+export async function restoreRunnerSettings(
+  client: pg.PoolClient,
+  statementTimeoutMs: number,
+  lockTimeoutMs: number,
+): Promise<void> {
+  if (
+    !Number.isSafeInteger(statementTimeoutMs) ||
+    statementTimeoutMs < 0 ||
+    !Number.isSafeInteger(lockTimeoutMs) ||
+    lockTimeoutMs < 0
+  )
+    throw new Error("Invalid PostgreSQL runner timeout");
+  await client.query("set local standard_conforming_strings = on");
+  await client.query(`set local statement_timeout = '${statementTimeoutMs}ms'`);
+  await client.query(`set local lock_timeout = '${lockTimeoutMs}ms'`);
+}
+
 /** Use PostgreSQL's single-statement protocol for SQL submitted by an author. */
 export function oneStatement(client: pg.PoolClient, text: string, values: unknown[] = []) {
   const config: pg.QueryConfig<unknown[]> & { queryMode: "extended" } = {

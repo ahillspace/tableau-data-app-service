@@ -68,13 +68,13 @@ Objects are not addressable across workspaces through TDAS routes.
 Permissions follow the Storage workspace access model:
 
 - owner: create buckets, upload, download, list, remove, sign
-- editor: upload, download, list, remove, sign
+- editor: create buckets, upload, download, list, remove, sign
 - reader: download, list, sign
 
 Workspace retirement and purge are governed by Storage.
 This v1 slice enforces workspace authority on every Files route and stores objects under workspace-prefixed keys in the private bucket or local root.
 It does not yet delete object bytes during Storage workspace purge/retirement; operators should treat object cleanup as a lifecycle follow-up.
-Issued presigned URLs expire independently by their `expiresIn` and are not revoked by TDAS workspace state changes.
+Signed URLs accept `expiresIn` from 1 through 604800 seconds (seven days) and expire independently; TDAS does not revoke them when workspace state changes.
 
 ## HTTP routes
 

@@ -4,13 +4,18 @@ import { z } from "zod";
 import type { ServiceDeployment, ServiceDiscovery, ServiceGuards } from "../http/services.ts";
 import { trustedSiteFor } from "../identity/directory.ts";
 import type { Principal } from "../identity/types.ts";
-import type { Db } from "../persistence/database.ts";
+import { type Db, LOCK_TIMEOUT_MS, STATEMENT_TIMEOUT_MS } from "../persistence/database.ts";
 import { invalid, ServiceError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
 import type { Sealer } from "../sealing/sealer.ts";
 import type { StorageConfiguration } from "./config.ts";
 import { assertStorageReady } from "./install.ts";
-import { oneStatement, onScopedConnection, storagePool } from "./postgres.ts";
+import {
+  oneStatement,
+  onScopedConnection,
+  restoreRunnerSettings,
+  storagePool,
+} from "./postgres.ts";
 import {
   digest,
   owner,
@@ -235,7 +240,8 @@ class Storage {
       if (previous !== null) return { revision: previous, replayed: true };
       for (const [i, statement] of statements.entries()) {
         try {
-          await client.query("set local standard_conforming_strings = on");
+          // Reassert the runner's settings: an authored statement may change session state.
+          await restoreRunnerSettings(client, STATEMENT_TIMEOUT_MS, LOCK_TIMEOUT_MS);
           // Extended protocol permits a single statement even if parser/server grammars differ.
           await oneStatement(client, statement);
         } catch (error) {

@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import type { SealedJson } from "../persistence/schema.ts";
 import { ServiceError } from "../platform/errors.ts";
 import type { Sealer } from "../sealing/sealer.ts";
-import { type FilesBackend, type ListedObject, stableId } from "./backend.ts";
+import { compareKeys, type FilesBackend, type ListedObject, stableId } from "./backend.ts";
 
 export const FILES_DOWNLOAD = "/v1/files/download";
 const DOWNLOAD_PURPOSE = "files-local-download";
@@ -15,9 +15,11 @@ const BUCKETS_PREFIX = "files/_meta/buckets/";
 const REF_NAME = "_object.json";
 const PAYLOAD_PATTERN = /^[0-9a-f-]{36}\.bin$/;
 const RECORD_PATTERN = /^[a-f0-9]{32}$/;
+const PHYSICAL_PATTERN = /^e\.[a-f0-9]{64}$/;
 
 type ObjectRef = {
   version: 1;
+  key: string;
   payload: string;
   contentType: string;
   cacheControl?: string | undefined;
@@ -38,17 +40,6 @@ function backendError(error: unknown, op: string): ServiceError {
   });
 }
 
-const encodeSegment = (segment: string) => `e.${encodeURIComponent(segment)}`;
-
-function decodeSegment(name: string): string | undefined {
-  if (!name.startsWith("e.")) return undefined;
-  try {
-    return decodeURIComponent(name.slice(2));
-  } catch {
-    return undefined;
-  }
-}
-
 function safeKey(key: string): boolean {
   return (
     key.length > 0 &&
@@ -65,6 +56,8 @@ function parseRef(raw: string): ObjectRef | undefined {
     const value = JSON.parse(raw) as Partial<ObjectRef>;
     if (
       value.version !== 1 ||
+      typeof value.key !== "string" ||
+      !safeKey(value.key) ||
       typeof value.payload !== "string" ||
       !PAYLOAD_PATTERN.test(value.payload) ||
       typeof value.contentType !== "string" ||
@@ -171,13 +164,10 @@ export class LocalStore implements FilesBackend {
 
   async close(): Promise<void> {}
 
-  #dirFromSegments(segments: string[]): string {
-    return join(this.#root, ...segments.map(encodeSegment));
-  }
-
+  /** One fixed-length directory per logical key keeps physical names bounded. */
   #dirForKey(key: string): string {
     if (!safeKey(key)) throw new ServiceError(404, "files-not-found", "Object not found");
-    return this.#dirFromSegments(key.split("/"));
+    return join(this.#root, `e.${createHash("sha256").update(key, "utf8").digest("hex")}`);
   }
 
   #bucketMarkerKey(workspaceId: string, bucket: string): string {
@@ -244,6 +234,7 @@ export class LocalStore implements FilesBackend {
     const now = new Date().toISOString();
     const ref: ObjectRef = {
       version: 1,
+      key,
       payload,
       contentType,
       etag,
@@ -284,12 +275,12 @@ export class LocalStore implements FilesBackend {
 
   async listBuckets(workspaceId: string): Promise<{ name: string }[]> {
     const prefix = `${workspaceId}/${BUCKETS_PREFIX}`;
-    const refs = await this.#collect(prefix);
+    const refs = await this.#collect();
     return refs
       .map(({ key }) => key.slice(prefix.length))
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -5))
-      .sort((a, b) => a.localeCompare(b))
+      .sort(compareKeys)
       .map((name) => ({ name }));
   }
 
@@ -387,30 +378,20 @@ export class LocalStore implements FilesBackend {
     }
   }
 
-  async #collect(prefix: string): Promise<{ key: string; ref: ObjectRef }[]> {
-    const segments = prefix.split("/");
-    const complete = segments.slice(0, -1);
+  async #collect(): Promise<{ key: string; ref: ObjectRef }[]> {
     const found: { key: string; ref: ObjectRef }[] = [];
-    const walk = async (dir: string, logical: string[]): Promise<void> => {
-      let entries;
-      try {
-        entries = await readdir(dir, { withFileTypes: true });
-      } catch (error) {
-        if (isCode(error, "ENOENT") || isCode(error, "ENOTDIR")) return;
-        throw error;
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const segment = decodeSegment(entry.name);
-        if (segment === undefined) continue;
-        const child = join(dir, entry.name);
-        const logicalChild = [...logical, segment];
-        const ref = await this.#readRefPath(join(child, REF_NAME));
-        if (ref) found.push({ key: logicalChild.join("/"), ref });
-        await walk(child, logicalChild);
-      }
-    };
-    await walk(this.#dirFromSegments(complete), complete);
+    let entries;
+    try {
+      entries = await readdir(this.#root, { withFileTypes: true });
+    } catch (error) {
+      if (!isCode(error, "ENOENT") && !isCode(error, "ENOTDIR")) throw error;
+      return found;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !PHYSICAL_PATTERN.test(entry.name)) continue;
+      const ref = await this.#readRefPath(join(this.#root, entry.name, REF_NAME));
+      if (ref) found.push({ key: ref.key, ref });
+    }
     return found;
   }
 
@@ -418,47 +399,54 @@ export class LocalStore implements FilesBackend {
     prefix: string,
     options: { limit: number; offset: number; search?: string | undefined },
   ): Promise<ListedObject[]> {
-    const refs = await this.#collect(prefix);
-    const rows: ListedObject[] = [];
-    const prefixes = new Set<string>();
-    for (const { key, ref } of refs) {
+    type Candidate = { sortKey: string; row: ListedObject };
+    const candidates: Candidate[] = [];
+    const folders = new Set<string>();
+    const search = options.search?.toLowerCase();
+    for (const { key, ref } of await this.#collect()) {
       if (!key.startsWith(prefix)) continue;
       const rest = key.slice(prefix.length);
       if (!rest) continue;
       const end = rest.indexOf("/");
       const name = end < 0 ? rest : rest.slice(0, end);
       if (!name) continue;
-      const folder = end >= 0;
-      if (options.search && !name.toLowerCase().includes(options.search.toLowerCase())) continue;
-      if (folder) {
-        if (prefixes.has(name)) continue;
-        prefixes.add(name);
-        rows.push({
-          name,
-          id: null,
-          updated_at: null,
-          created_at: null,
-          last_accessed_at: null,
-          metadata: null,
+      if (search && !name.toLowerCase().includes(search)) continue;
+      if (end >= 0) {
+        const folderKey = `${prefix}${name}/`;
+        if (folders.has(folderKey)) continue;
+        folders.add(folderKey);
+        candidates.push({
+          sortKey: folderKey,
+          row: {
+            name,
+            id: null,
+            updated_at: null,
+            created_at: null,
+            last_accessed_at: null,
+            metadata: null,
+          },
         });
       } else {
-        rows.push({
-          name,
-          id: stableId(key),
-          updated_at: ref.updatedAt,
-          created_at: ref.createdAt,
-          last_accessed_at: ref.updatedAt,
-          metadata: {
-            size: ref.size,
-            contentType: ref.contentType,
-            ...(ref.cacheControl ? { cacheControl: ref.cacheControl } : {}),
-            etag: ref.etag,
+        candidates.push({
+          sortKey: key,
+          row: {
+            name,
+            id: stableId(key),
+            updated_at: ref.updatedAt,
+            created_at: ref.createdAt,
+            last_accessed_at: ref.updatedAt,
+            metadata: {
+              size: ref.size,
+              contentType: ref.contentType,
+              ...(ref.cacheControl ? { cacheControl: ref.cacheControl } : {}),
+              etag: ref.etag,
+            },
           },
         });
       }
     }
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-    return rows.slice(options.offset, options.offset + options.limit);
+    candidates.sort((a, b) => compareKeys(a.sortKey, b.sortKey));
+    return candidates.slice(options.offset, options.offset + options.limit).map((c) => c.row);
   }
 
   async signedGetUrl(key: string, expiresIn: number): Promise<string> {

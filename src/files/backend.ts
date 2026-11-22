@@ -42,3 +42,11 @@ export interface FilesBackend {
 export function stableId(key: string): string {
   return createHash("sha256").update(key).digest("hex").slice(0, 32);
 }
+
+/** One byte-order comparator for object keys and folder prefixes across all backends. */
+export function compareKeys(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+/** Signed Files links, on every backend, may not outlive one week. */
+export const MAX_SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;

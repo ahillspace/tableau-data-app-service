@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -11,10 +12,12 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { ServiceError } from "../platform/errors.ts";
-import { type FilesBackend, type ListedObject, stableId } from "./backend.ts";
+import { compareKeys, type FilesBackend, type ListedObject, stableId } from "./backend.ts";
 import type { RemoteFilesConfiguration } from "./config.ts";
 
 export type { ListedObject } from "./backend.ts";
+
+type ListCandidate = { sortKey: string; row: ListedObject };
 
 function asServiceError(error: unknown, op: string): ServiceError {
   if (error instanceof ServiceError) return error;
@@ -117,7 +120,7 @@ export class S3Store implements FilesBackend {
   async bucketExists(workspaceId: string, bucket: string): Promise<boolean> {
     try {
       await this.#client.send(
-        new GetObjectCommand({
+        new HeadObjectCommand({
           Bucket: this.#bucket,
           Key: this.bucketMarkerKey(workspaceId, bucket),
         }),
@@ -152,7 +155,7 @@ export class S3Store implements FilesBackend {
       }
       continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
     } while (continuationToken);
-    buckets.sort((a, b) => a.name.localeCompare(b.name));
+    buckets.sort((a, b) => compareKeys(a.name, b.name));
     return buckets;
   }
 
@@ -236,33 +239,36 @@ export class S3Store implements FilesBackend {
   ): Promise<ListedObject[]> {
     try {
       const wanted = options.offset + options.limit;
-      const collected: ListedObject[] = [];
+      const maxKeys = Math.min(1000, Math.max(100, wanted));
+      const candidates: ListCandidate[] = [];
+      const search = options.search?.toLowerCase();
       let continuationToken: string | undefined;
-      while (collected.length < wanted) {
+      while (candidates.length < wanted) {
         const response = await this.#client.send(
           new ListObjectsV2Command({
             Bucket: this.#bucket,
             Prefix: prefix,
             Delimiter: "/",
             ContinuationToken: continuationToken,
-            MaxKeys: 1000,
+            MaxKeys: maxKeys,
           }),
         );
         for (const cp of response.CommonPrefixes ?? []) {
-          const p = cp.Prefix ?? "";
-          if (!p.startsWith(prefix)) continue;
-          const rest = p.slice(prefix.length);
+          const folderKey = cp.Prefix ?? "";
+          if (!folderKey.startsWith(prefix) || folderKey.length === prefix.length) continue;
+          const rest = folderKey.slice(prefix.length);
           const name = rest.endsWith("/") ? rest.slice(0, -1) : rest;
-          if (!name) continue;
-          if (options.search && !name.toLowerCase().includes(options.search.toLowerCase()))
-            continue;
-          collected.push({
-            name,
-            id: null,
-            updated_at: null,
-            created_at: null,
-            last_accessed_at: null,
-            metadata: null,
+          if (!name || (search && !name.toLowerCase().includes(search))) continue;
+          candidates.push({
+            sortKey: folderKey,
+            row: {
+              name,
+              id: null,
+              updated_at: null,
+              created_at: null,
+              last_accessed_at: null,
+              metadata: null,
+            },
           });
         }
         for (const item of response.Contents ?? []) {
@@ -270,27 +276,28 @@ export class S3Store implements FilesBackend {
           if (!key.startsWith(prefix)) continue;
           const rest = key.slice(prefix.length);
           if (!rest || rest.includes("/")) continue;
-          if (options.search && !rest.toLowerCase().includes(options.search.toLowerCase()))
-            continue;
+          if (search && !rest.toLowerCase().includes(search)) continue;
           const lastModified = item.LastModified?.toISOString() ?? null;
-          collected.push({
-            name: rest,
-            id: stableId(key),
-            updated_at: lastModified,
-            created_at: lastModified,
-            last_accessed_at: lastModified,
-            metadata: {
-              ...(item.Size !== undefined ? { size: item.Size } : {}),
-              ...(item.ETag ? { etag: item.ETag } : {}),
+          candidates.push({
+            sortKey: key,
+            row: {
+              name: rest,
+              id: stableId(key),
+              updated_at: lastModified,
+              created_at: lastModified,
+              last_accessed_at: lastModified,
+              metadata: {
+                ...(item.Size !== undefined ? { size: item.Size } : {}),
+                ...(item.ETag ? { etag: item.ETag } : {}),
+              },
             },
           });
-          if (collected.length >= wanted) break;
         }
         if (!response.IsTruncated || !response.NextContinuationToken) break;
         continuationToken = response.NextContinuationToken;
       }
-      collected.sort((a, b) => a.name.localeCompare(b.name));
-      return collected.slice(options.offset, options.offset + options.limit);
+      candidates.sort((a, b) => compareKeys(a.sortKey, b.sortKey));
+      return candidates.slice(options.offset, options.offset + options.limit).map((c) => c.row);
     } catch (error) {
       throw asServiceError(error, "list");
     }

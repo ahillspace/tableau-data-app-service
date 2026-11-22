@@ -7,7 +7,7 @@ import { invalid, ServiceError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
 import type { Sealer } from "../sealing/sealer.ts";
 import { requireActive, type Workspace } from "../storage/registry.ts";
-import { type FilesBackend, stableId } from "./backend.ts";
+import { type FilesBackend, MAX_SIGNED_URL_SECONDS, stableId } from "./backend.ts";
 import type { FilesConfiguration } from "./config.ts";
 import { FILES_DOWNLOAD, LocalDownloads, LocalStore } from "./local.ts";
 import { S3Store } from "./s3.ts";
@@ -260,7 +260,6 @@ export class Files {
         // Authenticated TDAS downloads stay no-store; object cacheControl is preserved on S3/signed URLs.
         reply.header("cache-control", "no-store");
         if (object.etag) reply.header("etag", object.etag);
-        reply.header("x-tdas-files-path", path);
         return reply.send(object.body);
       }),
     );
@@ -307,11 +306,7 @@ export class Files {
         const body = parse(
           z.object({
             path: objectPath,
-            expiresIn: z
-              .number()
-              .int()
-              .min(1)
-              .max(60 * 60 * 24 * 365),
+            expiresIn: z.number().int().min(1).max(MAX_SIGNED_URL_SECONDS),
           }),
           request.body,
         );
