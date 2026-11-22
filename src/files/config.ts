@@ -1,17 +1,21 @@
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
+
+export type RemoteFilesConfiguration = {
+  backend: "s3" | "gcs";
+  endpoint: string;
+  region: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string | undefined;
+  forcePathStyle: boolean;
+  ca?: string | undefined;
+};
 
 export type FilesConfiguration =
-  | {
-      backend: "s3" | "gcs";
-      endpoint: string;
-      region: string;
-      bucket: string;
-      accessKeyId: string;
-      secretAccessKey: string;
-      sessionToken?: string | undefined;
-      forcePathStyle: boolean;
-      ca?: string | undefined;
-    }
+  | RemoteFilesConfiguration
+  | { backend: "local"; root: string }
   | { reason: string };
 
 const s3Keys = [
@@ -29,6 +33,7 @@ const gcsKeys = [
   "FILES_GCS_ACCESS_KEY_ID",
   "FILES_GCS_SECRET_ACCESS_KEY",
 ] as const;
+const localKeys = ["FILES_LOCAL_ROOT"] as const;
 const bucketPattern = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const shortBucketPattern = /^[a-z0-9]{3}$/;
 const gcsBucketPattern = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
@@ -37,21 +42,42 @@ const gcsBucketPattern = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 export function filesConfiguration(
   env: Record<string, string | undefined>,
 ): FilesConfiguration | undefined {
-  if (![...s3Keys, ...gcsKeys, "FILES_BACKEND"].some((key) => env[key])) return undefined;
+  if (![...s3Keys, ...gcsKeys, ...localKeys, "FILES_BACKEND"].some((key) => env[key]))
+    return undefined;
   const selector = env.FILES_BACKEND;
-  if (selector !== undefined && selector !== "s3" && selector !== "gcs")
-    return { reason: "FILES_BACKEND must be s3 or gcs" };
+  if (selector !== undefined && selector !== "s3" && selector !== "gcs" && selector !== "local")
+    return { reason: "FILES_BACKEND must be s3, gcs or local" };
   const presentS3 = s3Keys.filter((key) => env[key]);
   const presentGcs = gcsKeys.filter((key) => env[key]);
-  if (presentS3.length > 0 && presentGcs.length > 0)
-    return {
-      reason: `Files backends cannot be mixed; ${[...presentS3, ...presentGcs].join(", ")} are set`,
-    };
-  if (selector === "s3" && presentGcs.length > 0)
-    return { reason: `FILES_BACKEND=s3 conflicts with ${presentGcs.join(", ")}` };
-  if (selector === "gcs" && presentS3.length > 0)
-    return { reason: `FILES_BACKEND=gcs conflicts with ${presentS3.join(", ")}` };
-  const backend = selector ?? (presentGcs.length > 0 ? "gcs" : "s3");
+  const presentLocal = localKeys.filter((key) => env[key]);
+  const present = [...presentS3, ...presentGcs, ...presentLocal];
+  const groups = [presentS3, presentGcs, presentLocal].filter((keys) => keys.length > 0);
+  if (groups.length > 1)
+    return { reason: `Files backends cannot be mixed; ${present.join(", ")} are set` };
+  const configured =
+    presentS3.length > 0
+      ? "s3"
+      : presentGcs.length > 0
+        ? "gcs"
+        : presentLocal.length > 0
+          ? "local"
+          : undefined;
+  if (selector !== undefined && configured && configured !== selector)
+    return { reason: `FILES_BACKEND=${selector} conflicts with ${present.join(", ")}` };
+  const backend = selector ?? configured ?? "s3";
+  if (backend === "local") {
+    const root = env.FILES_LOCAL_ROOT;
+    if (!root || !isAbsolute(root))
+      return { reason: "FILES_LOCAL_ROOT must be an absolute directory path" };
+    try {
+      if (!statSync(root).isDirectory())
+        return { reason: "FILES_LOCAL_ROOT must be an existing directory" };
+      accessSync(root, constants.R_OK | constants.W_OK | constants.X_OK);
+      return { backend: "local", root: realpathSync(root) };
+    } catch {
+      return { reason: "FILES_LOCAL_ROOT must be an existing readable and writable directory" };
+    }
+  }
   if (backend === "gcs") {
     const missing = gcsKeys.filter((key) => !env[key]);
     if (missing.length > 0)

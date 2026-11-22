@@ -8,7 +8,8 @@ export type SealPurpose =
   | "signing-secret"
   | "signing-private-key"
   | "credential"
-  | "storage-role";
+  | "storage-role"
+  | "files-local-download";
 
 function additionalData(purpose: SealPurpose, recordId: string, keyId: string): Buffer {
   return Buffer.from(JSON.stringify([1, purpose, recordId, keyId]));

@@ -371,8 +371,7 @@ test("discovery serves version-matched CLI and optional Storage SDK assets with 
     );
     if (key === "storageSdk" || key === "storageSdkTypes")
       assert.match(file.body, /StorageGraphQLError/);
-    else if (key === "filesSdkTypes")
-      assert.match(file.body, /FilesApi|FilesObject|upload/);
+    else if (key === "filesSdkTypes") assert.match(file.body, /FilesApi|FilesObject|upload/);
     else assert.doesNotMatch(file.body, /StorageGraphQLError/);
   }
 });

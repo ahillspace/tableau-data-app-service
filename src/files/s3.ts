@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import https from "node:https";
 import { Readable } from "node:stream";
 import {
@@ -12,16 +11,10 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { ServiceError } from "../platform/errors.ts";
-import type { FilesConfiguration } from "./config.ts";
+import { type FilesBackend, type ListedObject, stableId } from "./backend.ts";
+import type { RemoteFilesConfiguration } from "./config.ts";
 
-export type ListedObject = {
-  name: string;
-  id: string | null;
-  updated_at: string | null;
-  created_at: string | null;
-  last_accessed_at: string | null;
-  metadata: { size?: number; contentType?: string; cacheControl?: string; etag?: string } | null;
-};
+export type { ListedObject } from "./backend.ts";
 
 function asServiceError(error: unknown, op: string): ServiceError {
   if (error instanceof ServiceError) return error;
@@ -44,11 +37,11 @@ function asServiceError(error: unknown, op: string): ServiceError {
   });
 }
 
-export class S3Store {
+export class S3Store implements FilesBackend {
   readonly #client: S3Client;
   readonly #bucket: string;
 
-  constructor(config: Exclude<FilesConfiguration, { reason: string }>) {
+  constructor(config: RemoteFilesConfiguration) {
     this.#bucket = config.bucket;
     const clientConfig: S3ClientConfig = {
       endpoint: config.endpoint,
@@ -282,7 +275,7 @@ export class S3Store {
           const lastModified = item.LastModified?.toISOString() ?? null;
           collected.push({
             name: rest,
-            id: createHash("sha256").update(key).digest("hex").slice(0, 32),
+            id: stableId(key),
             updated_at: lastModified,
             created_at: lastModified,
             last_accessed_at: lastModified,

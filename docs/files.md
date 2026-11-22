@@ -6,8 +6,8 @@ It reuses the existing Storage workspace authority, Tableau caller identity, and
 ## Configuration
 
 Files requires Storage to be configured and available.
-Select exactly one backend with `FILES_BACKEND`, which accepts `s3` or `gcs`.
-Mixing S3 and GCS settings is rejected.
+Select exactly one backend with `FILES_BACKEND`, which accepts `s3`, `gcs` or `local`.
+Mixing S3, GCS and local settings is rejected.
 Misconfiguration makes the Files service unavailable without stopping unrelated TDAS routes.
 When Files is disabled, Storage workspaces and data remain unchanged.
 
@@ -43,6 +43,22 @@ The endpoint is fixed to `https://storage.googleapis.com` and the region is fixe
 GCS uses path-style requests and accepts no endpoint, region, session-token or CA setting.
 When no `FILES_BACKEND` is set, any `FILES_GCS_*` setting selects GCS.
 
+### Local
+
+Local Files stores ordinary private files in one persistent directory on the TDAS host or a mounted volume.
+Set `FILES_BACKEND=local` and `FILES_LOCAL_ROOT` to an absolute directory path.
+The directory must exist at startup and be readable, writable and traversable by the TDAS process.
+When no `FILES_BACKEND` is set, `FILES_LOCAL_ROOT` selects local.
+Mixing local settings with S3 or GCS settings is rejected.
+
+Deploy one TDAS API instance against one local root because the short commit section that reclaims replaced files coordinates inside that process.
+The local root must not be shared with another API replica or another service.
+A Heroku dyno's local disk is ephemeral, so a Heroku deployment must use a persistent filesystem add-on or choose S3 or GCS instead.
+Mount the persistent volume before the TDAS process starts.
+Keep the directory owned by the service account and do not grant access to other users.
+Back up the root with the volume's normal snapshot or file backup mechanism so payload files and their small reference files are restored together.
+The on-disk layout is private to the implementation and has no archive format or user-serviceable files.
+
 ## Workspace model
 
 Buckets are logical names inside a Storage workspace.
@@ -56,7 +72,7 @@ Permissions follow the Storage workspace access model:
 - reader: download, list, sign
 
 Workspace retirement and purge are governed by Storage.
-This v1 slice enforces workspace authority on every Files route and stores objects under workspace-prefixed keys in the private bucket.
+This v1 slice enforces workspace authority on every Files route and stores objects under workspace-prefixed keys in the private bucket or local root.
 It does not yet delete object bytes during Storage workspace purge/retirement; operators should treat object cleanup as a lifecycle follow-up.
 Issued presigned URLs expire independently by their `expiresIn` and are not revoked by TDAS workspace state changes.
 
@@ -101,15 +117,23 @@ await bucket.remove(["reports/q1.csv"]);
 Supported upload options are `upsert`, `contentType`, and `cacheControl`.
 Default upload rejects an existing object; `upsert: true` replaces it.
 The S3 path sends `If-None-Match: *` and the GCS path sends `x-goog-if-generation-match: 0` for no-upsert uploads.
-Both backends map the provider conflict to TDAS `400 files-already-exists`.
+S3 and GCS map the provider conflict to TDAS `400 files-already-exists`.
+Local publishes a fully streamed file and its small reference with an atomic link for create-only uploads and an atomic rename for replacements.
+A failed or interrupted local upload never replaces the old object.
 
-Signed URLs are presigned S3 GET URLs. They expire by `expiresIn` and grant read access to the object key; callers should treat them as bearer links.
+S3 and GCS signed URLs are presigned GET URLs on their provider origins.
+Local signed URLs are sealed bearer links on the TDAS public origin.
+A local link carries an object-key-bound record ID and an expiry under a dedicated Files seal purpose, is issued only after workspace authorization, and needs no extra sign-in.
+The link grants read access to exactly its file until expiry, and the bearer proof is not placed in log fields.
+Local bearer responses are served as non-executable attachments with restrictive headers and `Cache-Control: no-store`.
 
 ## Deviations
 
-- Buckets are explicit TDAS logical buckets backed by markers in the private object store, not Supabase bucket management API parity.
+- Buckets are explicit TDAS logical buckets backed by markers in the private object store or local root, not Supabase bucket management API parity.
 - The SDK is exposed as `workspace(service, workspaceId).files.from(bucket)` from the existing Storage SDK module, keeping Files optional and workspace-scoped.
-- Upload bodies are streamed from the request payload when `Content-Length` is known; unknown-length streaming bodies are not a supported v1 upload mode.
-- Authenticated TDAS download responses use `Cache-Control: no-store` to avoid shared-cache leaks; object `cacheControl` is preserved on the stored object and signed S3 URLs.
-- List uses S3 delimiter semantics and includes direct folder rows (`CommonPrefixes`) alongside direct object rows.
+- S3 and GCS upload bodies are streamed from the request payload when `Content-Length` is known; unknown-length streaming bodies are not a supported v1 upload mode on those backends.
+- Local uploads and downloads always stream through ordinary files and a small reference file, with no new runtime dependency.
+- Authenticated TDAS download responses use `Cache-Control: no-store` to avoid shared-cache leaks; object `cacheControl` is preserved on the stored object and signed provider URLs.
+- Local bearer downloads also use `Cache-Control: no-store`, because a cached response would outlive its expiry.
+- List uses S3 delimiter semantics and includes direct folder rows alongside direct object rows; folder rows are named without a trailing slash.
 - Object IDs in responses are stable workspace/bucket/path-derived IDs; ETag is exposed in metadata when available.

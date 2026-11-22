@@ -247,19 +247,24 @@ async function startApi(
   deployments: readonly ServiceDeployment[],
 ): Promise<Running> {
   const { settings, bootstrap, installation, log, storage, files } = loaded;
+  const sealer = new Sealer(settings.sealingKeys);
+  const filesOptions = { sealer, publicOrigin: installation.publicOrigin };
   const db = database(settings, "api", resources);
   await assertSchemaCurrent(db);
   await applyBootstrap(db, bootstrap, log);
   const configured: ServiceDeployment[] = [...deployments];
   if (storage) {
-    const sealer = new Sealer(settings.sealingKeys);
     if ("reason" in storage) {
       const { storageDeployment } = await import("./storage/service.ts");
       configured.push(storageDeployment(storage, db, sealer));
       if (files) {
         const { filesDeployment } = await import("./files/index.ts");
         configured.push(
-          filesDeployment(files, { unavailable: "Files requires Storage to be available" }),
+          filesDeployment(
+            files,
+            { unavailable: "Files requires Storage to be available" },
+            filesOptions,
+          ),
         );
       }
     } else {
@@ -270,13 +275,17 @@ async function startApi(
       configured.push(storageDeploymentFromRuntime(storage, db, runtime));
       if (files) {
         const { filesDeployment } = await import("./files/index.ts");
-        configured.push(filesDeployment(files, runtime.registry));
+        configured.push(filesDeployment(files, runtime.registry, filesOptions));
       }
     }
   } else if (files) {
     const { filesDeployment } = await import("./files/index.ts");
     configured.push(
-      filesDeployment(files, { unavailable: "Files requires Storage to be configured" }),
+      filesDeployment(
+        files,
+        { unavailable: "Files requires Storage to be configured" },
+        filesOptions,
+      ),
     );
   }
   if (new Set(configured.map(({ id }) => id)).size !== configured.length)

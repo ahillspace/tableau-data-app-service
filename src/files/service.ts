@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -6,8 +5,11 @@ import type { ServiceDeployment, ServiceDiscovery, ServiceGuards } from "../http
 import type { Principal } from "../identity/types.ts";
 import { invalid, ServiceError } from "../platform/errors.ts";
 import { fieldErrors } from "../platform/validation.ts";
+import type { Sealer } from "../sealing/sealer.ts";
 import { requireActive, type Workspace } from "../storage/registry.ts";
+import { type FilesBackend, stableId } from "./backend.ts";
 import type { FilesConfiguration } from "./config.ts";
+import { FILES_DOWNLOAD, LocalDownloads, LocalStore } from "./local.ts";
 import { S3Store } from "./s3.ts";
 
 export const FILES = "/v1/storage/workspaces";
@@ -79,9 +81,6 @@ function bucketPrefix(workspaceId: string, bucket: string, prefix = ""): string 
 function canWrite(access: Workspace["access"]): boolean {
   return access === "owner" || access === "edit";
 }
-function stableId(key: string): string {
-  return createHash("sha256").update(key).digest("hex").slice(0, 32);
-}
 function normalizeCacheControl(value: string | number | undefined): string {
   if (value === undefined) return "max-age=3600";
   const raw = String(value).trim();
@@ -111,10 +110,16 @@ function uploadBody(request: FastifyRequest): { body: Readable; contentLength?: 
 
 export class Files {
   readonly #authority: FilesWorkspaceAuthority;
-  readonly #store: S3Store;
-  constructor(authority: FilesWorkspaceAuthority, store: S3Store) {
+  readonly #store: FilesBackend;
+  readonly #downloads: LocalDownloads | undefined;
+  constructor(
+    authority: FilesWorkspaceAuthority,
+    store: FilesBackend,
+    downloads?: LocalDownloads | undefined,
+  ) {
     this.#authority = authority;
     this.#store = store;
+    this.#downloads = downloads;
   }
 
   async discover(principal: Principal): Promise<ServiceDiscovery> {
@@ -152,6 +157,34 @@ export class Files {
   routes(app: FastifyInstance, guards: ServiceGuards) {
     const caller = (run: Parameters<typeof handle>[1]) => handle(guards.requireCaller, run);
     const byWorkspace = `${FILES}/:id/files`;
+
+    const downloads = this.#downloads;
+    if (downloads) {
+      app.get(`${FILES_DOWNLOAD}/:recordId`, async (request, reply) => {
+        reply.header("x-tdas-request-id", request.id);
+        try {
+          const { recordId } = request.params as { recordId: string };
+          const token = (request.query as { token?: unknown }).token;
+          if (typeof token !== "string")
+            throw new ServiceError(
+              403,
+              "files-download-invalid",
+              "The signed download link is invalid or expired",
+            );
+          const key = downloads.verify(recordId, token);
+          const object = await this.#store.getObject(key);
+          reply.header("content-type", "application/octet-stream");
+          reply.header("content-disposition", 'attachment; filename="download"');
+          reply.header("x-content-type-options", "nosniff");
+          reply.header("content-security-policy", "default-src 'none'; sandbox");
+          reply.header("cache-control", "no-store");
+          return reply.send(object.body);
+        } catch (error) {
+          if (error instanceof ServiceError) throw error;
+          throw new ServiceError(503, "files-unavailable", "Files could not complete the request.");
+        }
+      });
+    }
 
     app.post(
       `${byWorkspace}/buckets`,
@@ -291,9 +324,12 @@ export class Files {
   }
 }
 
+export type FilesDeploymentOptions = { sealer: Sealer; publicOrigin: string };
+
 export function filesDeployment(
   config: FilesConfiguration,
   authority: FilesWorkspaceAuthority | { unavailable: string },
+  options: FilesDeploymentOptions,
 ): ServiceDeployment {
   return {
     id: "files",
@@ -328,8 +364,15 @@ export function filesDeployment(
           discover: async () => ({ state: "unavailable", reason: "files-unavailable" }),
         };
       }
-      const store = new S3Store(config);
-      const files = new Files(authority, store);
+      let downloads: LocalDownloads | undefined;
+      let store: FilesBackend;
+      if (config.backend === "local") {
+        downloads = new LocalDownloads(options.sealer, options.publicOrigin);
+        store = new LocalStore({ root: config.root, downloads });
+      } else {
+        store = new S3Store(config);
+      }
+      const files = new Files(authority, store, downloads);
       return {
         routes: (app) => files.routes(app, guards),
         discover: (principal) => files.discover(principal),
