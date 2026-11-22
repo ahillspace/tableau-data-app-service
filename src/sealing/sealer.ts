@@ -3,7 +3,13 @@ import type { SealedJson } from "../persistence/schema.ts";
 import { ServiceError } from "../platform/errors.ts";
 import type { SealingKeys } from "../platform/settings.ts";
 
-export type SealPurpose = "client-secret" | "signing-secret" | "signing-private-key" | "credential";
+export type SealPurpose =
+  | "client-secret"
+  | "signing-secret"
+  | "signing-private-key"
+  | "credential"
+  | "storage-role"
+  | "files-local-download";
 
 function additionalData(purpose: SealPurpose, recordId: string, keyId: string): Buffer {
   return Buffer.from(JSON.stringify([1, purpose, recordId, keyId]));

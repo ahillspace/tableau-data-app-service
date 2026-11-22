@@ -78,6 +78,8 @@ export interface Database {
     proof_hash: string;
     app_id: string;
     attribution: Json<Attribution>;
+    redirect_uri: string | null;
+    client_state: string | null;
     code_hash: string | null;
     sign_in_session_id: string | null;
     expires_at: Timestamp;

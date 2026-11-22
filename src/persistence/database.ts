@@ -12,6 +12,10 @@ export type Queryable = Db | Tx;
 // bigint columns (revision, counts) stay strings unless converted; timestamps stay Date.
 pg.types.setTypeParser(20, (value) => value);
 
+/** Shared PostgreSQL limits, reapplied around authored migration statements. */
+export const STATEMENT_TIMEOUT_MS = 30_000;
+export const LOCK_TIMEOUT_MS = 10_000;
+
 export type DatabaseOptions = {
   url: string;
   caCert?: string | undefined;
@@ -37,8 +41,8 @@ export function openDatabase(options: DatabaseOptions): { db: Db; pool: pg.Pool 
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 30_000,
     application_name: options.applicationName,
-    statement_timeout: 30_000,
-    lock_timeout: 10_000,
+    statement_timeout: STATEMENT_TIMEOUT_MS,
+    lock_timeout: LOCK_TIMEOUT_MS,
     idle_in_transaction_session_timeout: 60_000,
   });
   pool.on("error", () => {

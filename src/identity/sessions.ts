@@ -74,6 +74,10 @@ type SessionRow = {
   verified_at: Date;
 };
 
+type AppSignInDelivery =
+  | { mode: "popup" }
+  | { mode: "loopback"; redirectUri: string; state: string };
+
 export class IdentityService {
   readonly #db: Db;
   readonly #adapters: ReadonlyMap<string, DeploymentAdapter>;
@@ -327,10 +331,12 @@ export class IdentityService {
     proofHash?: unknown;
     appId?: unknown;
     attribution?: unknown;
+    loopback?: unknown;
   }): Promise<{ transactionId: string; expiresAt: Date }> {
     const declaration = readAppDeclaration(input);
     if (typeof input.proofHash !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.proofHash))
       throw invalid([{ path: "proofHash", rule: "format:sha256-base64url" }]);
+    const loopback = readAppLoopback(input.loopback);
     const expiresAt = new Date(this.#now().getTime() + TRANSACTION_SECONDS * 1000);
     const row = await this.#db
       .insertInto("app_sign_ins")
@@ -338,6 +344,8 @@ export class IdentityService {
         proof_hash: input.proofHash,
         app_id: declaration.appId,
         attribution: JSON.stringify(declaration.attribution),
+        redirect_uri: loopback?.redirectUri ?? null,
+        client_state: loopback?.state ?? null,
         expires_at: expiresAt,
       })
       .returning("id")
@@ -345,25 +353,35 @@ export class IdentityService {
     return { transactionId: row.id, expiresAt };
   }
 
-  /** Whether an app sign-in transaction can still run; the popup page checks this before anything else. */
-  async appSignInPending(transactionId: string): Promise<boolean> {
-    if (!isUuid(transactionId)) return false;
+  /** How a pending app sign-in can deliver its completion code. */
+  async appSignInDelivery(transactionId: string): Promise<AppSignInDelivery | undefined> {
+    if (!isUuid(transactionId)) return undefined;
     const row = await this.#db
       .selectFrom("app_sign_ins")
-      .select(["expires_at", "redeemed_at"])
+      .select(["redirect_uri", "client_state"])
       .where("id", "=", transactionId)
+      .where("redeemed_at", "is", null)
+      .where("expires_at", ">", this.#now())
       .executeTakeFirst();
-    return row !== undefined && row.redeemed_at === null && row.expires_at > this.#now();
+    if (!row) return undefined;
+    return row.redirect_uri !== null && row.client_state !== null
+      ? { mode: "loopback", redirectUri: row.redirect_uri, state: row.client_state }
+      : { mode: "popup" };
   }
 
-  /** Issues the one-time completion code for a transaction, bound to the popup's sign-in session. */
-  async issueCompletionCode(transactionId: string, session: SignInSession): Promise<string> {
+  /** Issues a completion code bound to the sign-in session and the transaction's delivery mode. */
+  async issueCompletionCode(
+    transactionId: string,
+    session: SignInSession,
+    mode: AppSignInDelivery["mode"] = "popup",
+  ): Promise<string> {
     if (!isUuid(transactionId)) throw transactionInvalid();
     const code = randomToken();
     const updated = await this.#db
       .updateTable("app_sign_ins")
       .set({ code_hash: hashToken(code), sign_in_session_id: session.id })
       .where("id", "=", transactionId)
+      .where("redirect_uri", mode === "popup" ? "is" : "is not", null)
       .where("redeemed_at", "is", null)
       .where("expires_at", ">", this.#now())
       .returning("id")
@@ -596,7 +614,7 @@ export class IdentityService {
     const fields = [];
     if (typeof input.codeChallenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge))
       fields.push({ path: "code_challenge", rule: "format:s256" });
-    if (input.mode === "loopback" && !isLoopbackRedirect(input.redirectUri))
+    if (input.mode === "loopback" && !parseLoopbackRedirect(input.redirectUri))
       fields.push({ path: "redirect_uri", rule: "format:loopback-http" });
     if (
       input.state !== undefined &&
@@ -842,18 +860,31 @@ function isLocalPath(value: string): boolean {
   );
 }
 
-function isLoopbackRedirect(value: string | undefined): boolean {
-  if (!value) return false;
+function readAppLoopback(value: unknown): { redirectUri: string; state: string } | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw invalid([{ path: "loopback", rule: "type:object" }]);
+  const { redirectUri, state } = value as Record<string, unknown>;
+  const target = parseLoopbackRedirect(typeof redirectUri === "string" ? redirectUri : undefined);
+  if (!target) throw invalid([{ path: "loopback.redirectUri", rule: "format:loopback-http" }]);
+  if (typeof state !== "string" || !/^[\x21-\x7e]{1,200}$/.test(state))
+    throw invalid([{ path: "loopback.state", rule: "printable:1-200" }]);
+  return { redirectUri: target.href, state };
+}
+
+function parseLoopbackRedirect(value: string | undefined): URL | undefined {
+  if (!value) return undefined;
   try {
     const url = new URL(value);
-    return (
+    if (
       url.protocol === "http:" &&
       (url.hostname === "127.0.0.1" || url.hostname === "[::1]") &&
       url.port !== "" &&
       !url.username &&
+      !url.password &&
       !url.hash
-    );
-  } catch {
-    return false;
-  }
+    )
+      return url;
+  } catch {}
+  return undefined;
 }

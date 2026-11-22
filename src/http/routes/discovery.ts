@@ -24,6 +24,9 @@ const links = {
   sdk: "/v1/tools/sdk/index.js",
   sdkTypes: "/v1/tools/sdk/index.d.ts",
   sdkContractTypes: "/v1/tools/contracts/operator.d.ts",
+  storageSdk: "/v1/tools/sdk/storage.js",
+  storageSdkTypes: "/v1/tools/sdk/storage.d.ts",
+  filesSdkTypes: "/v1/tools/sdk/files.d.ts",
   sdkExample: "/v1/tools/example/index.html",
   documentation: "/v1/tools/specification.html",
   viewerSignIn: "/v1/tools/specification.html#documents/identity/app-sign-in",
@@ -33,6 +36,9 @@ const assets = [
   [links.sdk, "sdk/index.js", "text/javascript"],
   [links.sdkTypes, "sdk/sdk/index.d.ts", "text/plain"],
   [links.sdkContractTypes, "sdk/contracts/operator.d.ts", "text/plain"],
+  [links.storageSdk, "sdk/storage.js", "text/javascript"],
+  [links.storageSdkTypes, "sdk/sdk/storage.d.ts", "text/plain"],
+  [links.filesSdkTypes, "sdk/sdk/files.d.ts", "text/plain"],
   [links.sdkExample, "release/example/index.html", "text/html"],
   [links.documentation, "release/specification.html", "text/html"],
 ] as const;
@@ -146,11 +152,17 @@ export async function discoveryRoutes(app: FastifyInstance, services: Services):
       .header("content-disposition", `attachment; filename="${filename}"`)
       .send(archive),
   );
-  await Promise.all(
-    assets.map(async ([href, file, type]) => {
-      const body = await readFile(new URL(file, releaseFiles));
-      app.get(href, async (_request, reply) => reply.type(type).send(body));
-    }),
+  const assetSha256 = Object.fromEntries(
+    await Promise.all(
+      assets.map(async ([href, file, type]) => {
+        const body = await readFile(new URL(file, releaseFiles));
+        app.get(href, async (_request, reply) => reply.type(type).send(body));
+        return [href, createHash("sha256").update(body).digest("hex")];
+      }),
+    ),
+  );
+  const publicServices = (services.services ?? []).flatMap(({ id, mounted, publicHref }) =>
+    mounted && publicHref ? [{ id, href: publicHref }] : [],
   );
 
   const publicView = {
@@ -166,11 +178,13 @@ export async function discoveryRoutes(app: FastifyInstance, services: Services):
       nodeRange,
       prerequisites: [
         "npm registry access for runtime dependencies",
-        "A system credential store for operator sign-in",
+        "A system credential store for operator and viewer sign-in",
       ],
       install: `Download the archive, verify SHA-256, then run npm install ./${filename}.`,
     },
     links,
+    assetSha256,
+    ...(publicServices.length ? { publicServices } : {}),
   };
 
   app.get("/v1/discovery", async (request, reply) => {

@@ -126,6 +126,20 @@
       "path": "docs/metrics.md",
       "kind": "Component",
       "description": "Bounded minute aggregates, process observations and freshness."
+    },
+    {
+      "id": "storage",
+      "title": "Relational Storage",
+      "path": "docs/storage.md",
+      "kind": "Component",
+      "description": "Optional workspace authoring, relational data access, sharing and operation."
+    },
+    {
+      "id": "files",
+      "title": "Files",
+      "path": "docs/files.md",
+      "kind": "Component",
+      "description": "Optional workspace-scoped file objects backed by an S3-compatible bucket, Google Cloud Storage or one persistent local directory."
     }
   ]
 }

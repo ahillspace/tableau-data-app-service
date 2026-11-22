@@ -90,6 +90,7 @@ These have not yet been run against a deployed installation with a published Tab
 - Provider events reaching a Data App.
 - Verified TLS to a hosted Postgres.
 - Both supported development operating systems on the final integrated revision; prior runs do not prove a changed revision.
+- A live GCS bucket with HMAC credentials has not been exercised.
 
 ## Known limitations
 
@@ -97,3 +98,10 @@ These have not yet been run against a deployed installation with a published Tab
 - Whether Tableau's central sign-in can reuse an existing Tableau Cloud session is unknown.
 - Tableau Server is not supported.
 - The data catalog installs no Job handler; Jobs require an explicit code extension.
+
+## Relational Storage
+
+`test/storage.test.ts` exercises opt-in startup and availability, two API replicas and real restricted PostgreSQL logins, Tableau stand-in identities, private workspace creation and creation replay, generated CRUD, migration replay and rollback, foreign-key navigation, exact decimals, atomic SQL function calls, row policies, role changes, revision repair, and operator suspension, transfer and purge.
+`test/storage-toolkit.test.ts` covers viewer CLI handoff, workspace configuration and replay, request contracts, discovery artifacts, and the optional browser helper.
+These automated journeys use synthetic Tableau identities.
+Live Tableau Cloud and Desktop Storage sign-in and application use remain to be verified.

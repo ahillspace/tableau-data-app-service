@@ -933,6 +933,107 @@ describe("http", () => {
     assertNoSecretsLogged([SIGNING_SECRET, bearer, op, signature]);
   });
 
+  test("viewer loopback sign-in returns a proof-bound app session over HTTP", async (t) => {
+    let received: URL | undefined;
+    const callback = createServer((request, reply) => {
+      received = new URL(request.url ?? "/", redirectUri);
+      reply.end("Signed in");
+    });
+    await new Promise<void>((resolve) => callback.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise<void>((resolve) => callback.close(() => resolve())));
+    const port = (callback.address() as AddressInfo).port;
+    const redirectUri = `http://127.0.0.1:${port}/cb?existing=value`;
+    const state = "cli-state&part=+?#";
+    const proof = randomToken();
+    const start = (target: string) =>
+      call("/v1/app-sign-ins", {
+        method: "POST",
+        json: {
+          proofHash: pkceChallenge(proof),
+          appId: "cli-viewer",
+          attribution: { workbook: "example" },
+          loopback: { redirectUri: target, state },
+        },
+      });
+
+    for (const bad of [
+      `http://127.0.0.1:${port}@evil.example/cb`,
+      `http://localhost:${port}/cb`,
+      `https://127.0.0.1:${port}/cb`,
+      `http://:password@127.0.0.1:${port}/cb`,
+      "http://127.0.0.1/cb",
+    ]) {
+      const rejected = await start(bad);
+      assert.equal(rejected.status, 400, bad);
+      assert.equal(await errorCode(rejected), "invalid-request");
+    }
+
+    const started = await start(redirectUri);
+    assert.equal(started.status, 201);
+    const { transactionId, url, expiresAt } = (await started.json()) as {
+      transactionId: string;
+      url: string;
+      expiresAt: string;
+    };
+    assert.ok(Date.parse(expiresAt) > Date.now());
+    const path = new URL(url).pathname;
+    const browser = new Browser(operatorUser);
+    const redirectResponse = await browser.visit(
+      `${path}?redirectUri=https%3A%2F%2Fevil.example&state=wrong`,
+    );
+    assert.equal(redirectResponse.status, 303);
+    assert.equal(redirectResponse.headers.get("referrer-policy"), "no-referrer");
+    const location = redirectResponse.headers.get("location");
+    assert.ok(location);
+    const target = new URL(location);
+    assert.equal(target.origin, new URL(redirectUri).origin);
+    assert.equal(target.pathname, "/cb");
+    assert.equal(await (await fetch(target)).text(), "Signed in");
+    assert.ok(received);
+    assert.equal(received.searchParams.get("existing"), "value");
+    assert.equal(received.searchParams.get("state"), state);
+    const code = received.searchParams.get("code");
+    assert.ok(code);
+
+    const popupPost = await browser.form(path, {});
+    assert.equal(popupPost.status, 400);
+    assert.match(await popupPost.text(), /sign-in-transaction-invalid/);
+    const operatorRedeem = await call("/v1/operator-sign-ins/token", {
+      method: "POST",
+      json: { code, verifier: proof },
+    });
+    assert.equal(await errorCode(operatorRedeem), "sign-in-transaction-invalid");
+    const redeem = (verifier: string) =>
+      call(`/v1/app-sign-ins/${transactionId}/redeem`, {
+        method: "POST",
+        json: { code, proof: verifier },
+      });
+    assert.equal(await errorCode(await redeem(randomToken())), "sign-in-transaction-invalid");
+    const redeemed = await redeem(proof);
+    assert.equal(redeemed.status, 200);
+    const { bearer, session } = (await redeemed.json()) as {
+      bearer: string;
+      session: { kind: string; appId: string; identity: { userId: string } };
+    };
+    assert.equal(session.kind, "app");
+    assert.equal(session.appId, "cli-viewer");
+    assert.equal(session.identity.userId, operatorUser.userId);
+    assert.equal((await call("/v1/session", { bearer })).status, 200);
+    assert.equal(await errorCode(await call("/v1/admin/sites", { bearer })), "operator-required");
+    assert.equal(await errorCode(await redeem(proof)), "sign-in-transaction-invalid");
+
+    const next = await start(redirectUri);
+    assert.equal(next.status, 201);
+    const untrusted = await new Browser({
+      ...alice,
+      siteId: "other-site",
+      siteContentUrl: "other",
+    }).visit(new URL(((await next.json()) as { url: string }).url).pathname);
+    assert.equal(untrusted.status, 403);
+    assert.match(await untrusted.text(), /site-not-trusted/);
+    assert.equal(untrusted.headers.get("location"), null);
+  });
+
   test("the tdas CLI signs in through the loopback redirect, stores the bearer, and drives the operator API", async () => {
     const stored = new Map<string, string>();
     const out: string[] = [];

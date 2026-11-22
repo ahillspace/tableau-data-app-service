@@ -97,6 +97,7 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
       proofHash: body.proofHash,
       appId: body.appId,
       attribution: body.attribution,
+      loopback: body.loopback,
     });
     return reply.status(201).send({
       transactionId: started.transactionId,
@@ -105,10 +106,10 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
     });
   });
 
-  // The popup. It runs only with an opener, so a link sent to a viewer cannot complete someone else's sign-in.
   app.get("/sign-in/:transactionId", async (request, reply) => {
     const transactionId = param(request, "transactionId");
-    if (!(await identity.appSignInPending(transactionId)))
+    const delivery = await identity.appSignInDelivery(transactionId);
+    if (!delivery)
       return sendErrorPage(
         reply,
         new ServiceError(
@@ -119,6 +120,17 @@ export function identityRoutes(app: FastifyInstance, services: Services): void {
       );
     const session = await signInSession(services, request);
     if (!session) return toTableau(services, reply, `/sign-in/${transactionId}`);
+    if (delivery.mode === "loopback") {
+      try {
+        const code = await identity.issueCompletionCode(transactionId, session, delivery.mode);
+        const target = new URL(delivery.redirectUri);
+        target.searchParams.set("code", code);
+        target.searchParams.set("state", delivery.state);
+        return redirect(reply, target.href, 303);
+      } catch (error) {
+        return sendErrorPage(reply, error);
+      }
+    }
     // The code is issued by a form post from the page itself, after the page has confirmed it has an opener.
     return sendPage(reply, {
       title: "Signing in",
